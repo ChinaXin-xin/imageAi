@@ -1,3 +1,8 @@
 spring:
   application:
-    name: imageAiOriginal
+    name: ImageAI
+
+image-ai:
+  cli-proxy:
+    base-url: http://43.160.220.91:8317
+    management-key: mgmt-7508074bf946346ac147485c40d97db3
