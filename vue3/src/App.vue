@@ -51,11 +51,11 @@ function formatNumber(value: number | null): string {
   return typeof value === 'number' ? value.toLocaleString() : '--';
 }
 
-function progressStatus(value: number | null): '' | 'success' | 'warning' | 'exception' {
-  if (value === null) return '';
-  if (value >= 70) return 'success';
-  if (value >= 30) return 'warning';
-  return 'exception';
+function progressColor(value: number | null): string {
+  if (value === null) return '#cbd5e1';
+  if (value >= 70) return '#2563eb';
+  if (value >= 30) return '#d97706';
+  return '#dc2626';
 }
 
 function statusTagType(status: CodexQuotaAccount['status']): 'success' | 'info' | 'warning' | 'danger' {
@@ -193,8 +193,8 @@ onMounted(refreshQuota);
             description="暂无 Codex 账号额度数据"
           />
 
-          <el-row v-else :gutter="16" class="account-grid">
-            <el-col v-for="account in accounts" :key="account.id" :xs="24" :lg="12" :xl="8">
+          <el-row v-else :gutter="12" class="account-grid">
+            <el-col v-for="account in accounts" :key="account.id" :xs="24" :md="12" :xl="6">
               <el-card shadow="hover" class="account-card">
                 <template #header>
                   <div class="account-header">
@@ -235,10 +235,8 @@ onMounted(refreshQuota);
                   </div>
                   <el-progress
                     :percentage="account.fiveHour.remainingPercent ?? 0"
-                    :status="progressStatus(account.fiveHour.remainingPercent)"
-                    :stroke-width="14"
-                    striped
-                    striped-flow
+                    :color="progressColor(account.fiveHour.remainingPercent)"
+                    :stroke-width="8"
                   />
                   <div class="quota-foot">
                     <span>已用 {{ formatPercent(account.fiveHour.usedPercent) }}</span>
@@ -256,10 +254,8 @@ onMounted(refreshQuota);
                   </div>
                   <el-progress
                     :percentage="account.weekly.remainingPercent ?? 0"
-                    :status="progressStatus(account.weekly.remainingPercent)"
-                    :stroke-width="14"
-                    striped
-                    striped-flow
+                    :color="progressColor(account.weekly.remainingPercent)"
+                    :stroke-width="8"
                   />
                   <div class="quota-foot">
                     <span>已用 {{ formatPercent(account.weekly.usedPercent) }}</span>

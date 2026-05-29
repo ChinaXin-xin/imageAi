@@ -1,6 +1,6 @@
 :root {
   color: #172033;
-  background: #f4f7fb;
+  background: #f6f8fb;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -13,7 +13,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f4f7fb;
+  background: #f6f8fb;
 }
 
 button,
@@ -32,7 +32,7 @@ input {
   overflow: hidden;
   border-right: 1px solid rgba(148, 163, 184, 0.18);
   background:
-    linear-gradient(180deg, rgba(22, 37, 63, 0.98), rgba(12, 23, 42, 0.98)),
+    linear-gradient(180deg, rgba(25, 36, 54, 0.99), rgba(15, 23, 36, 0.99)),
     #111827;
   transition: width 180ms ease;
 }
@@ -41,17 +41,17 @@ input {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 72px;
-  padding: 16px;
+  height: 64px;
+  padding: 14px;
 }
 
 .brand-icon {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   border-radius: 8px;
   object-fit: cover;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
 }
 
 .brand-copy {
@@ -65,7 +65,7 @@ input {
 
 .brand-copy strong {
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   letter-spacing: 0;
 }
 
@@ -80,13 +80,13 @@ input {
 }
 
 .nav-menu .el-menu-item {
-  height: 46px;
+  height: 42px;
   margin: 4px 10px;
   border-radius: 8px;
 }
 
 .nav-menu .el-menu-item.is-active {
-  background: rgba(37, 99, 235, 0.36);
+  background: rgba(37, 99, 235, 0.28);
 }
 
 .collapse-button {
@@ -116,18 +116,18 @@ input {
   justify-content: space-between;
   gap: 20px;
   height: auto;
-  min-height: 132px;
-  padding: 28px 28px 24px;
+  min-height: 96px;
+  padding: 20px 24px;
   border-bottom: 1px solid #e5ebf3;
   background:
-    linear-gradient(115deg, rgba(255, 255, 255, 0.96), rgba(240, 247, 255, 0.94)),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 253, 0.98)),
     #fff;
 }
 
 .eyebrow {
-  margin: 0 0 8px;
-  color: #15845e;
-  font-size: 12px;
+  margin: 0 0 6px;
+  color: #475569;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -136,7 +136,7 @@ input {
 h1 {
   margin: 0;
   color: #172033;
-  font-size: 34px;
+  font-size: 26px;
   line-height: 1.12;
   letter-spacing: 0;
 }
@@ -155,7 +155,7 @@ h1 {
 }
 
 .content-wrap {
-  padding: 24px 28px 42px;
+  padding: 18px 24px 34px;
 }
 
 .alert-block,
@@ -167,16 +167,17 @@ h1 {
 
 .stat-card {
   border: 1px solid rgba(116, 139, 171, 0.2);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .stat-card .el-card__body {
-  min-height: 118px;
+  min-height: 94px;
+  padding: 16px;
 }
 
 .stat-note {
   display: block;
-  margin-top: 10px;
+  margin-top: 6px;
   color: #667085;
   font-size: 13px;
 }
@@ -184,7 +185,19 @@ h1 {
 .account-card {
   height: 100%;
   border: 1px solid rgba(116, 139, 171, 0.22);
-  border-radius: 8px;
+  border-radius: 6px;
+}
+
+.account-grid {
+  row-gap: 12px;
+}
+
+.account-card .el-card__header {
+  padding: 12px 14px;
+}
+
+.account-card .el-card__body {
+  padding: 14px;
 }
 
 .account-header,
@@ -213,11 +226,11 @@ h1 {
 
 .account-icon {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: #e7f7ef;
-  color: #16845b;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #2563eb;
 }
 
 .account-title h2 {
@@ -225,28 +238,28 @@ h1 {
   margin: 0;
   overflow-wrap: anywhere;
   color: #172033;
-  font-size: 16px;
+  font-size: 14px;
   letter-spacing: 0;
 }
 
 .account-title p {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   overflow-wrap: anywhere;
   color: #667085;
   font-size: 12px;
 }
 
 .account-error {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .meta-row {
-  padding: 12px 14px;
-  margin-bottom: 16px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
   background: #f6f8fb;
   color: #667085;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .meta-row strong {
@@ -255,48 +268,59 @@ h1 {
 }
 
 .quota-block {
-  padding: 16px 0;
+  padding: 10px 0;
   border-top: 1px solid #edf1f7;
 }
 
 .quota-head {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .quota-head strong {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: #172033;
-  font-size: 28px;
+  font-size: 20px;
   line-height: 1.1;
 }
 
 .quota-label {
   color: #667085;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .image-count {
-  min-width: 88px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #eef6ff;
-  color: #155fa0;
-  font-weight: 700;
+  min-width: 72px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
   text-align: center;
 }
 
 .quota-foot {
-  margin-top: 9px;
+  margin-top: 6px;
   color: #7b8496;
   font-size: 12px;
 }
 
+.quota-block .el-progress__text {
+  min-width: 34px;
+  color: #475569;
+  font-size: 12px !important;
+}
+
+.quota-block .el-progress-bar__outer {
+  background-color: #e5eaf2;
+}
+
 .card-footer {
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid #edf1f7;
   color: #667085;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .card-footer strong {
