@@ -3,6 +3,7 @@ package xin.students.imageaioriginal.model;
 public record SystemOverview(
         String appName,
         String appVersion,
+        String osFamily,
         String systemVersion,
         double cpuUsagePercent,
         long memoryTotalBytes,

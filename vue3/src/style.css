@@ -109,19 +109,28 @@ input {
 
 .sidebar.collapsed .brand-main {
   justify-content: center;
+  transition: opacity 140ms ease;
 }
 
 .sidebar.collapsed .collapse-button {
   position: absolute;
-  top: 8px;
-  right: 6px;
-  width: 24px;
-  height: 24px;
+  top: 14px;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 140ms ease;
+}
+
+.sidebar.collapsed .brand-block:hover .brand-main {
   opacity: 0;
 }
 
-.sidebar.collapsed:hover .collapse-button {
+.sidebar.collapsed .brand-block:hover .collapse-button {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar-section-label {

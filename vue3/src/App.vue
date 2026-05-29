@@ -75,14 +75,14 @@ async function refreshQuota() {
       loadSystemOverview(),
     ]);
 
+    if (systemResult.status === 'fulfilled') {
+      systemOverview.value = systemResult.value;
+    }
+
     if (quotaResult.status === 'fulfilled') {
       accounts.value = quotaResult.value;
     } else {
       throw quotaResult.reason;
-    }
-
-    if (systemResult.status === 'fulfilled') {
-      systemOverview.value = systemResult.value;
     }
 
     lastRefreshAt.value = new Date().toLocaleString();
@@ -194,7 +194,7 @@ onMounted(refreshQuota);
             </article>
             <article class="summary-card">
               <span class="summary-label">系统版本</span>
-              <strong>{{ systemOverview?.appVersion || '--' }}</strong>
+              <strong>{{ systemOverview?.osFamily || '--' }}</strong>
               <small>{{ systemOverview?.systemVersion || '等待后端返回' }}</small>
             </article>
             <article class="summary-card">

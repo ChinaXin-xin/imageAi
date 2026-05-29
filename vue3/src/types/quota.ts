@@ -31,6 +31,7 @@ export interface DashboardStats {
 export interface SystemOverview {
   appName: string;
   appVersion: string;
+  osFamily: string;
   systemVersion: string;
   cpuUsagePercent: number;
   memoryTotalBytes: number;

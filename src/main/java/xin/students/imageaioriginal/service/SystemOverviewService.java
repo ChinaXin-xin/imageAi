@@ -20,9 +20,9 @@ public class SystemOverviewService {
     public SystemOverview getOverview() {
         OperatingSystemMXBean osBean =
                 (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
-        double cpuUsage = normalizePercent(osBean.getCpuLoad() * 100);
-        long memoryTotal = osBean.getTotalMemorySize();
-        long memoryFree = osBean.getFreeMemorySize();
+        double cpuUsage = normalizePercent(osBean.getSystemCpuLoad() * 100);
+        long memoryTotal = osBean.getTotalPhysicalMemorySize();
+        long memoryFree = osBean.getFreePhysicalMemorySize();
         long memoryUsed = Math.max(0, memoryTotal - memoryFree);
 
         DiskUsage diskUsage = readDiskUsage();
@@ -31,6 +31,7 @@ public class SystemOverviewService {
         return new SystemOverview(
                 appName,
                 resolveAppVersion(),
+                resolveOsFamily(),
                 version,
                 cpuUsage,
                 memoryTotal,
@@ -46,6 +47,20 @@ public class SystemOverviewService {
         Package appPackage = SystemOverviewService.class.getPackage();
         String version = appPackage == null ? null : appPackage.getImplementationVersion();
         return version == null || version.isBlank() ? "0.0.1-SNAPSHOT" : version;
+    }
+
+    private String resolveOsFamily() {
+        String osName = System.getProperty("os.name", "").toLowerCase();
+        if (osName.contains("win")) {
+            return "Windows";
+        }
+        if (osName.contains("linux")) {
+            return "Linux";
+        }
+        if (osName.contains("mac") || osName.contains("darwin")) {
+            return "macOS";
+        }
+        return System.getProperty("os.name", "Unknown");
     }
 
     private DiskUsage readDiskUsage() {
