@@ -27,3 +27,16 @@ export interface DashboardStats {
   averageFiveHourPercent: number | null;
   averageWeeklyPercent: number | null;
 }
+
+export interface SystemOverview {
+  appName: string;
+  appVersion: string;
+  systemVersion: string;
+  cpuUsagePercent: number;
+  memoryTotalBytes: number;
+  memoryUsedBytes: number;
+  memoryUsagePercent: number;
+  diskTotalBytes: number;
+  diskUsedBytes: number;
+  diskUsagePercent: number;
+}

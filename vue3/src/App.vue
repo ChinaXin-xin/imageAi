@@ -2,23 +2,23 @@
 import { computed, onMounted, ref } from 'vue';
 import {
   CircleCheck,
-  DataAnalysis,
   Expand,
   Fold,
   Monitor,
   Refresh,
-  Warning,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import appIcon from './assets/imageai-icon.png';
 import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
-import type { CodexQuotaAccount, DashboardStats } from './types/quota';
+import { loadSystemOverview } from './services/systemApi';
+import type { CodexQuotaAccount, DashboardStats, SystemOverview } from './types/quota';
 
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
+const systemOverview = ref<SystemOverview | null>(null);
 
 const stats = computed<DashboardStats>(() => {
   const fiveHourValues = accounts.value
@@ -70,7 +70,21 @@ async function refreshQuota() {
   errorMessage.value = '';
 
   try {
-    accounts.value = await loadCodexQuotaAccounts();
+    const [quotaResult, systemResult] = await Promise.allSettled([
+      loadCodexQuotaAccounts(),
+      loadSystemOverview(),
+    ]);
+
+    if (quotaResult.status === 'fulfilled') {
+      accounts.value = quotaResult.value;
+    } else {
+      throw quotaResult.reason;
+    }
+
+    if (systemResult.status === 'fulfilled') {
+      systemOverview.value = systemResult.value;
+    }
+
     lastRefreshAt.value = new Date().toLocaleString();
     if (accounts.value.length === 0) {
       ElMessage.warning('未发现 Codex 凭据文件。');
@@ -84,49 +98,65 @@ async function refreshQuota() {
   }
 }
 
+function formatBytes(value: number | null | undefined): string {
+  if (!value || value <= 0) return '--';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
+}
+
+function formatMetricPercent(value: number | null | undefined): string {
+  return typeof value === 'number' ? `${value.toFixed(value % 1 === 0 ? 0 : 1)}%` : '--';
+}
+
 onMounted(refreshQuota);
 </script>
 
 <template>
   <el-config-provider>
     <el-container class="app-layout">
-      <el-aside :width="isCollapsed ? '76px' : '236px'" class="sidebar">
+      <el-aside :width="isCollapsed ? '68px' : '292px'" class="sidebar" :class="{ collapsed: isCollapsed }">
         <div class="brand-block">
-          <img class="brand-icon" :src="appIcon" alt="ImageAI" />
-          <div v-if="!isCollapsed" class="brand-copy">
-            <strong>ImageAI</strong>
-            <span>额度监控台</span>
+          <div class="brand-main">
+            <img class="brand-icon" :src="appIcon" alt="ImageAI" />
+            <div v-if="!isCollapsed" class="brand-copy">
+              <strong>ImageAI</strong>
+            </div>
           </div>
+          <button class="collapse-button" type="button" title="折叠菜单" @click="isCollapsed = !isCollapsed">
+            <el-icon>
+              <Expand v-if="isCollapsed" />
+              <Fold v-else />
+            </el-icon>
+          </button>
         </div>
 
-        <el-menu
-          class="nav-menu"
-          default-active="codex-quota"
-          :collapse="isCollapsed"
-          background-color="transparent"
-          text-color="#bfcbda"
-          active-text-color="#ffffff"
-        >
-          <el-menu-item index="codex-quota">
-            <el-icon><Monitor /></el-icon>
-            <template #title>Codex 额度</template>
-          </el-menu-item>
-        </el-menu>
+        <div v-if="!isCollapsed" class="sidebar-section-label">工作台</div>
 
-        <button class="collapse-button" type="button" @click="isCollapsed = !isCollapsed">
-          <el-icon>
-            <Expand v-if="isCollapsed" />
-            <Fold v-else />
-          </el-icon>
-          <span v-if="!isCollapsed">折叠菜单</span>
-        </button>
+        <div class="nav-list">
+          <button class="nav-item active" type="button">
+            <el-icon><Monitor /></el-icon>
+            <span v-if="!isCollapsed">Codex 额度</span>
+          </button>
+        </div>
+
+        <div v-if="!isCollapsed" class="sidebar-footer">
+          <span>系统状态</span>
+          <strong>{{ formatMetricPercent(systemOverview?.cpuUsagePercent) }} CPU</strong>
+        </div>
       </el-aside>
 
-      <el-container>
+      <el-container class="main-area">
         <el-header class="topbar">
-          <div>
+          <div class="title-block">
             <p class="eyebrow">CLI Proxy API Management</p>
             <h1>Codex 额度监控</h1>
+            <p class="page-subtitle">集中查看账号额度、图片生成余量与服务器资源状态。</p>
           </div>
           <div class="topbar-actions">
             <span v-if="lastRefreshAt" class="refresh-time">刷新于 {{ lastRefreshAt }}</span>
@@ -146,45 +176,54 @@ onMounted(refreshQuota);
             :closable="false"
           />
 
-          <el-row :gutter="16" class="stat-grid">
-            <el-col :xs="24" :sm="12" :lg="6">
-              <el-card shadow="never" class="stat-card">
-                <el-statistic title="Codex 账号" :value="stats.totalAccounts">
-                  <template #prefix>
-                    <el-icon><Monitor /></el-icon>
-                  </template>
-                </el-statistic>
-                <span class="stat-note">{{ stats.activeAccounts }} 个正常</span>
-              </el-card>
-            </el-col>
-            <el-col :xs="24" :sm="12" :lg="6">
-              <el-card shadow="never" class="stat-card">
-                <el-statistic title="平均 5 小时额度" :value="formatPercent(stats.averageFiveHourPercent)" />
-                <span class="stat-note">可生成 {{ stats.fiveHourImages.toLocaleString() }} 张图</span>
-              </el-card>
-            </el-col>
-            <el-col :xs="24" :sm="12" :lg="6">
-              <el-card shadow="never" class="stat-card">
-                <el-statistic title="平均每周额度" :value="formatPercent(stats.averageWeeklyPercent)" />
-                <span class="stat-note">可生成 {{ stats.weeklyImages.toLocaleString() }} 张图</span>
-              </el-card>
-            </el-col>
-            <el-col :xs="24" :sm="12" :lg="6">
-              <el-card shadow="never" class="stat-card">
-                <el-statistic title="查询状态" :value="loading ? '刷新中' : '已就绪'">
-                  <template #prefix>
-                    <el-icon>
-                      <DataAnalysis v-if="!errorMessage" />
-                      <Warning v-else />
-                    </el-icon>
-                  </template>
-                </el-statistic>
-                <span class="stat-note">
-                  {{ errorMessage ? '需要检查后端接口或管理配置' : '通过后端代理实时查询' }}
-                </span>
-              </el-card>
-            </el-col>
-          </el-row>
+          <section class="summary-grid">
+            <article class="summary-card">
+              <span class="summary-label">Codex 账号</span>
+              <strong>{{ stats.totalAccounts }}</strong>
+              <small>{{ stats.activeAccounts }} 个正常</small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">平均 5 小时额度</span>
+              <strong>{{ formatPercent(stats.averageFiveHourPercent) }}</strong>
+              <small>可生成 {{ stats.fiveHourImages.toLocaleString() }} 张图</small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">平均每周额度</span>
+              <strong>{{ formatPercent(stats.averageWeeklyPercent) }}</strong>
+              <small>可生成 {{ stats.weeklyImages.toLocaleString() }} 张图</small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">系统版本</span>
+              <strong>{{ systemOverview?.appVersion || '--' }}</strong>
+              <small>{{ systemOverview?.systemVersion || '等待后端返回' }}</small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">CPU 占比</span>
+              <strong>{{ formatMetricPercent(systemOverview?.cpuUsagePercent) }}</strong>
+              <small>{{ errorMessage ? '接口异常' : '服务器实时负载' }}</small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">内存信息</span>
+              <strong>{{ formatMetricPercent(systemOverview?.memoryUsagePercent) }}</strong>
+              <small>
+                {{ formatBytes(systemOverview?.memoryUsedBytes) }} /
+                {{ formatBytes(systemOverview?.memoryTotalBytes) }}
+              </small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">外存信息</span>
+              <strong>{{ formatMetricPercent(systemOverview?.diskUsagePercent) }}</strong>
+              <small>
+                {{ formatBytes(systemOverview?.diskUsedBytes) }} /
+                {{ formatBytes(systemOverview?.diskTotalBytes) }}
+              </small>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">查询状态</span>
+              <strong>{{ loading ? '刷新中' : '已就绪' }}</strong>
+              <small>{{ errorMessage ? '需要检查后端接口' : '通过后端代理实时查询' }}</small>
+            </article>
+          </section>
 
           <el-skeleton v-if="loading && accounts.length === 0" :rows="8" animated class="quota-skeleton" />
 
@@ -193,8 +232,17 @@ onMounted(refreshQuota);
             description="暂无 Codex 账号额度数据"
           />
 
-          <el-row v-else :gutter="12" class="account-grid">
-            <el-col v-for="account in accounts" :key="account.id" :xs="24" :md="12" :xl="6">
+          <section v-else class="accounts-panel">
+            <div class="panel-head">
+              <div>
+                <h2>账号额度</h2>
+                <p>每 5 小时 1% 约等于 1 张图，每周 1% 约等于 8 张图。</p>
+              </div>
+              <span>{{ accounts.length }} 个账号</span>
+            </div>
+            <div class="account-scroll">
+              <div class="account-grid">
+                <div v-for="account in accounts" :key="account.id" class="account-cell">
               <el-card shadow="hover" class="account-card">
                 <template #header>
                   <div class="account-header">
@@ -268,8 +316,10 @@ onMounted(refreshQuota);
                   <strong>{{ account.lastRefreshTime }}</strong>
                 </div>
               </el-card>
-            </el-col>
-          </el-row>
+                </div>
+              </div>
+            </div>
+          </section>
         </el-main>
       </el-container>
     </el-container>
