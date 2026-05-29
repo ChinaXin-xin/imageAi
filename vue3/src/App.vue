@@ -134,7 +134,9 @@ onMounted(refreshQuota);
           <div class="brand-main">
             <img class="brand-icon" :src="appIcon" alt="ImageAI" />
             <div v-if="!isCollapsed" class="brand-copy">
-              <strong>ImageAI</strong>
+              <strong style="position: relative; top: 2px; user-select: none;">
+                ImageAI
+              </strong>
             </div>
           </div>
           <button class="collapse-button" type="button" title="折叠菜单" @click="isCollapsed = !isCollapsed">
@@ -262,7 +264,7 @@ onMounted(refreshQuota);
                         <p>{{ account.fileName }}</p>
                       </div>
                     </div>
-                    <el-tag :type="statusTagType(account.status)" effect="light">
+                    <el-tag style="margin-top: -12px;" :type="statusTagType(account.status)" effect="light">
                       {{ account.statusText }}
                     </el-tag>
                   </div>

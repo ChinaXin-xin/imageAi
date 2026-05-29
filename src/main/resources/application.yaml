@@ -1,7 +1,12 @@
 spring:
   application:
     name: ImageAI
-
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:33306/image_ai_original?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    
 image-ai:
   cli-proxy:
     base-url: http://43.160.220.91:8317
