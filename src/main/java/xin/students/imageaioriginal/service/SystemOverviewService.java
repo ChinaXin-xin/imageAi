@@ -18,11 +18,13 @@ public class SystemOverviewService {
     }
 
     public SystemOverview getOverview() {
-        OperatingSystemMXBean osBean =
-                (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
-        double cpuUsage = normalizePercent(osBean.getSystemCpuLoad() * 100);
-        long memoryTotal = osBean.getTotalPhysicalMemorySize();
-        long memoryFree = osBean.getFreePhysicalMemorySize();
+        java.lang.management.OperatingSystemMXBean baseOsBean = ManagementFactory.getOperatingSystemMXBean();
+        OperatingSystemMXBean osBean = baseOsBean instanceof OperatingSystemMXBean
+                ? (OperatingSystemMXBean) baseOsBean
+                : null;
+        double cpuUsage = readCpuUsage(osBean);
+        long memoryTotal = readTotalMemory(osBean);
+        long memoryFree = readFreeMemory(osBean);
         long memoryUsed = Math.max(0, memoryTotal - memoryFree);
 
         DiskUsage diskUsage = readDiskUsage();
@@ -74,6 +76,33 @@ public class SystemOverviewService {
             }
         }
         return new DiskUsage(total, Math.max(0, total - free));
+    }
+
+    private double readCpuUsage(OperatingSystemMXBean osBean) {
+        if (osBean == null) {
+            return 0;
+        }
+        double cpuLoad = osBean.getSystemCpuLoad();
+        if (cpuLoad < 0) {
+            cpuLoad = osBean.getProcessCpuLoad();
+        }
+        return normalizePercent(cpuLoad * 100);
+    }
+
+    private long readTotalMemory(OperatingSystemMXBean osBean) {
+        if (osBean == null) {
+            return Runtime.getRuntime().maxMemory();
+        }
+        long total = osBean.getTotalPhysicalMemorySize();
+        return total > 0 ? total : Runtime.getRuntime().maxMemory();
+    }
+
+    private long readFreeMemory(OperatingSystemMXBean osBean) {
+        if (osBean == null) {
+            return Runtime.getRuntime().freeMemory();
+        }
+        long free = osBean.getFreePhysicalMemorySize();
+        return free >= 0 ? free : Runtime.getRuntime().freeMemory();
     }
 
     private double percent(long used, long total) {

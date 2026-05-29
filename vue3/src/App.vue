@@ -16,6 +16,7 @@ import type { CodexQuotaAccount, DashboardStats, SystemOverview } from './types/
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
+const systemErrorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
 const systemOverview = ref<SystemOverview | null>(null);
@@ -68,6 +69,7 @@ function statusTagType(status: CodexQuotaAccount['status']): 'success' | 'info' 
 async function refreshQuota() {
   loading.value = true;
   errorMessage.value = '';
+  systemErrorMessage.value = '';
 
   try {
     const [quotaResult, systemResult] = await Promise.allSettled([
@@ -77,6 +79,9 @@ async function refreshQuota() {
 
     if (systemResult.status === 'fulfilled') {
       systemOverview.value = systemResult.value;
+    } else {
+      systemErrorMessage.value =
+        systemResult.reason instanceof Error ? systemResult.reason.message : String(systemResult.reason);
     }
 
     if (quotaResult.status === 'fulfilled') {
@@ -114,6 +119,10 @@ function formatMetricPercent(value: number | null | undefined): string {
   return typeof value === 'number' ? `${value.toFixed(value % 1 === 0 ? 0 : 1)}%` : '--';
 }
 
+function systemFallbackText(): string {
+  return systemErrorMessage.value ? '接口异常' : '等待后端返回';
+}
+
 onMounted(refreshQuota);
 </script>
 
@@ -147,7 +156,7 @@ onMounted(refreshQuota);
 
         <div v-if="!isCollapsed" class="sidebar-footer">
           <span>系统状态</span>
-          <strong>{{ formatMetricPercent(systemOverview?.cpuUsagePercent) }} CPU</strong>
+          <strong>{{ systemOverview ? `${formatMetricPercent(systemOverview.cpuUsagePercent)} CPU` : systemFallbackText() }}</strong>
         </div>
       </el-aside>
 
@@ -194,13 +203,13 @@ onMounted(refreshQuota);
             </article>
             <article class="summary-card">
               <span class="summary-label">系统版本</span>
-              <strong>{{ systemOverview?.osFamily || '--' }}</strong>
-              <small>{{ systemOverview?.systemVersion || '等待后端返回' }}</small>
+              <strong>{{ systemOverview?.osFamily || systemFallbackText() }}</strong>
+              <small>{{ systemOverview?.systemVersion || systemErrorMessage || '等待后端返回' }}</small>
             </article>
             <article class="summary-card">
               <span class="summary-label">CPU 占比</span>
               <strong>{{ formatMetricPercent(systemOverview?.cpuUsagePercent) }}</strong>
-              <small>{{ errorMessage ? '接口异常' : '服务器实时负载' }}</small>
+              <small>{{ systemErrorMessage || '服务器实时负载' }}</small>
             </article>
             <article class="summary-card">
               <span class="summary-label">内存信息</span>
