@@ -1,0 +1,252 @@
+:root {
+  color: #172033;
+  background: #f4f7fb;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(135deg, rgba(230, 244, 255, 0.9), rgba(246, 249, 252, 0.95) 34%),
+    linear-gradient(45deg, rgba(238, 247, 232, 0.75), rgba(255, 249, 234, 0.72));
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page-shell {
+  min-height: 100vh;
+}
+
+.hero-band {
+  background:
+    linear-gradient(110deg, rgba(24, 43, 77, 0.98), rgba(32, 64, 99, 0.94)),
+    linear-gradient(45deg, rgba(37, 99, 235, 0.45), rgba(16, 185, 129, 0.32));
+  color: #fff;
+}
+
+.hero-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1180px;
+  min-height: 220px;
+  margin: 0 auto;
+  padding: 36px 24px 44px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #9ee7ce;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.hero-subtitle {
+  max-width: 640px;
+  margin: 16px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.refresh-time {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+}
+
+.content-wrap {
+  max-width: 1180px;
+  margin: -28px auto 0;
+  padding: 0 24px 48px;
+}
+
+.alert-block,
+.quota-skeleton,
+.stat-grid,
+.account-grid {
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  border: 1px solid rgba(116, 139, 171, 0.2);
+  border-radius: 8px;
+}
+
+.stat-card .el-card__body {
+  min-height: 118px;
+}
+
+.stat-note {
+  display: block;
+  margin-top: 10px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.account-card {
+  height: 100%;
+  border: 1px solid rgba(116, 139, 171, 0.22);
+  border-radius: 8px;
+}
+
+.account-header,
+.account-title,
+.quota-head,
+.quota-foot,
+.meta-row,
+.card-footer {
+  display: flex;
+  align-items: center;
+}
+
+.account-header,
+.quota-head,
+.quota-foot,
+.meta-row,
+.card-footer {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-title {
+  min-width: 0;
+  gap: 12px;
+}
+
+.account-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #e7f7ef;
+  color: #16845b;
+}
+
+.account-title h2 {
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.account-title p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #667085;
+  font-size: 12px;
+}
+
+.account-error {
+  margin-bottom: 16px;
+}
+
+.meta-row {
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: #f6f8fb;
+  color: #667085;
+  font-size: 13px;
+}
+
+.meta-row strong {
+  color: #172033;
+  text-transform: uppercase;
+}
+
+.quota-block {
+  padding: 16px 0;
+  border-top: 1px solid #edf1f7;
+}
+
+.quota-head {
+  margin-bottom: 12px;
+}
+
+.quota-head strong {
+  display: block;
+  margin-top: 3px;
+  color: #172033;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.quota-label {
+  color: #667085;
+  font-size: 13px;
+}
+
+.image-count {
+  min-width: 88px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eef6ff;
+  color: #155fa0;
+  font-weight: 700;
+  text-align: center;
+}
+
+.quota-foot {
+  margin-top: 9px;
+  color: #7b8496;
+  font-size: 12px;
+}
+
+.card-footer {
+  padding-top: 14px;
+  border-top: 1px solid #edf1f7;
+  color: #667085;
+  font-size: 12px;
+}
+
+.card-footer strong {
+  color: #172033;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .hero-content {
+    align-items: flex-start;
+    flex-direction: column;
+    min-height: 260px;
+  }
+
+  .hero-actions {
+    justify-content: flex-start;
+  }
+
+  .content-wrap {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+}
