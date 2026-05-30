@@ -92,7 +92,7 @@ async function refreshQuota() {
 
     lastRefreshAt.value = new Date().toLocaleString();
     if (accounts.value.length === 0) {
-      ElMessage.warning('未发现 Codex 凭据文件。');
+      ElMessage.warning('未发现 ImageAI 凭据文件。');
     } else {
       ElMessage.success('额度数据已刷新。');
     }
@@ -152,7 +152,7 @@ onMounted(refreshQuota);
         <div class="nav-list">
           <button class="nav-item active" type="button">
             <el-icon><Monitor /></el-icon>
-            <span v-if="!isCollapsed">Codex 额度</span>
+            <span v-if="!isCollapsed">ImageAI 额度</span>
           </button>
         </div>
 
@@ -166,7 +166,7 @@ onMounted(refreshQuota);
         <el-header class="topbar">
           <div class="title-block">
             <p class="eyebrow">CLI Proxy API Management</p>
-            <h1>Codex 额度监控</h1>
+            <h1>ImageAI 额度监控</h1>
             <p class="page-subtitle">集中查看账号额度、图片生成余量与服务器资源状态。</p>
           </div>
           <div class="topbar-actions">
@@ -189,7 +189,7 @@ onMounted(refreshQuota);
 
           <section class="summary-grid">
             <article class="summary-card">
-              <span class="summary-label">Codex 账号</span>
+              <span class="summary-label">ImageAI 账号</span>
               <strong>{{ stats.totalAccounts }}</strong>
               <small>{{ stats.activeAccounts }} 个正常</small>
             </article>
@@ -240,7 +240,7 @@ onMounted(refreshQuota);
 
           <el-empty
             v-else-if="!loading && accounts.length === 0 && !errorMessage"
-            description="暂无 Codex 账号额度数据"
+            description="暂无 ImageAI 账号额度数据"
           />
 
           <section v-else class="accounts-panel">
