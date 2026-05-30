@@ -41,3 +41,14 @@ export interface SystemOverview {
   diskUsedBytes: number;
   diskUsagePercent: number;
 }
+
+export interface DefaultPromptSettings {
+  mainPrompt: string;
+  introPrompt: string;
+}
+
+export interface UploadImageAnalysis {
+  type: string;
+  model: string;
+  result: string;
+}

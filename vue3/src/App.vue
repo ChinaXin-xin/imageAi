@@ -2,18 +2,32 @@
 import { computed, onMounted, ref } from 'vue';
 import {
   CircleCheck,
+  Document,
   Expand,
   Fold,
+  Setting,
   Monitor,
   Plus,
   Refresh,
   Upload,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
+import type { UploadUserFile } from 'element-plus';
 import appIcon from './assets/imageai-icon.png';
 import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
 import { loadSystemOverview } from './services/systemApi';
-import type { CodexQuotaAccount, DashboardStats, SystemOverview } from './types/quota';
+import {
+  analyzeUploadedImages,
+  loadDefaultPromptSettings,
+  saveDefaultPromptSettings,
+} from './services/taskApi';
+import type {
+  CodexQuotaAccount,
+  DashboardStats,
+  DefaultPromptSettings,
+  SystemOverview,
+  UploadImageAnalysis,
+} from './types/quota';
 
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
@@ -21,8 +35,24 @@ const errorMessage = ref('');
 const systemErrorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
-const activePage = ref<'quota' | 'task'>('quota');
+const activePage = ref<'quota' | 'task' | 'settings'>('quota');
 const systemOverview = ref<SystemOverview | null>(null);
+const defaultSettings = ref<DefaultPromptSettings>({
+  mainPrompt: '',
+  introPrompt: '',
+});
+const settingsLoading = ref(false);
+const settingsSaving = ref(false);
+const realPhotoFiles = ref<UploadUserFile[]>([]);
+const packageImageFiles = ref<UploadUserFile[]>([]);
+const uploadAnalysis = ref<Record<'实拍图' | '包装图', UploadImageAnalysis | null>>({
+  实拍图: null,
+  包装图: null,
+});
+const analysisLoading = ref<Record<'实拍图' | '包装图', boolean>>({
+  实拍图: false,
+  包装图: false,
+});
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
 const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
@@ -168,7 +198,10 @@ function systemFallbackText(): string {
   return systemErrorMessage.value ? '接口异常' : '等待后端返回';
 }
 
-onMounted(refreshQuota);
+onMounted(() => {
+  refreshQuota();
+  loadPromptSettings();
+});
 
 function randomProductName(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
@@ -217,8 +250,59 @@ function removeSellingPoint(index: number) {
   taskForm.value.sellingPoints.splice(index, 1);
 }
 
-function analyzeUploadImage(type: '实拍图' | '包装图') {
-  ElMessage.info(`${type}深析已加入识别队列。`);
+async function loadPromptSettings() {
+  settingsLoading.value = true;
+  try {
+    const settings = await loadDefaultPromptSettings();
+    defaultSettings.value = settings;
+    if (!taskForm.value.mainPrompt.trim()) {
+      taskForm.value.mainPrompt = settings.mainPrompt;
+    }
+    if (!taskForm.value.introPrompt.trim()) {
+      taskForm.value.introPrompt = settings.introPrompt;
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    settingsLoading.value = false;
+  }
+}
+
+async function savePromptSettings() {
+  settingsSaving.value = true;
+  try {
+    const settings = await saveDefaultPromptSettings(defaultSettings.value);
+    defaultSettings.value = settings;
+    taskForm.value.mainPrompt = settings.mainPrompt;
+    taskForm.value.introPrompt = settings.introPrompt;
+    ElMessage.success('默认提示词已保存。');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    settingsSaving.value = false;
+  }
+}
+
+function uploadFilesFor(type: '实拍图' | '包装图'): File[] {
+  const source = type === '实拍图' ? realPhotoFiles.value : packageImageFiles.value;
+  return source.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
+}
+
+async function analyzeUploadImage(type: '实拍图' | '包装图') {
+  const files = uploadFilesFor(type);
+  if (files.length === 0) {
+    ElMessage.warning(`请先上传${type}。`);
+    return;
+  }
+  analysisLoading.value[type] = true;
+  try {
+    uploadAnalysis.value[type] = await analyzeUploadedImages(type, files);
+    ElMessage.success(`${type}深析完成。`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    analysisLoading.value[type] = false;
+  }
 }
 
 function autoRecognizeModel() {
@@ -282,8 +366,32 @@ function resetTaskForm() {
     mainPrompt: '',
     introPrompt: '',
   };
+  if (defaultSettings.value.mainPrompt) {
+    taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
+  }
+  if (defaultSettings.value.introPrompt) {
+    taskForm.value.introPrompt = defaultSettings.value.introPrompt;
+  }
   kitSpecs.value = kitSpecs.value.map((item) => ({ ...item, quantity: 0 }));
   ElMessage.success('任务参数已重置。');
+}
+
+function pageTitle(): string {
+  if (activePage.value === 'quota') return 'ImageAI 额度监控';
+  if (activePage.value === 'settings') return '默认设置';
+  return '创建新任务';
+}
+
+function pageEyebrow(): string {
+  if (activePage.value === 'quota') return 'CLI Proxy API Management';
+  if (activePage.value === 'settings') return 'ImageAI Defaults';
+  return 'ImageAI Task Center';
+}
+
+function pageSubtitle(): string {
+  if (activePage.value === 'quota') return '集中查看账号额度、图片生成余量与服务器资源状态。';
+  if (activePage.value === 'settings') return '维护主图和介绍图默认提示词，添加任务时自动带入。';
+  return '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。';
 }
 </script>
 
@@ -329,6 +437,15 @@ function resetTaskForm() {
             <el-icon><Plus /></el-icon>
             <span v-if="!isCollapsed">添加任务</span>
           </button>
+          <button
+            class="nav-item"
+            :class="{ active: activePage === 'settings' }"
+            type="button"
+            @click="activePage = 'settings'"
+          >
+            <el-icon><Setting /></el-icon>
+            <span v-if="!isCollapsed">默认设置</span>
+          </button>
         </div>
 
         <div v-if="!isCollapsed" class="sidebar-footer">
@@ -340,15 +457,9 @@ function resetTaskForm() {
       <el-container class="main-area">
         <el-header class="topbar">
           <div class="title-block">
-            <p class="eyebrow">{{ activePage === 'quota' ? 'CLI Proxy API Management' : 'ImageAI Task Center' }}</p>
-            <h1>{{ activePage === 'quota' ? 'ImageAI 额度监控' : '创建新任务' }}</h1>
-            <p class="page-subtitle">
-              {{
-                activePage === 'quota'
-                  ? '集中查看账号额度、图片生成余量与服务器资源状态。'
-                  : '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。'
-              }}
-            </p>
+            <p class="eyebrow">{{ pageEyebrow() }}</p>
+            <h1>{{ pageTitle() }}</h1>
+            <p class="page-subtitle">{{ pageSubtitle() }}</p>
           </div>
           <div v-if="activePage === 'quota'" class="topbar-actions">
             <span v-if="lastRefreshAt" class="refresh-time">刷新于 {{ lastRefreshAt }}</span>
@@ -357,7 +468,23 @@ function resetTaskForm() {
             </el-button>
           </div>
           <div v-else class="topbar-actions">
-            <el-button type="primary" :icon="Plus" @click="addToTaskQueue">添加到任务队列</el-button>
+            <el-button
+              v-if="activePage === 'task'"
+              type="primary"
+              :icon="Plus"
+              @click="addToTaskQueue"
+            >
+              添加到任务队列
+            </el-button>
+            <el-button
+              v-else
+              type="primary"
+              :icon="Document"
+              :loading="settingsSaving"
+              @click="savePromptSettings"
+            >
+              保存默认设置
+            </el-button>
           </div>
         </el-header>
 
@@ -422,7 +549,7 @@ function resetTaskForm() {
           </section>
           </template>
 
-          <section v-else class="task-page">
+          <section v-else-if="activePage === 'task'" class="task-page">
             <div class="task-column product-panel">
               <section class="task-card">
                 <div class="task-card-head">
@@ -445,9 +572,37 @@ function resetTaskForm() {
                   <div class="section-title">
                     <span>实拍图</span>
                     <small>可上传多个</small>
-                    <el-button size="small" text type="primary" @click="analyzeUploadImage('实拍图')">深析上传图</el-button>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      :loading="analysisLoading['实拍图']"
+                      @click="analyzeUploadImage('实拍图')"
+                    >
+                      深析上传图
+                    </el-button>
+                    <el-popover
+                      placement="right"
+                      width="420"
+                      trigger="hover"
+                    >
+                      <template #reference>
+                        <span class="analysis-chip" :class="{ ready: uploadAnalysis['实拍图'] }">分析结果</span>
+                      </template>
+                      <div class="analysis-popover">
+                        <strong>实拍图深析结果</strong>
+                        <p>{{ uploadAnalysis['实拍图']?.result || '上传图片后点击“深析上传图”，这里会显示 GPT 5.5 返回的分析结果。' }}</p>
+                      </div>
+                    </el-popover>
                   </div>
-                  <el-upload class="compact-upload" action="#" drag multiple :auto-upload="false">
+                  <el-upload
+                    v-model:file-list="realPhotoFiles"
+                    class="compact-upload"
+                    action="#"
+                    drag
+                    multiple
+                    :auto-upload="false"
+                  >
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传实拍图</div>
                   </el-upload>
@@ -457,9 +612,37 @@ function resetTaskForm() {
                   <div class="section-title">
                     <span>包装图</span>
                     <small>可上传多个</small>
-                    <el-button size="small" text type="primary" @click="analyzeUploadImage('包装图')">深析上传图</el-button>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      :loading="analysisLoading['包装图']"
+                      @click="analyzeUploadImage('包装图')"
+                    >
+                      深析上传图
+                    </el-button>
+                    <el-popover
+                      placement="right"
+                      width="420"
+                      trigger="hover"
+                    >
+                      <template #reference>
+                        <span class="analysis-chip" :class="{ ready: uploadAnalysis['包装图'] }">分析结果</span>
+                      </template>
+                      <div class="analysis-popover">
+                        <strong>包装图深析结果</strong>
+                        <p>{{ uploadAnalysis['包装图']?.result || '上传图片后点击“深析上传图”，这里会显示 GPT 5.5 返回的分析结果。' }}</p>
+                      </div>
+                    </el-popover>
                   </div>
-                  <el-upload class="compact-upload" action="#" drag multiple :auto-upload="false">
+                  <el-upload
+                    v-model:file-list="packageImageFiles"
+                    class="compact-upload"
+                    action="#"
+                    drag
+                    multiple
+                    :auto-upload="false"
+                  >
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传包装图</div>
                   </el-upload>
@@ -718,6 +901,50 @@ function resetTaskForm() {
                 <el-button size="large" :icon="Refresh" @click="resetTaskForm">清空重置</el-button>
               </div>
             </div>
+          </section>
+
+          <section v-else class="settings-page">
+            <section class="task-card settings-card" v-loading="settingsLoading">
+              <div class="task-card-head">
+                <div>
+                  <h2>提示词默认内容</h2>
+                  <p>这里保存到数据库，添加任务页面会默认带入这两段提示词。</p>
+                </div>
+                <el-button :icon="Refresh" @click="loadPromptSettings">重新读取</el-button>
+              </div>
+
+              <div class="prompt-grid">
+                <div class="form-row">
+                  <label>主图提示词默认内容</label>
+                  <el-input
+                    v-model="defaultSettings.mainPrompt"
+                    type="textarea"
+                    :rows="10"
+                    maxlength="2000"
+                    show-word-limit
+                    placeholder="请输入主图提示词默认内容"
+                  />
+                </div>
+                <div class="form-row">
+                  <label>介绍图提示词默认内容</label>
+                  <el-input
+                    v-model="defaultSettings.introPrompt"
+                    type="textarea"
+                    :rows="10"
+                    maxlength="2000"
+                    show-word-limit
+                    placeholder="请输入介绍图提示词默认内容"
+                  />
+                </div>
+              </div>
+
+              <div class="settings-actions">
+                <el-button type="primary" size="large" :loading="settingsSaving" @click="savePromptSettings">
+                  保存到数据库
+                </el-button>
+                <span>保存后会同步更新“添加任务”页面的默认提示词。</span>
+              </div>
+            </section>
           </section>
 
           <template v-if="activePage === 'quota'">

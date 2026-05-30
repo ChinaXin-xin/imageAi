@@ -389,6 +389,42 @@ h1 {
   margin-left: auto;
 }
 
+.analysis-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #94a3b8;
+  cursor: default;
+  font-size: 12px;
+}
+
+.analysis-chip.ready {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.analysis-popover strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #111827;
+  font-size: 14px;
+}
+
+.analysis-popover p {
+  max-height: 320px;
+  margin: 0;
+  overflow-y: auto;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
 .compact-upload {
   width: 100%;
 }
@@ -555,6 +591,42 @@ h1 {
 
 .task-actions .el-button--primary {
   min-width: 260px;
+}
+
+.settings-page {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.settings-page::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-page::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-page::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.settings-card {
+  max-width: 1180px;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.settings-actions span {
+  color: #64748b;
+  font-size: 13px;
 }
 
 .summary-card {
@@ -869,6 +941,27 @@ h1 {
   }
 
   .account-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-page,
+  .two-fields,
+  .choice-grid,
+  .generation-grid,
+  .prompt-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .task-column {
+    overflow: visible;
+  }
+
+  .kit-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
