@@ -3,6 +3,7 @@ package xin.students.imageaioriginal.service;
 import org.springframework.stereotype.Service;
 import xin.students.imageaioriginal.model.DefaultPromptSettings;
 
+import jakarta.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -22,6 +23,11 @@ public class DefaultPromptSettingsService {
 
     public DefaultPromptSettingsService(DataSource dataSource) {
         this.dataSource = dataSource;
+    }
+
+    @PostConstruct
+    public void initialize() {
+        getSettings();
     }
 
     public DefaultPromptSettings getSettings() {
@@ -75,7 +81,7 @@ public class DefaultPromptSettingsService {
                       main_prompt text not null,
                       intro_prompt text not null,
                       updated_at timestamp not null default current_timestamp on update current_timestamp
-                    )
+                    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
         } catch (SQLException ex) {
             throw new IllegalStateException("初始化默认提示词表失败", ex);

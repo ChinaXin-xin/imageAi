@@ -3,7 +3,7 @@ spring:
     name: ImageAI
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:33306/image_ai_original?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:33306/image_ai_original?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
     username: root
     password: 123456
   servlet:
@@ -16,6 +16,6 @@ image-ai:
     base-url: http://43.160.220.91:8317
     management-key: mgmt-7508074bf946346ac147485c40d97db3
   gpt:
-    base-url: ${IMAGE_AI_GPT_BASE_URL:https://api.openai.com}
+    base-url: ${IMAGE_AI_GPT_BASE_URL:http://43.160.220.91:8317}
     api-key: ${IMAGE_AI_GPT_API_KEY:}
     model: ${IMAGE_AI_GPT_MODEL:gpt-5.5}

@@ -6,6 +6,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
+import xin.students.imageaioriginal.config.CliProxyProperties;
 import xin.students.imageaioriginal.config.GptProperties;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 @Service
 public class UploadImageAnalysisService {
 
+    private static final String MANAGEMENT_SUFFIX = "/v0/management";
     private static final int MAX_ANALYSIS_IMAGES = 6;
     private static final long MAX_UPLOAD_FILE_BYTES = 20L * 1024 * 1024;
     private static final int PRIMARY_MAX_EDGE = 1400;
@@ -36,10 +38,16 @@ public class UploadImageAnalysisService {
     private static final int TARGET_IMAGE_BYTES = 1_200_000;
 
     private final GptProperties gptProperties;
+    private final CliProxyProperties cliProxyProperties;
     private final RestClient restClient;
 
-    public UploadImageAnalysisService(GptProperties gptProperties, RestClient.Builder restClientBuilder) {
+    public UploadImageAnalysisService(
+            GptProperties gptProperties,
+            CliProxyProperties cliProxyProperties,
+            RestClient.Builder restClientBuilder
+    ) {
         this.gptProperties = gptProperties;
+        this.cliProxyProperties = cliProxyProperties;
         this.restClient = restClientBuilder.build();
     }
 
@@ -55,9 +63,7 @@ public class UploadImageAnalysisService {
                 throw new IllegalArgumentException("单张图片不能超过 20MB：" + file.getOriginalFilename());
             }
         }
-        if (gptProperties.apiKey() == null || gptProperties.apiKey().isBlank()) {
-            throw new IllegalStateException("未配置 image-ai.gpt.api-key，无法调用 GPT 5.5 深析上传图");
-        }
+        String apiKey = resolveApiKey();
 
         List<MultipartFile> analysisFiles = uploadedFiles.stream()
                 .limit(MAX_ANALYSIS_IMAGES)
@@ -85,14 +91,66 @@ public class UploadImageAnalysisService {
         )));
 
         JsonNode response = restClient.post()
-                .uri(gptProperties.resolvedBaseUrl() + "/v1/chat/completions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + gptProperties.apiKey())
+                .uri(chatCompletionsUrl())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
                 .body(JsonNode.class);
 
         return new UploadImageAnalysis(type, gptProperties.resolvedModel(), extractText(response));
+    }
+
+    private String resolveApiKey() {
+        String configuredApiKey = gptProperties.apiKey();
+        if (configuredApiKey != null && !configuredApiKey.isBlank()) {
+            return configuredApiKey.trim();
+        }
+
+        JsonNode response = restClient.get()
+                .uri(managementBaseUrl() + "/api-keys")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + cliProxyProperties.managementKey())
+                .retrieve()
+                .body(JsonNode.class);
+
+        JsonNode apiKeys = response == null ? null : response.path("api-keys");
+        if (apiKeys == null || !apiKeys.isArray()) {
+            apiKeys = response == null ? null : response.path("apiKeys");
+        }
+        if (apiKeys != null && apiKeys.isArray()) {
+            for (JsonNode apiKey : apiKeys) {
+                if (apiKey.isTextual() && !apiKey.asText().isBlank()) {
+                    return apiKey.asText().trim();
+                }
+            }
+        }
+
+        throw new IllegalStateException("未配置 image-ai.gpt.api-key，且未能从 CLIProxy 管理接口读取 api-keys");
+    }
+
+    private String chatCompletionsUrl() {
+        String baseUrl = gptProperties.baseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) {
+            baseUrl = cliProxyProperties.baseUrl();
+        }
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalStateException("未配置 image-ai.gpt.base-url 或 image-ai.cli-proxy.base-url");
+        }
+
+        baseUrl = baseUrl.trim().replaceAll("/+$", "");
+        if (baseUrl.endsWith("/v1")) {
+            return baseUrl + "/chat/completions";
+        }
+        return baseUrl + "/v1/chat/completions";
+    }
+
+    private String managementBaseUrl() {
+        String baseUrl = cliProxyProperties.baseUrl() == null ? "" : cliProxyProperties.baseUrl().trim();
+        if (baseUrl.isEmpty()) {
+            throw new IllegalStateException("未配置 image-ai.cli-proxy.base-url");
+        }
+        baseUrl = baseUrl.replaceAll("/+$", "");
+        return baseUrl.endsWith(MANAGEMENT_SUFFIX) ? baseUrl : baseUrl + MANAGEMENT_SUFFIX;
     }
 
     private String buildPrompt(String type, int analyzedCount, int uploadedCount) {
