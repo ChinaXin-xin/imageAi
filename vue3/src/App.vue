@@ -374,6 +374,21 @@ function removeDefaultSellingPoint(point: string) {
   taskForm.value.sellingPoints = taskForm.value.sellingPoints.filter((item) => item !== point);
 }
 
+function clearUploadedImagesAndAnalysis() {
+  Object.values(previewUrls.value).forEach((url) => URL.revokeObjectURL(url));
+  previewUrls.value = {};
+  realPhotoFiles.value = [];
+  packageImageFiles.value = [];
+  uploadAnalysis.value = {
+    实拍图: null,
+    包装图: null,
+  };
+  analysisLoading.value = {
+    实拍图: false,
+    包装图: false,
+  };
+}
+
 function autoRecognizeModel() {
   if (!taskForm.value.model.trim()) {
     taskForm.value.model = '自动识别参考图';
@@ -443,6 +458,7 @@ function resetTaskForm() {
   }
   taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
   kitSpecs.value = kitSpecs.value.map((item) => ({ ...item, quantity: 0 }));
+  clearUploadedImagesAndAnalysis();
   ElMessage.success('任务参数已重置。');
 }
 
