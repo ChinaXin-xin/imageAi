@@ -5,7 +5,9 @@ import {
   Expand,
   Fold,
   Monitor,
+  Plus,
   Refresh,
+  Upload,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import appIcon from './assets/imageai-icon.png';
@@ -19,7 +21,50 @@ const errorMessage = ref('');
 const systemErrorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
+const activePage = ref<'quota' | 'task'>('quota');
 const systemOverview = ref<SystemOverview | null>(null);
+
+const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
+const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
+const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色', '紫色', '绿色', '自定义'];
+const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体', '高级电商', 'TEMU爆款'];
+const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
+const languageOptions = ['中文', '英文', '中英双语'];
+
+const taskForm = ref({
+  productName: '',
+  model: '',
+  platform: 'Amazon',
+  ratio: '1500:1500',
+  customWidth: 1500,
+  customHeight: 1500,
+  phoneColor: '自动',
+  customColor: '#2563eb',
+  logoName: '',
+  wallpaperName: '',
+  style: '自动',
+  layout: '自动',
+  sellingPoints: ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'],
+  newSellingPoint: '',
+  hdEnabled: true,
+  privacyEnabled: false,
+  hdQuantity: 5,
+  privacyQuantity: 0,
+  mainImageCount: 7,
+  introImageCount: 10,
+  language: '英文',
+  mainPrompt: '',
+  introPrompt: '',
+});
+
+const kitSpecs = ref([
+  { name: '钢化膜', quantity: 0 },
+  { name: '镜头膜', quantity: 0 },
+  { name: '清洁包', quantity: 0 },
+  { name: '除螨贴', quantity: 0 },
+  { name: '挂卡', quantity: 0 },
+  { name: '固定器', quantity: 0 },
+]);
 
 const stats = computed<DashboardStats>(() => {
   const fiveHourValues = accounts.value
@@ -124,6 +169,122 @@ function systemFallbackText(): string {
 }
 
 onMounted(refreshQuota);
+
+function randomProductName(): string {
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
+function ensureProductName() {
+  if (!taskForm.value.productName.trim()) {
+    taskForm.value.productName = randomProductName();
+  }
+}
+
+function selectPlatform(platform: string) {
+  taskForm.value.platform = platform;
+  if (platform === 'Amazon') {
+    selectRatio('1500:1500');
+  } else if (platform === 'TEMU') {
+    selectRatio('1000:1000');
+  } else if (platform === 'TikTok Shop') {
+    selectRatio('900:600');
+  }
+}
+
+function selectRatio(ratio: string) {
+  taskForm.value.ratio = ratio;
+  const [width, height] = ratio.split(':').map((value) => Number(value));
+  if (Number.isFinite(width) && Number.isFinite(height)) {
+    taskForm.value.customWidth = width;
+    taskForm.value.customHeight = height;
+  }
+}
+
+function updateQuantity(index: number, delta: number) {
+  kitSpecs.value[index].quantity = Math.max(0, kitSpecs.value[index].quantity + delta);
+}
+
+function addSellingPoint() {
+  const point = taskForm.value.newSellingPoint.trim();
+  if (!point) return;
+  if (!taskForm.value.sellingPoints.includes(point)) {
+    taskForm.value.sellingPoints.push(point);
+  }
+  taskForm.value.newSellingPoint = '';
+}
+
+function removeSellingPoint(index: number) {
+  taskForm.value.sellingPoints.splice(index, 1);
+}
+
+function analyzeUploadImage(type: '实拍图' | '包装图') {
+  ElMessage.info(`${type}深析已加入识别队列。`);
+}
+
+function autoRecognizeModel() {
+  if (!taskForm.value.model.trim()) {
+    taskForm.value.model = '自动识别参考图';
+  }
+  ElMessage.success('已启用机型自动识别。');
+}
+
+function autoRecognizeLogo() {
+  if (!taskForm.value.logoName.trim()) {
+    taskForm.value.logoName = '自动识别品牌';
+  }
+  ElMessage.success('已启用 Logo 自动识别。');
+}
+
+function autoRecognizeKitSpecs() {
+  const defaults: Record<string, number> = {
+    钢化膜: 1,
+    镜头膜: 1,
+    清洁包: 1,
+    除螨贴: 2,
+    挂卡: 1,
+    固定器: 0,
+  };
+  kitSpecs.value = kitSpecs.value.map((item) => ({
+    ...item,
+    quantity: defaults[item.name] ?? 0,
+  }));
+  ElMessage.success('已按经典套装规格自动识别。');
+}
+
+function addToTaskQueue() {
+  ensureProductName();
+  ElMessage.success(`任务已添加到队列：${taskForm.value.productName}`);
+}
+
+function resetTaskForm() {
+  taskForm.value = {
+    productName: '',
+    model: '',
+    platform: 'Amazon',
+    ratio: '1500:1500',
+    customWidth: 1500,
+    customHeight: 1500,
+    phoneColor: '自动',
+    customColor: '#2563eb',
+    logoName: '',
+    wallpaperName: '',
+    style: '自动',
+    layout: '自动',
+    sellingPoints: ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'],
+    newSellingPoint: '',
+    hdEnabled: true,
+    privacyEnabled: false,
+    hdQuantity: 5,
+    privacyQuantity: 0,
+    mainImageCount: 7,
+    introImageCount: 10,
+    language: '英文',
+    mainPrompt: '',
+    introPrompt: '',
+  };
+  kitSpecs.value = kitSpecs.value.map((item) => ({ ...item, quantity: 0 }));
+  ElMessage.success('任务参数已重置。');
+}
 </script>
 
 <template>
@@ -150,9 +311,23 @@ onMounted(refreshQuota);
         <div v-if="!isCollapsed" class="sidebar-section-label">工作台</div>
 
         <div class="nav-list">
-          <button class="nav-item active" type="button">
+          <button
+            class="nav-item"
+            :class="{ active: activePage === 'quota' }"
+            type="button"
+            @click="activePage = 'quota'"
+          >
             <el-icon><Monitor /></el-icon>
             <span v-if="!isCollapsed">ImageAI 额度</span>
+          </button>
+          <button
+            class="nav-item"
+            :class="{ active: activePage === 'task' }"
+            type="button"
+            @click="activePage = 'task'"
+          >
+            <el-icon><Plus /></el-icon>
+            <span v-if="!isCollapsed">添加任务</span>
           </button>
         </div>
 
@@ -165,21 +340,30 @@ onMounted(refreshQuota);
       <el-container class="main-area">
         <el-header class="topbar">
           <div class="title-block">
-            <p class="eyebrow">CLI Proxy API Management</p>
-            <h1>ImageAI 额度监控</h1>
-            <p class="page-subtitle">集中查看账号额度、图片生成余量与服务器资源状态。</p>
+            <p class="eyebrow">{{ activePage === 'quota' ? 'CLI Proxy API Management' : 'ImageAI Task Center' }}</p>
+            <h1>{{ activePage === 'quota' ? 'ImageAI 额度监控' : '创建新任务' }}</h1>
+            <p class="page-subtitle">
+              {{
+                activePage === 'quota'
+                  ? '集中查看账号额度、图片生成余量与服务器资源状态。'
+                  : '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。'
+              }}
+            </p>
           </div>
-          <div class="topbar-actions">
+          <div v-if="activePage === 'quota'" class="topbar-actions">
             <span v-if="lastRefreshAt" class="refresh-time">刷新于 {{ lastRefreshAt }}</span>
             <el-button :icon="Refresh" type="primary" :loading="loading" @click="refreshQuota">
               刷新
             </el-button>
           </div>
+          <div v-else class="topbar-actions">
+            <el-button type="primary" :icon="Plus" @click="addToTaskQueue">添加到任务队列</el-button>
+          </div>
         </el-header>
 
         <el-main class="content-wrap">
           <el-alert
-            v-if="errorMessage"
+            v-if="activePage === 'quota' && errorMessage"
             class="alert-block"
             type="error"
             :title="errorMessage"
@@ -187,6 +371,7 @@ onMounted(refreshQuota);
             :closable="false"
           />
 
+          <template v-if="activePage === 'quota'">
           <section class="summary-grid">
             <article class="summary-card">
               <span class="summary-label">ImageAI 账号</span>
@@ -235,7 +420,307 @@ onMounted(refreshQuota);
               <small>{{ errorMessage ? '需要检查后端接口' : '通过后端代理实时查询' }}</small>
             </article>
           </section>
+          </template>
 
+          <section v-else class="task-page">
+            <div class="task-column product-panel">
+              <section class="task-card">
+                <div class="task-card-head">
+                  <div>
+                    <h2>商品资料</h2>
+                    <p>实拍图、包装图和模板用于任务生成参考。</p>
+                  </div>
+                  <el-button size="small" :icon="Refresh" @click="ensureProductName">生成名称</el-button>
+                </div>
+
+                <div class="form-row">
+                  <label>商品名称</label>
+                  <div class="inline-fields">
+                    <el-input v-model="taskForm.productName" placeholder="留空自动生成 8 位数字字母名称" />
+                    <el-button @click="ensureProductName">自动生成</el-button>
+                  </div>
+                </div>
+
+                <div class="upload-section">
+                  <div class="section-title">
+                    <span>实拍图</span>
+                    <small>可上传多个</small>
+                    <el-button size="small" text type="primary" @click="analyzeUploadImage('实拍图')">深析上传图</el-button>
+                  </div>
+                  <el-upload class="compact-upload" action="#" drag multiple :auto-upload="false">
+                    <el-icon><Upload /></el-icon>
+                    <div>拖拽或点击上传实拍图</div>
+                  </el-upload>
+                </div>
+
+                <div class="upload-section">
+                  <div class="section-title">
+                    <span>包装图</span>
+                    <small>可上传多个</small>
+                    <el-button size="small" text type="primary" @click="analyzeUploadImage('包装图')">深析上传图</el-button>
+                  </div>
+                  <el-upload class="compact-upload" action="#" drag multiple :auto-upload="false">
+                    <el-icon><Upload /></el-icon>
+                    <div>拖拽或点击上传包装图</div>
+                  </el-upload>
+                </div>
+
+                <div class="upload-section">
+                  <div class="section-title">
+                    <span>模板图</span>
+                    <small>仅支持上传一张</small>
+                  </div>
+                  <el-upload class="compact-upload" action="#" drag :limit="1" :auto-upload="false">
+                    <el-icon><Upload /></el-icon>
+                    <div>上传模板图</div>
+                  </el-upload>
+                </div>
+              </section>
+
+              <section class="task-card">
+                <div class="task-card-head">
+                  <div>
+                    <h2>品牌与素材</h2>
+                    <p>Logo、壁纸和品牌名称会进入提示词上下文。</p>
+                  </div>
+                </div>
+                <div class="two-fields">
+                  <div class="form-row">
+                    <label>Logo 图片</label>
+                    <el-upload class="line-upload" action="#" :auto-upload="false" :limit="1">
+                      <el-button :icon="Upload">上传 Logo</el-button>
+                    </el-upload>
+                  </div>
+                  <div class="form-row">
+                    <label>Logo 名称</label>
+                    <div class="inline-fields">
+                      <el-input v-model="taskForm.logoName" placeholder="输入品牌名，留空可自动识别" />
+                      <el-button @click="autoRecognizeLogo">自动识别</el-button>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label>手机壁纸</label>
+                  <el-upload class="compact-upload" action="#" drag :limit="1" :auto-upload="false">
+                    <el-icon><Upload /></el-icon>
+                    <div>上传壁纸，可选</div>
+                  </el-upload>
+                </div>
+              </section>
+            </div>
+
+            <div class="task-column parameter-panel">
+              <section class="task-card">
+                <div class="task-card-head">
+                  <div>
+                    <h2>生成参数</h2>
+                    <p>平台、比例、机型、颜色与设计风格。</p>
+                  </div>
+                </div>
+
+                <div class="choice-grid">
+                  <div class="form-row">
+                    <label>平台选择</label>
+                    <div class="segmented-list">
+                      <button
+                        v-for="platform in platforms"
+                        :key="platform"
+                        type="button"
+                        :class="{ selected: taskForm.platform === platform }"
+                        @click="selectPlatform(platform)"
+                      >
+                        {{ platform }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label>图片比例</label>
+                    <div class="segmented-list">
+                      <button
+                        v-for="ratio in ratioOptions"
+                        :key="ratio"
+                        type="button"
+                        :class="{ selected: taskForm.ratio === ratio }"
+                        @click="selectRatio(ratio)"
+                      >
+                        {{ ratio }}
+                      </button>
+                    </div>
+                    <div class="ratio-inputs">
+                      <el-input-number v-model="taskForm.customWidth" :min="300" controls-position="right" />
+                      <span>×</span>
+                      <el-input-number v-model="taskForm.customHeight" :min="300" controls-position="right" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="choice-grid">
+                  <div class="form-row">
+                    <label>机型</label>
+                    <div class="inline-fields">
+                      <el-input v-model="taskForm.model" placeholder="不输入时自动识别参考图" />
+                      <el-button @click="autoRecognizeModel">自动识别</el-button>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label>手机颜色</label>
+                    <div class="color-list">
+                      <button
+                        v-for="color in phoneColors"
+                        :key="color"
+                        type="button"
+                        :class="{ selected: taskForm.phoneColor === color }"
+                        @click="taskForm.phoneColor = color"
+                      >
+                        {{ color }}
+                      </button>
+                      <el-color-picker v-model="taskForm.customColor" size="small" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="choice-grid">
+                  <div class="form-row">
+                    <label>设计风格</label>
+                    <div class="tile-list">
+                      <button
+                        v-for="style in styleOptions"
+                        :key="style"
+                        type="button"
+                        :class="{ selected: taskForm.style === style }"
+                        @click="taskForm.style = style"
+                      >
+                        {{ style }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label>布局模式</label>
+                    <div class="tile-list">
+                      <button
+                        v-for="layout in layoutOptions"
+                        :key="layout"
+                        type="button"
+                        :class="{ selected: taskForm.layout === layout }"
+                        @click="taskForm.layout = layout"
+                      >
+                        {{ layout }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="task-card">
+                <div class="task-card-head">
+                  <div>
+                    <h2>套装规格与卖点</h2>
+                    <p>默认数量为 0，可按任务需要手动调整。</p>
+                  </div>
+                  <el-button size="small" text type="primary" @click="autoRecognizeKitSpecs">自动识别</el-button>
+                </div>
+
+                <div class="kit-grid">
+                  <div v-for="(item, index) in kitSpecs" :key="item.name" class="kit-item">
+                    <span>{{ item.name }}</span>
+                    <div class="stepper">
+                      <button type="button" @click="updateQuantity(index, -1)">-</button>
+                      <strong>{{ item.quantity }}</strong>
+                      <button type="button" @click="updateQuantity(index, 1)">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="selling-points">
+                  <el-tag
+                    v-for="(point, index) in taskForm.sellingPoints"
+                    :key="point"
+                    closable
+                    effect="plain"
+                    @close="removeSellingPoint(index)"
+                  >
+                    {{ point }}
+                  </el-tag>
+                  <div class="add-point">
+                    <el-input
+                      v-model="taskForm.newSellingPoint"
+                      placeholder="添加自定义卖点"
+                      @keyup.enter="addSellingPoint"
+                    />
+                    <el-button :icon="Plus" @click="addSellingPoint">添加</el-button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="task-card">
+                <div class="task-card-head">
+                  <div>
+                    <h2>生成数量与提示词</h2>
+                    <p>主图和介绍图提示词可分别填写，不填则自动组合。</p>
+                  </div>
+                </div>
+
+                <div class="generation-grid">
+                  <label class="check-row">
+                    <el-checkbox v-model="taskForm.hdEnabled" />
+                    <span>高清（HD）</span>
+                    <el-input-number v-model="taskForm.hdQuantity" :min="0" :max="99" />
+                  </label>
+                  <label class="check-row">
+                    <el-checkbox v-model="taskForm.privacyEnabled" />
+                    <span>防窥膜（Privacy）</span>
+                    <el-input-number v-model="taskForm.privacyQuantity" :min="0" :max="99" />
+                  </label>
+                  <div class="form-row">
+                    <label>主图数量</label>
+                    <el-input-number v-model="taskForm.mainImageCount" :min="0" :max="99" />
+                  </div>
+                  <div class="form-row">
+                    <label>介绍图数量</label>
+                    <el-input-number v-model="taskForm.introImageCount" :min="0" :max="99" />
+                  </div>
+                  <div class="form-row">
+                    <label>语言</label>
+                    <el-radio-group v-model="taskForm.language">
+                      <el-radio-button v-for="lang in languageOptions" :key="lang" :label="lang" />
+                    </el-radio-group>
+                  </div>
+                </div>
+
+                <div class="prompt-grid">
+                  <div class="form-row">
+                    <label>主图提示词</label>
+                    <el-input
+                      v-model="taskForm.mainPrompt"
+                      type="textarea"
+                      :rows="4"
+                      maxlength="500"
+                      show-word-limit
+                      placeholder="输入主图提示词，描述画面效果、风格、元素等"
+                    />
+                  </div>
+                  <div class="form-row">
+                    <label>介绍图提示词</label>
+                    <el-input
+                      v-model="taskForm.introPrompt"
+                      type="textarea"
+                      :rows="4"
+                      maxlength="500"
+                      show-word-limit
+                      placeholder="输入介绍图提示词，描述展示内容和风格"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <div class="task-actions">
+                <el-button size="large" type="primary" :icon="Plus" @click="addToTaskQueue">添加到任务队列</el-button>
+                <el-button size="large" :icon="Refresh" @click="resetTaskForm">清空重置</el-button>
+              </div>
+            </div>
+          </section>
+
+          <template v-if="activePage === 'quota'">
           <el-skeleton v-if="loading && accounts.length === 0" :rows="8" animated class="quota-skeleton" />
 
           <el-empty
@@ -331,6 +816,7 @@ onMounted(refreshQuota);
               </div>
             </div>
           </section>
+          </template>
         </el-main>
       </el-container>
     </el-container>
