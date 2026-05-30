@@ -51,7 +51,7 @@ public class UploadImageAnalysisService {
         this.restClient = restClientBuilder.build();
     }
 
-    public UploadImageAnalysis analyze(String type, List<MultipartFile> files) {
+    public UploadImageAnalysis analyze(String type, String prompt, List<MultipartFile> files) {
         List<MultipartFile> uploadedFiles = files == null ? List.of() : files.stream()
                 .filter(file -> file != null && !file.isEmpty())
                 .toList();
@@ -72,7 +72,7 @@ public class UploadImageAnalysisService {
         List<Map<String, Object>> content = new ArrayList<>();
         content.add(Map.of(
                 "type", "text",
-                "text", buildPrompt(type, analysisFiles.size(), uploadedFiles.size())
+                "text", buildPrompt(type, prompt, analysisFiles.size(), uploadedFiles.size())
         ));
 
         for (MultipartFile file : analysisFiles) {
@@ -153,12 +153,16 @@ public class UploadImageAnalysisService {
         return baseUrl.endsWith(MANAGEMENT_SUFFIX) ? baseUrl : baseUrl + MANAGEMENT_SUFFIX;
     }
 
-    private String buildPrompt(String type, int analyzedCount, int uploadedCount) {
+    private String buildPrompt(String type, String prompt, int analyzedCount, int uploadedCount) {
         String limitNote = uploadedCount > analyzedCount
                 ? "用户实际上传了 %d 张，为控制请求体积，本次先分析前 %d 张。".formatted(uploadedCount, analyzedCount)
                 : "";
+        String customPrompt = prompt == null || prompt.isBlank()
+                ? "请结合跨境电商手机配件主图和介绍图生成需求，提炼图片中的可用信息。"
+                : prompt.trim();
         return """
                 你是跨境电商手机配件视觉分析专家。请深度分析用户上传的 %s，共 %d 张。%s
+                本次深析提示词：%s
                 输出中文，结构清晰，不要编造看不见的信息。请包含：
                 1. 产品类型与可能机型/适配范围；
                 2. 包装、材质、颜色、透明度、边缘细节；
@@ -166,7 +170,7 @@ public class UploadImageAnalysisService {
                 4. 可用于介绍图的卖点提炼；
                 5. 风险与缺失信息；
                 6. 建议用于生成任务的提示词补充。
-                """.formatted(type, analyzedCount, limitNote);
+                """.formatted(type, analyzedCount, limitNote, customPrompt);
     }
 
     private String toDataUrl(MultipartFile file) {

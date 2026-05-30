@@ -347,11 +347,55 @@ h1 {
   margin-bottom: 14px;
 }
 
+.form-row.no-margin {
+  margin-bottom: 0;
+}
+
 .form-row > label,
 .section-title span {
   color: #172033;
   font-size: 13px;
   font-weight: 650;
+}
+
+.label-help-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
+.label-help-row label {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  cursor: help;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.help-button:hover {
+  border-color: #93c5fd;
+  color: #2563eb;
+}
+
+.help-copy {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .inline-fields {
@@ -408,6 +452,22 @@ h1 {
   color: #2563eb;
 }
 
+.analysis-result-line {
+  max-height: 96px;
+  margin: 10px 0 0;
+  overflow: auto;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.analysis-result-line.ready {
+  color: #2563eb;
+}
+
 .analysis-popover strong {
   display: block;
   margin-bottom: 8px;
@@ -444,6 +504,59 @@ h1 {
 .compact-upload .el-icon {
   color: #2563eb;
   font-size: 22px;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.preview-tile {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.preview-tile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #f8fafc;
+}
+
+.preview-tile span {
+  display: block;
+  overflow: hidden;
+  padding: 5px 6px;
+  color: #64748b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-tile button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0;
+}
+
+.preview-tile:hover button {
+  opacity: 1;
 }
 
 .line-upload .el-upload-list {
@@ -485,6 +598,29 @@ h1 {
   background: #eff6ff;
   color: #1d4ed8;
   font-weight: 650;
+}
+
+.custom-color-control {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+}
+
+.custom-color-control .el-color-picker {
+  height: 28px;
+}
+
+.custom-color-control .el-color-picker__trigger {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
 }
 
 .ratio-inputs {
@@ -557,6 +693,16 @@ h1 {
   gap: 8px;
 }
 
+.selling-select {
+  width: 100%;
+}
+
+.default-point-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .add-point {
   display: grid;
   width: min(420px, 100%);
@@ -564,29 +710,61 @@ h1 {
   gap: 8px;
 }
 
-.check-row {
+.generation-panel {
   display: grid;
-  align-items: center;
-  grid-template-columns: auto minmax(120px, 1fr) 118px;
-  gap: 8px;
-  margin-bottom: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
-.check-row span {
+.quantity-row,
+.language-row,
+.feature-toggle {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.quantity-row,
+.language-row {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.language-row {
+  grid-column: 1 / -1;
+}
+
+.feature-toggle {
+  gap: 8px;
+}
+
+.quantity-row > span,
+.language-row > span,
+.feature-toggle span {
   color: #334155;
   font-size: 13px;
   font-weight: 600;
 }
 
+.quantity-row .el-input-number {
+  width: 126px;
+  flex: 0 0 auto;
+}
+
 .task-actions {
-  position: sticky;
-  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 12px 0 2px;
-  background: linear-gradient(180deg, rgba(247, 248, 250, 0), #f7f8fa 34%);
+  padding: 12px 0 0;
+  margin-top: 2px;
+  background: #f7f8fa;
+  z-index: 0;
 }
 
 .task-actions .el-button--primary {

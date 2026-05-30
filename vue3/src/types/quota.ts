@@ -45,6 +45,8 @@ export interface SystemOverview {
 export interface DefaultPromptSettings {
   mainPrompt: string;
   introPrompt: string;
+  analysisPrompt: string;
+  customSellingPoints: string[];
 }
 
 export interface UploadImageAnalysis {

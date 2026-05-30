@@ -29,6 +29,14 @@ import type {
   UploadImageAnalysis,
 } from './types/quota';
 
+const DEFAULT_MAIN_PROMPT =
+  '生成高转化电商主图：突出手机膜产品质感、包装完整度和平台风格，画面干净高级，主体清晰，适合跨境电商首图。';
+const DEFAULT_INTRO_PROMPT =
+  '生成产品介绍图：围绕高清、防指纹、抗摔、防窥、易安装、镜头保护等卖点进行模块化展示，信息层级清晰，适合详情页。';
+const DEFAULT_ANALYSIS_PROMPT =
+  '请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。';
+const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'];
+
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
@@ -38,8 +46,10 @@ const isCollapsed = ref(false);
 const activePage = ref<'quota' | 'task' | 'settings'>('quota');
 const systemOverview = ref<SystemOverview | null>(null);
 const defaultSettings = ref<DefaultPromptSettings>({
-  mainPrompt: '',
-  introPrompt: '',
+  mainPrompt: DEFAULT_MAIN_PROMPT,
+  introPrompt: DEFAULT_INTRO_PROMPT,
+  analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
+  customSellingPoints: DEFAULT_SELLING_POINTS,
 });
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
@@ -53,6 +63,8 @@ const analysisLoading = ref<Record<'实拍图' | '包装图', boolean>>({
   实拍图: false,
   包装图: false,
 });
+const previewUrls = ref<Record<string, string>>({});
+const newDefaultSellingPoint = ref('');
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
 const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
@@ -95,6 +107,13 @@ const kitSpecs = ref([
   { name: '挂卡', quantity: 0 },
   { name: '固定器', quantity: 0 },
 ]);
+
+const sellingPointOptions = computed(() => {
+  const merged = [...defaultSettings.value.customSellingPoints, ...taskForm.value.sellingPoints]
+    .filter((point) => point && point.trim())
+    .map((point) => point.trim());
+  return Array.from(new Set(merged));
+});
 
 const stats = computed<DashboardStats>(() => {
   const fiveHourValues = accounts.value
@@ -237,29 +256,26 @@ function updateQuantity(index: number, delta: number) {
   kitSpecs.value[index].quantity = Math.max(0, kitSpecs.value[index].quantity + delta);
 }
 
-function addSellingPoint() {
-  const point = taskForm.value.newSellingPoint.trim();
-  if (!point) return;
-  if (!taskForm.value.sellingPoints.includes(point)) {
-    taskForm.value.sellingPoints.push(point);
-  }
-  taskForm.value.newSellingPoint = '';
-}
-
-function removeSellingPoint(index: number) {
-  taskForm.value.sellingPoints.splice(index, 1);
-}
-
 async function loadPromptSettings() {
   settingsLoading.value = true;
   try {
     const settings = await loadDefaultPromptSettings();
-    defaultSettings.value = settings;
+    const normalizedSettings = {
+      ...settings,
+      mainPrompt: settings.mainPrompt?.trim() || DEFAULT_MAIN_PROMPT,
+      introPrompt: settings.introPrompt?.trim() || DEFAULT_INTRO_PROMPT,
+      analysisPrompt: settings.analysisPrompt?.trim() || DEFAULT_ANALYSIS_PROMPT,
+      customSellingPoints: settings.customSellingPoints?.length ? settings.customSellingPoints : DEFAULT_SELLING_POINTS,
+    };
+    defaultSettings.value = normalizedSettings;
     if (!taskForm.value.mainPrompt.trim()) {
-      taskForm.value.mainPrompt = settings.mainPrompt;
+      taskForm.value.mainPrompt = normalizedSettings.mainPrompt;
     }
     if (!taskForm.value.introPrompt.trim()) {
-      taskForm.value.introPrompt = settings.introPrompt;
+      taskForm.value.introPrompt = normalizedSettings.introPrompt;
+    }
+    if (normalizedSettings.customSellingPoints.length > 0) {
+      taskForm.value.sellingPoints = [...normalizedSettings.customSellingPoints];
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
@@ -272,9 +288,16 @@ async function savePromptSettings() {
   settingsSaving.value = true;
   try {
     const settings = await saveDefaultPromptSettings(defaultSettings.value);
-    defaultSettings.value = settings;
-    taskForm.value.mainPrompt = settings.mainPrompt;
-    taskForm.value.introPrompt = settings.introPrompt;
+    defaultSettings.value = {
+      ...settings,
+      mainPrompt: settings.mainPrompt?.trim() || DEFAULT_MAIN_PROMPT,
+      introPrompt: settings.introPrompt?.trim() || DEFAULT_INTRO_PROMPT,
+      analysisPrompt: settings.analysisPrompt?.trim() || DEFAULT_ANALYSIS_PROMPT,
+      customSellingPoints: settings.customSellingPoints?.length ? settings.customSellingPoints : DEFAULT_SELLING_POINTS,
+    };
+    taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
+    taskForm.value.introPrompt = defaultSettings.value.introPrompt;
+    taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
     ElMessage.success('默认提示词已保存。');
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
@@ -294,15 +317,61 @@ async function analyzeUploadImage(type: '实拍图' | '包装图') {
     ElMessage.warning(`请先上传${type}。`);
     return;
   }
+  uploadAnalysis.value[type] = null;
   analysisLoading.value[type] = true;
   try {
-    uploadAnalysis.value[type] = await analyzeUploadedImages(type, files);
+    uploadAnalysis.value[type] = await analyzeUploadedImages(type, files, defaultSettings.value.analysisPrompt);
     ElMessage.success(`${type}深析完成。`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
   } finally {
     analysisLoading.value[type] = false;
   }
+}
+
+function uploadKey(file: UploadUserFile): string {
+  return String(file.uid ?? file.name);
+}
+
+function filePreviewUrl(file: UploadUserFile): string {
+  if (file.url) return file.url;
+  const key = uploadKey(file);
+  if (!previewUrls.value[key] && file.raw) {
+    previewUrls.value[key] = URL.createObjectURL(file.raw as unknown as Blob);
+  }
+  return previewUrls.value[key] ?? '';
+}
+
+function handleUploadRemove(file: UploadUserFile) {
+  const key = uploadKey(file);
+  const url = previewUrls.value[key];
+  if (url) {
+    URL.revokeObjectURL(url);
+    delete previewUrls.value[key];
+  }
+}
+
+function removeUploadFile(type: '实拍图' | '包装图', file: UploadUserFile) {
+  const source = type === '实拍图' ? realPhotoFiles : packageImageFiles;
+  source.value = source.value.filter((item) => uploadKey(item) !== uploadKey(file));
+  handleUploadRemove(file);
+}
+
+function addDefaultSellingPoint() {
+  const point = newDefaultSellingPoint.value.trim();
+  if (!point) return;
+  if (!defaultSettings.value.customSellingPoints.includes(point)) {
+    defaultSettings.value.customSellingPoints.push(point);
+  }
+  if (!taskForm.value.sellingPoints.includes(point)) {
+    taskForm.value.sellingPoints.push(point);
+  }
+  newDefaultSellingPoint.value = '';
+}
+
+function removeDefaultSellingPoint(point: string) {
+  defaultSettings.value.customSellingPoints = defaultSettings.value.customSellingPoints.filter((item) => item !== point);
+  taskForm.value.sellingPoints = taskForm.value.sellingPoints.filter((item) => item !== point);
 }
 
 function autoRecognizeModel() {
@@ -372,6 +441,7 @@ function resetTaskForm() {
   if (defaultSettings.value.introPrompt) {
     taskForm.value.introPrompt = defaultSettings.value.introPrompt;
   }
+  taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
   kitSpecs.value = kitSpecs.value.map((item) => ({ ...item, quantity: 0 }));
   ElMessage.success('任务参数已重置。');
 }
@@ -602,10 +672,25 @@ function pageSubtitle(): string {
                     drag
                     multiple
                     :auto-upload="false"
+                    :show-file-list="false"
+                    @remove="handleUploadRemove"
                   >
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传实拍图</div>
                   </el-upload>
+                  <div v-if="realPhotoFiles.length" class="preview-grid">
+                    <div v-for="file in realPhotoFiles" :key="uploadKey(file)" class="preview-tile">
+                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <span>{{ file.name }}</span>
+                      <button type="button" @click="removeUploadFile('实拍图', file)">移除</button>
+                    </div>
+                  </div>
+                  <p
+                    class="analysis-result-line"
+                    :class="{ ready: uploadAnalysis['实拍图'] }"
+                  >
+                    {{ uploadAnalysis['实拍图']?.result || (analysisLoading['实拍图'] ? '正在深析上传图...' : '暂无深析结果') }}
+                  </p>
                 </div>
 
                 <div class="upload-section">
@@ -642,10 +727,25 @@ function pageSubtitle(): string {
                     drag
                     multiple
                     :auto-upload="false"
+                    :show-file-list="false"
+                    @remove="handleUploadRemove"
                   >
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传包装图</div>
                   </el-upload>
+                  <div v-if="packageImageFiles.length" class="preview-grid">
+                    <div v-for="file in packageImageFiles" :key="uploadKey(file)" class="preview-tile">
+                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <span>{{ file.name }}</span>
+                      <button type="button" @click="removeUploadFile('包装图', file)">移除</button>
+                    </div>
+                  </div>
+                  <p
+                    class="analysis-result-line"
+                    :class="{ ready: uploadAnalysis['包装图'] }"
+                  >
+                    {{ uploadAnalysis['包装图']?.result || (analysisLoading['包装图'] ? '正在深析上传图...' : '暂无深析结果') }}
+                  </p>
                 </div>
 
                 <div class="upload-section">
@@ -717,7 +817,17 @@ function pageSubtitle(): string {
                     </div>
                   </div>
                   <div class="form-row">
-                    <label>图片比例</label>
+                    <div class="label-help-row">
+                      <label>图片比例</label>
+                      <el-popover placement="top" width="320" trigger="hover">
+                        <template #reference>
+                          <button class="help-button" type="button">?</button>
+                        </template>
+                        <p class="help-copy">
+                          Image 2 生图建议使用正方形或接近平台规范的尺寸。Amazon 常用 1500 x 1500；TEMU 可用 1000 x 1000；横版场景可用 900 x 600。自定义时请保持宽高不小于 300。
+                        </p>
+                      </el-popover>
+                    </div>
                     <div class="segmented-list">
                       <button
                         v-for="ratio in ratioOptions"
@@ -757,7 +867,14 @@ function pageSubtitle(): string {
                       >
                         {{ color }}
                       </button>
-                      <el-color-picker v-model="taskForm.customColor" size="small" />
+                      <div class="custom-color-control">
+                        <span>取色</span>
+                        <el-color-picker
+                          v-model="taskForm.customColor"
+                          size="large"
+                          @change="taskForm.phoneColor = '自定义'"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -814,24 +931,24 @@ function pageSubtitle(): string {
                   </div>
                 </div>
 
-                <div class="selling-points">
-                  <el-tag
-                    v-for="(point, index) in taskForm.sellingPoints"
-                    :key="point"
-                    closable
-                    effect="plain"
-                    @close="removeSellingPoint(index)"
+                <div class="form-row no-margin">
+                  <label>卖点多选</label>
+                  <el-select
+                    v-model="taskForm.sellingPoints"
+                    class="selling-select"
+                    multiple
+                    filterable
+                    collapse-tags
+                    collapse-tags-tooltip
+                    placeholder="从默认设置中选择卖点"
                   >
-                    {{ point }}
-                  </el-tag>
-                  <div class="add-point">
-                    <el-input
-                      v-model="taskForm.newSellingPoint"
-                      placeholder="添加自定义卖点"
-                      @keyup.enter="addSellingPoint"
+                    <el-option
+                      v-for="point in sellingPointOptions"
+                      :key="point"
+                      :label="point"
+                      :value="point"
                     />
-                    <el-button :icon="Plus" @click="addSellingPoint">添加</el-button>
-                  </div>
+                  </el-select>
                 </div>
               </section>
 
@@ -843,27 +960,31 @@ function pageSubtitle(): string {
                   </div>
                 </div>
 
-                <div class="generation-grid">
-                  <label class="check-row">
-                    <el-checkbox v-model="taskForm.hdEnabled" />
-                    <span>高清（HD）</span>
+                <div class="generation-panel">
+                  <div class="quantity-row">
+                    <label class="feature-toggle">
+                      <el-checkbox v-model="taskForm.hdEnabled" />
+                      <span>高清（HD）</span>
+                    </label>
                     <el-input-number v-model="taskForm.hdQuantity" :min="0" :max="99" />
-                  </label>
-                  <label class="check-row">
-                    <el-checkbox v-model="taskForm.privacyEnabled" />
-                    <span>防窥膜（Privacy）</span>
+                  </div>
+                  <div class="quantity-row">
+                    <label class="feature-toggle">
+                      <el-checkbox v-model="taskForm.privacyEnabled" />
+                      <span>防窥膜（Privacy）</span>
+                    </label>
                     <el-input-number v-model="taskForm.privacyQuantity" :min="0" :max="99" />
-                  </label>
-                  <div class="form-row">
-                    <label>主图数量</label>
+                  </div>
+                  <div class="quantity-row">
+                    <span>主图数量</span>
                     <el-input-number v-model="taskForm.mainImageCount" :min="0" :max="99" />
                   </div>
-                  <div class="form-row">
-                    <label>介绍图数量</label>
+                  <div class="quantity-row">
+                    <span>介绍图数量</span>
                     <el-input-number v-model="taskForm.introImageCount" :min="0" :max="99" />
                   </div>
-                  <div class="form-row">
-                    <label>语言</label>
+                  <div class="language-row">
+                    <span>语言</span>
                     <el-radio-group v-model="taskForm.language">
                       <el-radio-button v-for="lang in languageOptions" :key="lang" :label="lang" />
                     </el-radio-group>
@@ -935,6 +1056,41 @@ function pageSubtitle(): string {
                     show-word-limit
                     placeholder="请输入介绍图提示词默认内容"
                   />
+                </div>
+              </div>
+
+              <div class="form-row">
+                <label>深析上传图的提示词</label>
+                <el-input
+                  v-model="defaultSettings.analysisPrompt"
+                  type="textarea"
+                  :rows="5"
+                  maxlength="2000"
+                  show-word-limit
+                  placeholder="请输入深析上传图时发送给 GPT 的默认分析要求"
+                />
+              </div>
+
+              <div class="form-row">
+                <label>自定义卖点</label>
+                <div class="default-point-editor">
+                  <el-tag
+                    v-for="point in defaultSettings.customSellingPoints"
+                    :key="point"
+                    closable
+                    effect="plain"
+                    @close="removeDefaultSellingPoint(point)"
+                  >
+                    {{ point }}
+                  </el-tag>
+                  <div class="add-point">
+                    <el-input
+                      v-model="newDefaultSellingPoint"
+                      placeholder="输入卖点后回车添加"
+                      @keyup.enter="addDefaultSellingPoint"
+                    />
+                    <el-button :icon="Plus" @click="addDefaultSellingPoint">添加</el-button>
+                  </div>
                 </div>
               </div>
 

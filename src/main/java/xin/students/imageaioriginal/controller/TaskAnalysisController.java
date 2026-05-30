@@ -23,8 +23,9 @@ public class TaskAnalysisController {
     @PostMapping("/analyze-upload")
     public UploadImageAnalysis analyzeUpload(
             @RequestParam String type,
+            @RequestParam(value = "prompt", required = false) String prompt,
             @RequestParam("files") List<MultipartFile> files
     ) {
-        return uploadImageAnalysisService.analyze(type, files);
+        return uploadImageAnalysisService.analyze(type, prompt, files);
     }
 }

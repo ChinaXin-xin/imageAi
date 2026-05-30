@@ -34,9 +34,10 @@ export async function saveDefaultPromptSettings(settings: DefaultPromptSettings)
   return (await response.json()) as DefaultPromptSettings;
 }
 
-export async function analyzeUploadedImages(type: string, files: File[]): Promise<UploadImageAnalysis> {
+export async function analyzeUploadedImages(type: string, files: File[], prompt: string): Promise<UploadImageAnalysis> {
   const formData = new FormData();
   formData.append('type', type);
+  formData.append('prompt', prompt);
   files.forEach((file) => formData.append('files', file));
 
   const response = await fetch(`${API_BASE_URL}/api/task/analyze-upload`, {
