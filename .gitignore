@@ -2,6 +2,7 @@ HELP.md
 target/
 node_modules/
 dist/
+logs/
 *.tsbuildinfo
 .env.local
 .env.*.local

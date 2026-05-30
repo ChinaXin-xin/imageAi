@@ -1,6 +1,8 @@
 package xin.students.imageaioriginal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -26,16 +28,20 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class UploadImageAnalysisService {
 
+    private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
     private static final String MANAGEMENT_SUFFIX = "/v0/management";
     private static final int MAX_ANALYSIS_IMAGES = 6;
     private static final long MAX_UPLOAD_FILE_BYTES = 20L * 1024 * 1024;
     private static final int PRIMARY_MAX_EDGE = 1400;
     private static final int FALLBACK_MAX_EDGE = 1000;
     private static final int TARGET_IMAGE_BYTES = 1_200_000;
+    private static final String DEFAULT_ANALYSIS_PROMPT =
+            "请客观描述上传图片中的可见内容、主体、文字、颜色、材质、包装、场景、构图和可用于生成图片的关键信息，不要编造看不见的信息。";
 
     private final GptProperties gptProperties;
     private final CliProxyProperties cliProxyProperties;
@@ -52,6 +58,7 @@ public class UploadImageAnalysisService {
     }
 
     public UploadImageAnalysis analyze(String type, String prompt, List<MultipartFile> files) {
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
         List<MultipartFile> uploadedFiles = files == null ? List.of() : files.stream()
                 .filter(file -> file != null && !file.isEmpty())
                 .toList();
@@ -69,16 +76,38 @@ public class UploadImageAnalysisService {
                 .limit(MAX_ANALYSIS_IMAGES)
                 .toList();
 
+        String finalPrompt = buildPrompt(prompt);
+        LOG.info(
+                "gpt.analysis.start id={} type={} model={} uploadedCount={} analyzedCount={} prompt={}",
+                requestId,
+                type,
+                gptProperties.resolvedModel(),
+                uploadedFiles.size(),
+                analysisFiles.size(),
+                finalPrompt
+        );
+
         List<Map<String, Object>> content = new ArrayList<>();
         content.add(Map.of(
                 "type", "text",
-                "text", buildPrompt(type, prompt, analysisFiles.size(), uploadedFiles.size())
+                "text", finalPrompt
         ));
 
         for (MultipartFile file : analysisFiles) {
+            EncodedImage encodedImage = toDataUrl(file);
+            LOG.info(
+                    "gpt.analysis.image id={} fileName={} contentType={} originalBytes={} encodedBytes={} width={} height={}",
+                    requestId,
+                    safeValue(file.getOriginalFilename()),
+                    safeValue(file.getContentType()),
+                    file.getSize(),
+                    encodedImage.bytes(),
+                    encodedImage.width(),
+                    encodedImage.height()
+            );
             content.add(Map.of(
                     "type", "image_url",
-                    "image_url", Map.of("url", toDataUrl(file))
+                    "image_url", Map.of("url", encodedImage.dataUrl())
             ));
         }
 
@@ -98,7 +127,14 @@ public class UploadImageAnalysisService {
                 .retrieve()
                 .body(JsonNode.class);
 
-        return new UploadImageAnalysis(type, gptProperties.resolvedModel(), extractText(response));
+        String result = extractText(response);
+        LOG.info(
+                "gpt.analysis.response id={} model={} result={}",
+                requestId,
+                gptProperties.resolvedModel(),
+                result
+        );
+        return new UploadImageAnalysis(type, gptProperties.resolvedModel(), result);
     }
 
     private String resolveApiKey() {
@@ -153,27 +189,11 @@ public class UploadImageAnalysisService {
         return baseUrl.endsWith(MANAGEMENT_SUFFIX) ? baseUrl : baseUrl + MANAGEMENT_SUFFIX;
     }
 
-    private String buildPrompt(String type, String prompt, int analyzedCount, int uploadedCount) {
-        String limitNote = uploadedCount > analyzedCount
-                ? "用户实际上传了 %d 张，为控制请求体积，本次先分析前 %d 张。".formatted(uploadedCount, analyzedCount)
-                : "";
-        String customPrompt = prompt == null || prompt.isBlank()
-                ? "请结合跨境电商手机配件主图和介绍图生成需求，提炼图片中的可用信息。"
-                : prompt.trim();
-        return """
-                你是跨境电商手机配件视觉分析专家。请深度分析用户上传的 %s，共 %d 张。%s
-                本次深析提示词：%s
-                输出中文，结构清晰，不要编造看不见的信息。请包含：
-                1. 产品类型与可能机型/适配范围；
-                2. 包装、材质、颜色、透明度、边缘细节；
-                3. 可用于主图的画面重点；
-                4. 可用于介绍图的卖点提炼；
-                5. 风险与缺失信息；
-                6. 建议用于生成任务的提示词补充。
-                """.formatted(type, analyzedCount, limitNote, customPrompt);
+    private String buildPrompt(String prompt) {
+        return prompt == null || prompt.isBlank() ? DEFAULT_ANALYSIS_PROMPT : prompt.trim();
     }
 
-    private String toDataUrl(MultipartFile file) {
+    private EncodedImage toDataUrl(MultipartFile file) {
         try {
             BufferedImage source = ImageIO.read(file.getInputStream());
             if (source == null) {
@@ -184,7 +204,12 @@ public class UploadImageAnalysisService {
                 imageBytes = encodeJpeg(source, FALLBACK_MAX_EDGE, 0.72f);
             }
             String base64 = Base64.getEncoder().encodeToString(imageBytes);
-            return "data:image/jpeg;base64," + base64;
+            return new EncodedImage(
+                    "data:image/jpeg;base64," + base64,
+                    imageBytes.length,
+                    source.getWidth(),
+                    source.getHeight()
+            );
         } catch (IOException ex) {
             throw new IllegalStateException("读取上传图片失败：" + file.getOriginalFilename(), ex);
         }
@@ -236,5 +261,17 @@ public class UploadImageAnalysisService {
             return content.asText();
         }
         throw new IllegalStateException("GPT 5.5 未返回有效分析结果");
+    }
+
+    private String safeValue(String value) {
+        return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private record EncodedImage(
+            String dataUrl,
+            int bytes,
+            int width,
+            int height
+    ) {
     }
 }
