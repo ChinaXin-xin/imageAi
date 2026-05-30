@@ -6,6 +6,10 @@ spring:
     url: jdbc:mysql://localhost:33306/image_ai_original?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 80MB
     
 image-ai:
   cli-proxy:
