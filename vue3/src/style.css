@@ -1009,6 +1009,17 @@ h1 {
   font-size: 12px;
 }
 
+.queue-side-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-side-actions .el-button {
+  margin-left: 0;
+}
+
 .queue-detail-dialog,
 .queue-detail-dialog.el-dialog,
 .queue-detail-dialog .el-dialog {

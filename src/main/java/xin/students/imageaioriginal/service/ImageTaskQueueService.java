@@ -59,6 +59,8 @@ public class ImageTaskQueueService {
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int STALE_GENERATION_SECONDS = 6 * 60;
     private static final String STALE_GENERATION_MESSAGE = "生图接口超过 6 分钟未返回，已自动标记失败，请稍后重试。";
+    private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
+    private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
     private static final int THUMB_MAX_EDGE = 320;
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
@@ -92,6 +94,7 @@ public class ImageTaskQueueService {
     public void initialize() {
         ensureTables();
         failStaleRunningTasks();
+        pauseInterruptedRunningTasks();
         resumeUnfinishedTasks();
     }
 
@@ -189,6 +192,43 @@ public class ImageTaskQueueService {
         return getTask(taskId);
     }
 
+    public ImageTaskDetail pauseTask(String taskId) {
+        ensureTables();
+        try (Connection connection = dataSource.getConnection()) {
+            TaskRecord record = findTask(connection, taskId);
+            if (record == null) {
+                throw new IllegalArgumentException("任务不存在：" + taskId);
+            }
+            if ("COMPLETED".equals(record.status()) || "FAILED".equals(record.status())) {
+                throw new IllegalStateException("已结束任务不能暂停：" + statusText(record.status()));
+            }
+            pauseTask(connection, taskId, MANUAL_PAUSE_MESSAGE);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("暂停任务失败：" + taskId, ex);
+        }
+        imageGenerationService.cancelTask(taskId);
+        return getTask(taskId);
+    }
+
+    public ImageTaskDetail resumeTask(String taskId) {
+        ensureTables();
+        failStaleRunningTasks();
+        try (Connection connection = dataSource.getConnection()) {
+            TaskRecord record = findTask(connection, taskId);
+            if (record == null) {
+                throw new IllegalArgumentException("任务不存在：" + taskId);
+            }
+            if (!"PAUSED".equals(record.status())) {
+                throw new IllegalStateException("只有暂停中的任务可以继续：" + statusText(record.status()));
+            }
+            resetTaskForRetry(connection, taskId);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("继续任务失败：" + taskId, ex);
+        }
+        startProcessing(taskId);
+        return getTask(taskId);
+    }
+
     private void startProcessing(String taskId) {
         CompletableFuture.runAsync(() -> processTask(taskId), executorService);
     }
@@ -197,7 +237,7 @@ public class ImageTaskQueueService {
         List<String> taskIds = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     select id from image_tasks where status in ('QUEUED', 'ANALYZING', 'GENERATING')
+                     select id from image_tasks where status = 'QUEUED'
                      """);
              ResultSet resultSet = statement.executeQuery()) {
             while (resultSet.next()) {
@@ -208,6 +248,48 @@ public class ImageTaskQueueService {
             return;
         }
         taskIds.forEach(this::startProcessing);
+    }
+
+    private void pauseInterruptedRunningTasks() {
+        try (Connection connection = dataSource.getConnection()) {
+            List<String> taskIds = new ArrayList<>();
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    select id from image_tasks where status in ('ANALYZING', 'GENERATING')
+                    """);
+                 ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    taskIds.add(resultSet.getString("id"));
+                }
+            }
+            for (String taskId : taskIds) {
+                pauseTask(connection, taskId, STARTUP_PAUSE_MESSAGE);
+            }
+        } catch (SQLException ex) {
+            LOG.warn("pause interrupted image tasks failed", ex);
+        }
+    }
+
+    private void pauseTask(Connection connection, String taskId, String message) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update image_task_results
+                set status = 'PAUSED', error_message = ?, updated_at = current_timestamp(3)
+                where task_id = ? and status in ('QUEUED', 'ANALYZING', 'GENERATING')
+                """)) {
+            statement.setString(1, message);
+            statement.setString(2, taskId);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update image_tasks
+                set status = 'PAUSED',
+                    error_message = ?,
+                    updated_at = current_timestamp(3)
+                where id = ? and status in ('QUEUED', 'ANALYZING', 'GENERATING')
+                """)) {
+            statement.setString(1, message);
+            statement.setString(2, taskId);
+            statement.executeUpdate();
+        }
     }
 
     private void failStaleRunningTasks() {
@@ -267,7 +349,7 @@ public class ImageTaskQueueService {
     private void processTask(String taskId) {
         try {
             TaskRecord record = findTask(taskId);
-            if (record == null || "COMPLETED".equals(record.status()) || "FAILED".equals(record.status())) {
+            if (record == null || "COMPLETED".equals(record.status()) || "FAILED".equals(record.status()) || "PAUSED".equals(record.status())) {
                 return;
             }
             updateTaskState(taskId, "ANALYZING", null, true, false);
@@ -276,6 +358,7 @@ public class ImageTaskQueueService {
             if (requiresGeneration(record.payload()) && analysis.isEmpty()) {
                 throw new IllegalStateException("生成主图或介绍图前必须先深析上传图，请至少上传实拍图、包装图或模板图。");
             }
+            ensureTaskNotPaused(taskId);
 
             DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
             String finalMainPrompt = buildGenerationPrompt(
@@ -291,12 +374,14 @@ public class ImageTaskQueueService {
                     analysis
             );
             saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
+            ensureTaskNotPaused(taskId);
             clearResults(taskId);
             List<GenerationJob> jobs = createGenerationJobs(taskId, finalMainPrompt, finalIntroPrompt, record.payload());
             updateTaskState(taskId, "GENERATING", null, false, false);
 
             List<StoredUploadImage> referenceImages = readAllStoredImages(taskId);
             for (GenerationJob job : jobs) {
+                ensureTaskNotPaused(taskId);
                 generateOne(taskId, job, record.payload(), referenceImages);
             }
 
@@ -359,6 +444,13 @@ public class ImageTaskQueueService {
         } catch (Exception ex) {
             failResult(job.resultId(), ex);
             throw ex;
+        }
+    }
+
+    private void ensureTaskNotPaused(String taskId) {
+        TaskRecord record = findTask(taskId);
+        if (record != null && "PAUSED".equals(record.status())) {
+            throw new IllegalStateException(MANUAL_PAUSE_MESSAGE);
         }
     }
 
@@ -1029,7 +1121,7 @@ public class ImageTaskQueueService {
         try (PreparedStatement statement = connection.prepareStatement("""
                 update image_task_results
                 set status = 'FAILED', error_message = ?, updated_at = current_timestamp(3)
-                where id = ? and status <> 'COMPLETED'
+                where id = ? and status not in ('COMPLETED', 'PAUSED')
                 """)) {
             statement.setString(1, abbreviate(ex.getMessage(), 4000));
             statement.setLong(2, resultId);
@@ -1064,7 +1156,12 @@ public class ImageTaskQueueService {
                 set status = ?, error_message = ?, updated_at = current_timestamp(3),
                     started_at = case when ? then coalesce(started_at, current_timestamp(3)) else started_at end,
                     completed_at = case when ? then current_timestamp(3) else completed_at end
-                where id = ? and (? = 'FAILED' or status <> 'FAILED')
+                where id = ?
+                  and (
+                    (? = 'FAILED' and status <> 'PAUSED')
+                    or
+                    (? <> 'FAILED' and status not in ('FAILED', 'PAUSED'))
+                  )
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, status);
@@ -1073,6 +1170,7 @@ public class ImageTaskQueueService {
             statement.setBoolean(4, markCompleted);
             statement.setString(5, taskId);
             statement.setString(6, status);
+            statement.setString(7, status);
             statement.executeUpdate();
         }
     }
@@ -1284,6 +1382,7 @@ public class ImageTaskQueueService {
             case "QUEUED" -> "待生成";
             case "ANALYZING" -> "正在深析";
             case "GENERATING" -> "正在生图";
+            case "PAUSED" -> "已暂停";
             case "COMPLETED" -> "已完成";
             case "FAILED" -> "失败";
             default -> status;

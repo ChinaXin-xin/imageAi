@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,6 +47,7 @@ public class ImageGenerationService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final ExecutorService requestExecutor = Executors.newCachedThreadPool(imageRequestThreadFactory());
+    private final Map<String, Future<?>> runningRequests = new ConcurrentHashMap<>();
 
     public ImageGenerationService(
             GptProperties gptProperties,
@@ -67,6 +69,13 @@ public class ImageGenerationService {
     @PreDestroy
     public void shutdown() {
         requestExecutor.shutdownNow();
+    }
+
+    public void cancelTask(String taskId) {
+        Future<?> future = runningRequests.remove(taskId);
+        if (future != null) {
+            future.cancel(true);
+        }
     }
 
     public GeneratedImage generate(
@@ -142,6 +151,7 @@ public class ImageGenerationService {
             int itemIndex
     ) {
         Future<JsonNode> future = requestExecutor.submit(request::execute);
+        runningRequests.put(taskId, future);
         try {
             return future.get(HARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException ex) {
@@ -165,6 +175,8 @@ public class ImageGenerationService {
                 throw runtimeException;
             }
             throw new IllegalStateException("生图请求失败：" + cause.getMessage(), cause);
+        } finally {
+            runningRequests.remove(taskId, future);
         }
     }
 

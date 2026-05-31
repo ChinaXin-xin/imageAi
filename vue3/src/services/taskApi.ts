@@ -93,6 +93,32 @@ export async function retryImageTask(taskId: string): Promise<ImageTaskDetail> {
   return (await response.json()) as ImageTaskDetail;
 }
 
+export async function pauseImageTask(taskId: string): Promise<ImageTaskDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/pause`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as ImageTaskDetail;
+}
+
+export async function resumeImageTask(taskId: string): Promise<ImageTaskDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/resume`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as ImageTaskDetail;
+}
+
 export async function createImageTask(
   payload: ImageTaskPayload,
   files: {

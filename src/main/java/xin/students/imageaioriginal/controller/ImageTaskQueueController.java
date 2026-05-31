@@ -49,4 +49,14 @@ public class ImageTaskQueueController {
     public ImageTaskDetail retryTask(@PathVariable String taskId) {
         return imageTaskQueueService.retryTask(taskId);
     }
+
+    @PostMapping("/{taskId}/pause")
+    public ImageTaskDetail pauseTask(@PathVariable String taskId) {
+        return imageTaskQueueService.pauseTask(taskId);
+    }
+
+    @PostMapping("/{taskId}/resume")
+    public ImageTaskDetail resumeTask(@PathVariable String taskId) {
+        return imageTaskQueueService.resumeTask(taskId);
+    }
 }

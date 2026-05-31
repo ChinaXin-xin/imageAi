@@ -13,8 +13,10 @@ import {
   Refresh,
   RefreshRight,
   Upload,
+  VideoPause,
+  VideoPlay,
 } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import type { UploadUserFile } from 'element-plus';
 import appIcon from './assets/imageai-icon.png';
 import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
@@ -25,7 +27,9 @@ import {
   loadImageTask,
   loadImageTasks,
   loadDefaultPromptSettings,
+  pauseImageTask,
   retryImageTask,
+  resumeImageTask,
   saveDefaultPromptSettings,
 } from './services/taskApi';
 import type {
@@ -700,6 +704,46 @@ async function retryQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
   }
 }
 
+async function pauseQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
+  try {
+    await ElMessageBox.confirm(
+      `确定暂停任务「${task.productName}」吗？暂停后不会继续请求后端，点击继续会重新生成。`,
+      '暂停任务',
+      {
+        confirmButtonText: '确定暂停',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+    selectedQueueTask.value = await pauseImageTask(task.id);
+    await loadTaskQueue(false);
+    ElMessage.success('任务已暂停。');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function resumeQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
+  try {
+    await ElMessageBox.confirm(
+      `确定继续任务「${task.productName}」吗？继续后会重新深析并重新生成图片。`,
+      '继续任务',
+      {
+        confirmButtonText: '确定继续',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+    selectedQueueTask.value = await resumeImageTask(task.id);
+    await loadTaskQueue(false);
+    ElMessage.success('任务已重新加入队列。');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function isRunningTask(status: string): boolean {
   return ['QUEUED', 'ANALYZING', 'GENERATING'].includes(status);
 }
@@ -707,6 +751,7 @@ function isRunningTask(status: string): boolean {
 function taskStatusTagType(status: string): 'success' | 'info' | 'warning' | 'danger' {
   if (status === 'COMPLETED') return 'success';
   if (status === 'FAILED') return 'danger';
+  if (status === 'PAUSED') return 'info';
   if (status === 'GENERATING' || status === 'ANALYZING') return 'warning';
   return 'info';
 }
@@ -1615,8 +1660,28 @@ function pageSubtitle(): string {
                   </div>
                   <div class="queue-side">
                     <span>{{ task.createdAt }}</span>
-                    <el-button text type="primary" @click="openQueueDetail(task)">查看详情</el-button>
-                    <el-button v-if="task.status === 'FAILED'" text type="warning" @click="retryQueuedTask(task)">重试</el-button>
+                    <div class="queue-side-actions">
+                      <el-button text type="primary" @click="openQueueDetail(task)">查看详情</el-button>
+                      <el-button
+                        v-if="isRunningTask(task.status)"
+                        text
+                        type="warning"
+                        :icon="VideoPause"
+                        @click="pauseQueuedTask(task)"
+                      >
+                        暂停
+                      </el-button>
+                      <el-button
+                        v-else-if="task.status === 'PAUSED'"
+                        text
+                        type="success"
+                        :icon="VideoPlay"
+                        @click="resumeQueuedTask(task)"
+                      >
+                        继续
+                      </el-button>
+                      <el-button v-else-if="task.status === 'FAILED'" text type="warning" @click="retryQueuedTask(task)">重试</el-button>
+                    </div>
                   </div>
                 </article>
               </div>
@@ -1978,6 +2043,12 @@ function pageSubtitle(): string {
         </div>
 
         <div class="dialog-actions">
+          <el-button v-if="isRunningTask(selectedQueueTask.status)" type="warning" :icon="VideoPause" @click="pauseQueuedTask(selectedQueueTask)">
+            暂停任务
+          </el-button>
+          <el-button v-else-if="selectedQueueTask.status === 'PAUSED'" type="success" :icon="VideoPlay" @click="resumeQueuedTask(selectedQueueTask)">
+            继续任务
+          </el-button>
           <el-button v-if="selectedQueueTask.status === 'FAILED'" type="warning" @click="retryQueuedTask(selectedQueueTask)">
             重新生成
           </el-button>
