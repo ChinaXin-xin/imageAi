@@ -800,6 +800,10 @@ function taskFilesByGroup(type: UploadGroup) {
   return selectedQueueTask.value?.files?.[type] ?? [];
 }
 
+function visibleKitSpecs(task: ImageTaskDetail | null) {
+  return task?.kitSpecs?.filter((item) => Number(item.quantity) > 0) ?? [];
+}
+
 function generatedImageSrc(result: { imageUrl?: string | null; imageBase64?: string | null }): string {
   if (result.imageUrl) return result.imageUrl;
   if (!result.imageBase64) return '';
@@ -874,7 +878,18 @@ function pageSubtitle(): string {
       <el-aside :width="isCollapsed ? '68px' : '292px'" class="sidebar" :class="{ collapsed: isCollapsed }">
         <div class="brand-block">
           <div class="brand-main">
-            <img class="brand-icon" :src="appIcon" alt="ImageAI" />
+            <div
+              class="brand-image-wrap image-action-wrap"
+              role="button"
+              tabindex="0"
+              @click="openImageViewer(appIcon, 'ImageAI.png')"
+              @keydown.enter="openImageViewer(appIcon, 'ImageAI.png')"
+            >
+              <img class="brand-icon" :src="appIcon" alt="ImageAI" />
+              <button class="image-download-button brand-download-button" type="button" title="下载图片" @click.stop="downloadImage(appIcon, 'ImageAI.png')">
+                <el-icon><Download /></el-icon>
+              </button>
+            </div>
             <div v-if="!isCollapsed" class="brand-copy">
               <strong style="position: relative; top: 2px; user-select: none;">
                 ImageAI
@@ -1880,11 +1895,12 @@ function pageSubtitle(): string {
 
           <section class="detail-block">
             <h3>套装规格</h3>
-            <div class="queue-tags">
-              <span v-for="item in selectedQueueTask.kitSpecs" :key="item.name">
+            <div v-if="visibleKitSpecs(selectedQueueTask).length" class="queue-tags">
+              <span v-for="item in visibleKitSpecs(selectedQueueTask)" :key="item.name">
                 {{ item.name }} x {{ item.quantity }}
               </span>
             </div>
+            <p v-else class="empty-inline">未选择</p>
           </section>
 
           <section class="detail-block detail-wide">

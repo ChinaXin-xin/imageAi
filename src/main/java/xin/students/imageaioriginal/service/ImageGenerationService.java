@@ -148,7 +148,7 @@ public class ImageGenerationService {
             if (image == null || image.bytes() == null || image.bytes().length == 0) {
                 continue;
             }
-            builder.part("image[]", imageResource(image))
+            builder.part("image", imageResource(image))
                     .filename(safeFileName(image.fileName()))
                     .contentType(safeMediaType(image.contentType()));
         }
