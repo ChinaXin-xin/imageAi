@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
 import xin.students.imageaioriginal.config.CliProxyProperties;
 import xin.students.imageaioriginal.config.GptProperties;
+import xin.students.imageaioriginal.model.StoredUploadImage;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
 
 import javax.imageio.IIOImage;
@@ -21,6 +22,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -58,21 +60,35 @@ public class UploadImageAnalysisService {
     }
 
     public UploadImageAnalysis analyze(String type, String prompt, List<MultipartFile> files) {
-        String requestId = UUID.randomUUID().toString().substring(0, 8);
-        List<MultipartFile> uploadedFiles = files == null ? List.of() : files.stream()
+        List<StoredUploadImage> uploadedFiles = files == null ? List.of() : files.stream()
                 .filter(file -> file != null && !file.isEmpty())
+                .map(file -> {
+                    try {
+                        return new StoredUploadImage(file.getOriginalFilename(), file.getContentType(), file.getBytes());
+                    } catch (IOException ex) {
+                        throw new IllegalStateException("读取上传图片失败：" + file.getOriginalFilename(), ex);
+                    }
+                })
+                .toList();
+        return analyzeStored(type, prompt, uploadedFiles);
+    }
+
+    public UploadImageAnalysis analyzeStored(String type, String prompt, List<StoredUploadImage> files) {
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        List<StoredUploadImage> uploadedFiles = files == null ? List.of() : files.stream()
+                .filter(file -> file != null && file.bytes() != null && file.bytes().length > 0)
                 .toList();
         if (uploadedFiles.isEmpty()) {
             throw new IllegalArgumentException("请先上传需要深析的图片");
         }
-        for (MultipartFile file : uploadedFiles) {
-            if (file.getSize() > MAX_UPLOAD_FILE_BYTES) {
-                throw new IllegalArgumentException("单张图片不能超过 20MB：" + file.getOriginalFilename());
+        for (StoredUploadImage file : uploadedFiles) {
+            if (file.size() > MAX_UPLOAD_FILE_BYTES) {
+                throw new IllegalArgumentException("单张图片不能超过 20MB：" + file.fileName());
             }
         }
         String apiKey = resolveApiKey();
 
-        List<MultipartFile> analysisFiles = uploadedFiles.stream()
+        List<StoredUploadImage> analysisFiles = uploadedFiles.stream()
                 .limit(MAX_ANALYSIS_IMAGES)
                 .toList();
 
@@ -93,14 +109,14 @@ public class UploadImageAnalysisService {
                 "text", finalPrompt
         ));
 
-        for (MultipartFile file : analysisFiles) {
+        for (StoredUploadImage file : analysisFiles) {
             EncodedImage encodedImage = toDataUrl(file);
             LOG.info(
                     "gpt.analysis.image id={} fileName={} contentType={} originalBytes={} encodedBytes={} width={} height={}",
                     requestId,
-                    safeValue(file.getOriginalFilename()),
-                    safeValue(file.getContentType()),
-                    file.getSize(),
+                    safeValue(file.fileName()),
+                    safeValue(file.contentType()),
+                    file.size(),
                     encodedImage.bytes(),
                     encodedImage.width(),
                     encodedImage.height()
@@ -137,7 +153,7 @@ public class UploadImageAnalysisService {
         return new UploadImageAnalysis(type, gptProperties.resolvedModel(), result);
     }
 
-    private String resolveApiKey() {
+    public String resolveApiKey() {
         String configuredApiKey = gptProperties.apiKey();
         if (configuredApiKey != null && !configuredApiKey.isBlank()) {
             return configuredApiKey.trim();
@@ -164,7 +180,7 @@ public class UploadImageAnalysisService {
         throw new IllegalStateException("未配置 image-ai.gpt.api-key，且未能从 CLIProxy 管理接口读取 api-keys");
     }
 
-    private String chatCompletionsUrl() {
+    public String chatCompletionsUrl() {
         String baseUrl = gptProperties.baseUrl();
         if (baseUrl == null || baseUrl.isBlank()) {
             baseUrl = cliProxyProperties.baseUrl();
@@ -193,11 +209,11 @@ public class UploadImageAnalysisService {
         return prompt == null || prompt.isBlank() ? DEFAULT_ANALYSIS_PROMPT : prompt.trim();
     }
 
-    private EncodedImage toDataUrl(MultipartFile file) {
+    private EncodedImage toDataUrl(StoredUploadImage file) {
         try {
-            BufferedImage source = ImageIO.read(file.getInputStream());
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(file.bytes()));
             if (source == null) {
-                throw new IllegalArgumentException("仅支持图片文件：" + file.getOriginalFilename());
+                throw new IllegalArgumentException("仅支持图片文件：" + file.fileName());
             }
             byte[] imageBytes = encodeJpeg(source, PRIMARY_MAX_EDGE, 0.78f);
             if (imageBytes.length > TARGET_IMAGE_BYTES) {
@@ -211,7 +227,7 @@ public class UploadImageAnalysisService {
                     source.getHeight()
             );
         } catch (IOException ex) {
-            throw new IllegalStateException("读取上传图片失败：" + file.getOriginalFilename(), ex);
+            throw new IllegalStateException("读取上传图片失败：" + file.fileName(), ex);
         }
     }
 

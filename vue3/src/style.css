@@ -810,6 +810,17 @@ h1 {
   background: #cbd5e1;
 }
 
+.queue-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #64748b;
+}
+
+.queue-error {
+  margin: 0 12px 10px;
+}
+
 .queue-row {
   display: grid;
   align-items: center;
@@ -894,6 +905,14 @@ h1 {
   font-size: 12px;
 }
 
+.queue-progress {
+  margin-top: 10px;
+}
+
+.queue-error-text {
+  color: #b91c1c !important;
+}
+
 .queue-side {
   display: flex;
   align-items: flex-end;
@@ -924,6 +943,30 @@ h1 {
   margin: 0 0 8px;
   color: #111827;
   font-size: 14px;
+}
+
+.result-list {
+  display: grid;
+  gap: 10px;
+}
+
+.result-row {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.result-row > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .settings-page::-webkit-scrollbar {

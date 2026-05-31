@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   CircleCheck,
   Document,
@@ -18,13 +18,20 @@ import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
 import { loadSystemOverview } from './services/systemApi';
 import {
   analyzeUploadedImages,
+  createImageTask,
+  loadImageTask,
+  loadImageTasks,
   loadDefaultPromptSettings,
+  retryImageTask,
   saveDefaultPromptSettings,
 } from './services/taskApi';
 import type {
   CodexQuotaAccount,
   DashboardStats,
   DefaultPromptSettings,
+  ImageTaskDetail,
+  ImageTaskPayload,
+  ImageTaskSummary,
   SystemOverview,
   UploadImageAnalysis,
 } from './types/quota';
@@ -39,43 +46,6 @@ const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏
 
 type UploadGroup = '实拍图' | '包装图' | '模板图';
 type AnalysisUploadGroup = '实拍图' | '包装图';
-
-interface TaskFormSnapshot {
-  productName: string;
-  model: string;
-  platform: string;
-  ratio: string;
-  customWidth: number;
-  customHeight: number;
-  phoneColor: string;
-  customColor: string;
-  logoName: string;
-  wallpaperName: string;
-  style: string;
-  layout: string;
-  sellingPoints: string[];
-  hdEnabled: boolean;
-  privacyEnabled: boolean;
-  hdQuantity: number;
-  privacyQuantity: number;
-  mainImageCount: number;
-  introImageCount: number;
-  language: string;
-  mainPrompt: string;
-  introPrompt: string;
-}
-
-interface QueuedTask {
-  id: string;
-  productName: string;
-  createdAt: string;
-  thumbnail: string;
-  thumbnailName: string;
-  fileSummary: Record<UploadGroup, number>;
-  form: TaskFormSnapshot;
-  kitSpecs: Array<{ name: string; quantity: number }>;
-  analysis: Record<AnalysisUploadGroup, string>;
-}
 
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
@@ -106,9 +76,13 @@ const analysisLoading = ref<Record<AnalysisUploadGroup, boolean>>({
 });
 const previewUrls = ref<Record<string, string>>({});
 const newDefaultSellingPoint = ref('');
-const taskQueue = ref<QueuedTask[]>([]);
-const selectedQueueTask = ref<QueuedTask | null>(null);
+const taskQueue = ref<ImageTaskSummary[]>([]);
+const selectedQueueTask = ref<ImageTaskDetail | null>(null);
 const queueDetailVisible = ref(false);
+const queueLoading = ref(false);
+const queueErrorMessage = ref('');
+const addingTask = ref(false);
+let queueRefreshTimer: number | undefined;
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
 const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
@@ -264,6 +238,18 @@ function systemFallbackText(): string {
 onMounted(() => {
   refreshQuota();
   loadPromptSettings();
+  loadTaskQueue(false);
+  queueRefreshTimer = window.setInterval(() => {
+    if (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status))) {
+      loadTaskQueue(false);
+    }
+  }, 3000);
+});
+
+onUnmounted(() => {
+  if (queueRefreshTimer) {
+    window.clearInterval(queueRefreshTimer);
+  }
 });
 
 function randomProductName(): string {
@@ -487,31 +473,25 @@ function autoRecognizeKitSpecs() {
 
 async function addToTaskQueue() {
   ensureProductName();
-  const task: QueuedTask = {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    productName: taskForm.value.productName,
-    createdAt: new Date().toLocaleString(),
-    thumbnail: await createQueueThumbnail(),
-    thumbnailName: firstUploadedFile()?.name || '暂无缩略图',
-    fileSummary: {
-      实拍图: realPhotoFiles.value.length,
-      包装图: packageImageFiles.value.length,
-      模板图: templateFiles.value.length,
-    },
-    form: snapshotTaskForm(),
-    kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
-    analysis: {
-      实拍图: uploadAnalysis.value.实拍图?.result || '',
-      包装图: uploadAnalysis.value.包装图?.result || '',
-    },
-  };
-  taskQueue.value.unshift(task);
-  selectedQueueTask.value = task;
-  activePage.value = 'queue';
-  ElMessage.success(`任务已添加到队列：${taskForm.value.productName}`);
+  addingTask.value = true;
+  try {
+    const createdTask = await createImageTask(snapshotTaskForm(), {
+      realPhotoFiles: rawUploadFiles(realPhotoFiles.value),
+      packageImageFiles: rawUploadFiles(packageImageFiles.value),
+      templateFiles: rawUploadFiles(templateFiles.value),
+    });
+    selectedQueueTask.value = createdTask;
+    activePage.value = 'queue';
+    await loadTaskQueue(false);
+    ElMessage.success(`任务已提交到后端队列：${createdTask.productName}`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    addingTask.value = false;
+  }
 }
 
-function snapshotTaskForm(): TaskFormSnapshot {
+function snapshotTaskForm(): ImageTaskPayload {
   return {
     productName: taskForm.value.productName,
     model: taskForm.value.model,
@@ -535,31 +515,75 @@ function snapshotTaskForm(): TaskFormSnapshot {
     language: taskForm.value.language,
     mainPrompt: taskForm.value.mainPrompt,
     introPrompt: taskForm.value.introPrompt,
+    kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
   };
 }
 
-function firstUploadedFile(): File | null {
-  const uploadFile = templateFiles.value[0] || realPhotoFiles.value[0] || packageImageFiles.value[0];
-  return uploadFile?.raw ? (uploadFile.raw as unknown as File) : null;
+function rawUploadFiles(files: UploadUserFile[]): File[] {
+  return files.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
 }
 
-async function createQueueThumbnail(): Promise<string> {
-  const file = firstUploadedFile();
-  return file ? readFileAsDataUrl(file) : '';
+async function loadTaskQueue(showLoading = true) {
+  if (showLoading) {
+    queueLoading.value = true;
+  }
+  queueErrorMessage.value = '';
+  try {
+    taskQueue.value = await loadImageTasks();
+    if (queueDetailVisible.value && selectedQueueTask.value) {
+      selectedQueueTask.value = await loadImageTask(selectedQueueTask.value.id);
+    }
+  } catch (error) {
+    queueErrorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (showLoading) {
+      queueLoading.value = false;
+    }
+  }
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+function openQueuePage() {
+  activePage.value = 'queue';
+  loadTaskQueue();
 }
 
-function openQueueDetail(task: QueuedTask) {
-  selectedQueueTask.value = task;
+async function openQueueDetail(task: ImageTaskSummary) {
   queueDetailVisible.value = true;
+  try {
+    selectedQueueTask.value = await loadImageTask(task.id);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function retryQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
+  try {
+    selectedQueueTask.value = await retryImageTask(task.id);
+    await loadTaskQueue(false);
+    ElMessage.success('任务已重新加入队列。');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function isRunningTask(status: string): boolean {
+  return ['QUEUED', 'ANALYZING', 'GENERATING'].includes(status);
+}
+
+function taskStatusTagType(status: string): 'success' | 'info' | 'warning' | 'danger' {
+  if (status === 'COMPLETED') return 'success';
+  if (status === 'FAILED') return 'danger';
+  if (status === 'GENERATING' || status === 'ANALYZING') return 'warning';
+  return 'info';
+}
+
+function taskProgress(task: ImageTaskSummary | ImageTaskDetail): number {
+  if (!task.totalCount) return isRunningTask(task.status) ? 5 : task.status === 'COMPLETED' ? 100 : 0;
+  return Math.round((task.completedCount / task.totalCount) * 100);
+}
+
+function fileCount(task: ImageTaskSummary | ImageTaskDetail, type: UploadGroup): number {
+  return task.fileSummary?.[type] ?? 0;
 }
 
 function resetTaskForm() {
@@ -668,7 +692,7 @@ function pageSubtitle(): string {
             class="nav-item"
             :class="{ active: activePage === 'queue' }"
             type="button"
-            @click="activePage = 'queue'"
+            @click="openQueuePage"
           >
             <el-icon><Document /></el-icon>
             <span v-if="!isCollapsed">任务队列</span>
@@ -707,6 +731,7 @@ function pageSubtitle(): string {
             <el-button
               type="primary"
               :icon="Plus"
+              :loading="addingTask"
               @click="addToTaskQueue"
             >
               添加到任务队列
@@ -1203,24 +1228,36 @@ function pageSubtitle(): string {
               </section>
 
               <div class="task-actions">
-                <el-button size="large" type="primary" :icon="Plus" @click="addToTaskQueue">添加到任务队列</el-button>
+                <el-button size="large" type="primary" :icon="Plus" :loading="addingTask" @click="addToTaskQueue">添加到任务队列</el-button>
                 <el-button size="large" :icon="Refresh" @click="resetTaskForm">清空重置</el-button>
               </div>
             </div>
           </section>
 
           <section v-else-if="activePage === 'queue'" class="queue-page">
-            <section class="queue-panel">
+            <section class="queue-panel" v-loading="queueLoading">
               <div class="panel-head">
                 <div>
                   <h2>任务队列</h2>
-                  <p>一行一个任务，点击缩略图查看当前生图参数详情。</p>
+                  <p>后端会先深析上传图，再把深析结果拼接到最终生图提示词中。</p>
                 </div>
-                <span>{{ taskQueue.length }} 个任务</span>
+                <div class="queue-head-actions">
+                  <span>{{ taskQueue.length }} 个任务</span>
+                  <el-button :icon="Refresh" @click="loadTaskQueue()">刷新</el-button>
+                </div>
               </div>
 
+              <el-alert
+                v-if="queueErrorMessage"
+                class="queue-error"
+                type="error"
+                :title="queueErrorMessage"
+                show-icon
+                :closable="false"
+              />
+
               <el-empty
-                v-if="taskQueue.length === 0"
+                v-if="!queueLoading && taskQueue.length === 0"
                 description="暂无任务，先在添加任务页点击添加到任务队列"
               />
 
@@ -1233,20 +1270,30 @@ function pageSubtitle(): string {
                   <div class="queue-main">
                     <div class="queue-title-row">
                       <h2>{{ task.productName }}</h2>
-                      <el-tag effect="plain">待生成</el-tag>
+                      <el-tag :type="taskStatusTagType(task.status)" effect="plain">{{ task.statusText }}</el-tag>
                     </div>
                     <p>{{ task.form.platform }} / {{ task.form.customWidth }} x {{ task.form.customHeight }} / {{ task.form.language }}</p>
                     <div class="queue-tags">
-                      <span>实拍图 {{ task.fileSummary.实拍图 }}</span>
-                      <span>包装图 {{ task.fileSummary.包装图 }}</span>
-                      <span>模板图 {{ task.fileSummary.模板图 }}</span>
+                      <span>实拍图 {{ fileCount(task, '实拍图') }}</span>
+                      <span>包装图 {{ fileCount(task, '包装图') }}</span>
+                      <span>模板图 {{ fileCount(task, '模板图') }}</span>
                       <span>主图 {{ task.form.mainImageCount }}</span>
                       <span>介绍图 {{ task.form.introImageCount }}</span>
+                      <span>生成 {{ task.completedCount }} / {{ task.totalCount }}</span>
                     </div>
+                    <el-progress
+                      class="queue-progress"
+                      :percentage="taskProgress(task)"
+                      :stroke-width="6"
+                      :show-text="false"
+                      :status="task.status === 'FAILED' ? 'exception' : task.status === 'COMPLETED' ? 'success' : undefined"
+                    />
+                    <p v-if="task.errorMessage" class="queue-error-text">{{ task.errorMessage }}</p>
                   </div>
                   <div class="queue-side">
                     <span>{{ task.createdAt }}</span>
                     <el-button text type="primary" @click="openQueueDetail(task)">查看详情</el-button>
+                    <el-button v-if="task.status === 'FAILED'" text type="warning" @click="retryQueuedTask(task)">重试</el-button>
                   </div>
                 </article>
               </div>
@@ -1447,11 +1494,12 @@ function pageSubtitle(): string {
           </div>
           <div>
             <h2>{{ selectedQueueTask.productName }}</h2>
-            <p>{{ selectedQueueTask.createdAt }}</p>
+            <p>{{ selectedQueueTask.createdAt }} / {{ selectedQueueTask.statusText }}</p>
             <div class="queue-tags">
               <span>{{ selectedQueueTask.form.platform }}</span>
               <span>{{ selectedQueueTask.form.customWidth }} x {{ selectedQueueTask.form.customHeight }}</span>
               <span>{{ selectedQueueTask.form.language }}</span>
+              <span>生成 {{ selectedQueueTask.completedCount }} / {{ selectedQueueTask.totalCount }}</span>
             </div>
           </div>
         </div>
@@ -1466,12 +1514,15 @@ function pageSubtitle(): string {
           <el-descriptions-item label="高清数量">{{ selectedQueueTask.form.hdEnabled ? selectedQueueTask.form.hdQuantity : 0 }}</el-descriptions-item>
           <el-descriptions-item label="防窥数量">{{ selectedQueueTask.form.privacyEnabled ? selectedQueueTask.form.privacyQuantity : 0 }}</el-descriptions-item>
           <el-descriptions-item label="素材数量">
-            实拍 {{ selectedQueueTask.fileSummary.实拍图 }} /
-            包装 {{ selectedQueueTask.fileSummary.包装图 }} /
-            模板 {{ selectedQueueTask.fileSummary.模板图 }}
+            实拍 {{ fileCount(selectedQueueTask, '实拍图') }} /
+            包装 {{ fileCount(selectedQueueTask, '包装图') }} /
+            模板 {{ fileCount(selectedQueueTask, '模板图') }}
           </el-descriptions-item>
           <el-descriptions-item label="卖点">
             {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="错误信息" v-if="selectedQueueTask.errorMessage">
+            {{ selectedQueueTask.errorMessage }}
           </el-descriptions-item>
         </el-descriptions>
 
@@ -1491,9 +1542,39 @@ function pageSubtitle(): string {
         </div>
 
         <div class="detail-block">
-          <h3>深析结果</h3>
-          <p><strong>实拍图：</strong>{{ selectedQueueTask.analysis.实拍图 || '暂无' }}</p>
-          <p><strong>包装图：</strong>{{ selectedQueueTask.analysis.包装图 || '暂无' }}</p>
+          <h3>后端深析结果</h3>
+          <p><strong>实拍图：</strong>{{ selectedQueueTask.analysis?.实拍图 || '暂无' }}</p>
+          <p><strong>包装图：</strong>{{ selectedQueueTask.analysis?.包装图 || '暂无' }}</p>
+          <p><strong>模板图：</strong>{{ selectedQueueTask.analysis?.模板图 || '暂无' }}</p>
+        </div>
+
+        <div class="detail-block">
+          <h3>最终生图提示词</h3>
+          <p><strong>主图：</strong>{{ selectedQueueTask.finalMainPrompt || '后端生成中' }}</p>
+          <p><strong>介绍图：</strong>{{ selectedQueueTask.finalIntroPrompt || '后端生成中' }}</p>
+        </div>
+
+        <div class="detail-block">
+          <h3>生成结果</h3>
+          <el-empty v-if="selectedQueueTask.results.length === 0" description="暂无生成结果" />
+          <div v-else class="result-list">
+            <article v-for="result in selectedQueueTask.results" :key="result.id" class="result-row">
+              <div>
+                <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
+                <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
+              </div>
+              <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
+              <p v-else-if="result.imageBase64"><strong>图片数据：</strong>已返回 base64 图片数据</p>
+              <p v-if="result.revisedPrompt"><strong>修订提示词：</strong>{{ result.revisedPrompt }}</p>
+              <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <el-button v-if="selectedQueueTask.status === 'FAILED'" type="warning" @click="retryQueuedTask(selectedQueueTask)">
+            重新生成
+          </el-button>
         </div>
       </div>
     </el-dialog>

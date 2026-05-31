@@ -54,3 +54,75 @@ export interface UploadImageAnalysis {
   model: string;
   result: string;
 }
+
+export interface ImageTaskKitSpec {
+  name: string;
+  quantity: number;
+}
+
+export interface ImageTaskPayload {
+  productName: string;
+  model: string;
+  platform: string;
+  ratio: string;
+  customWidth: number;
+  customHeight: number;
+  phoneColor: string;
+  customColor: string;
+  logoName: string;
+  wallpaperName: string;
+  style: string;
+  layout: string;
+  sellingPoints: string[];
+  hdEnabled: boolean;
+  privacyEnabled: boolean;
+  hdQuantity: number;
+  privacyQuantity: number;
+  mainImageCount: number;
+  introImageCount: number;
+  language: string;
+  mainPrompt: string;
+  introPrompt: string;
+  kitSpecs: ImageTaskKitSpec[];
+}
+
+export interface ImageTaskResult {
+  id: number;
+  resultType: string;
+  itemIndex: number;
+  status: string;
+  statusText: string;
+  prompt: string;
+  imageUrl?: string | null;
+  imageBase64?: string | null;
+  revisedPrompt?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ImageTaskSummary {
+  id: string;
+  productName: string;
+  status: string;
+  statusText: string;
+  createdAt: string;
+  updatedAt: string;
+  thumbnail: string;
+  thumbnailName: string;
+  fileSummary: Record<string, number>;
+  form: ImageTaskPayload;
+  completedCount: number;
+  totalCount: number;
+  errorMessage?: string | null;
+}
+
+export interface ImageTaskDetail extends ImageTaskSummary {
+  startedAt: string;
+  completedAt: string;
+  kitSpecs: ImageTaskKitSpec[];
+  analysis: Record<string, string>;
+  finalMainPrompt?: string | null;
+  finalIntroPrompt?: string | null;
+  results: ImageTaskResult[];
+}
