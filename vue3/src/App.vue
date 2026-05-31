@@ -1995,29 +1995,11 @@ function pageSubtitle(): string {
           </section>
 
           <section class="detail-block detail-wide">
-            <h3>最终生图提示词</h3>
-            <div class="prompt-preview-grid">
-              <article>
-                <strong>主图</strong>
-                <p @click="openFullTextDialog('主图最终提示词', selectedQueueTask.finalMainPrompt)">
-                  {{ analysisPreview(selectedQueueTask.finalMainPrompt || '后端生成中') }}
-                </p>
-              </article>
-              <article>
-                <strong>介绍图</strong>
-                <p @click="openFullTextDialog('介绍图最终提示词', selectedQueueTask.finalIntroPrompt)">
-                  {{ analysisPreview(selectedQueueTask.finalIntroPrompt || '后端生成中') }}
-                </p>
-              </article>
-            </div>
-          </section>
-
-          <section class="detail-block detail-wide">
             <h3>生成结果</h3>
             <el-empty v-if="selectedQueueTask.results.length === 0" description="暂无生成结果" />
             <div v-else class="result-list">
               <article v-for="result in selectedQueueTask.results" :key="result.id" class="result-row">
-                <div>
+                <div class="result-row-head">
                   <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
                   <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
                 </div>
@@ -2034,9 +2016,44 @@ function pageSubtitle(): string {
                     <el-icon><Download /></el-icon>
                   </button>
                 </div>
+                <p v-else class="empty-inline result-empty-image">暂无图片</p>
                 <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
-                <p v-if="result.revisedPrompt"><strong>修订提示词：</strong>{{ analysisPreview(result.revisedPrompt) }}</p>
+                <div v-if="result.revisedPrompt" class="result-revised-prompt">
+                  <strong>修订提示词：</strong>
+                  <p
+                    :class="{ clickable: isLongText(result.revisedPrompt) }"
+                    @click="isLongText(result.revisedPrompt) && openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, result.revisedPrompt)"
+                  >
+                    {{ analysisPreview(result.revisedPrompt) }}
+                  </p>
+                  <el-button
+                    v-if="isLongText(result.revisedPrompt)"
+                    text
+                    type="primary"
+                    @click="openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, result.revisedPrompt)"
+                  >
+                    查看全文
+                  </el-button>
+                </div>
                 <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="detail-block detail-wide">
+            <h3>最终生图提示词</h3>
+            <div class="prompt-preview-grid">
+              <article>
+                <strong>主图</strong>
+                <p @click="openFullTextDialog('主图最终提示词', selectedQueueTask.finalMainPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalMainPrompt || '后端生成中') }}
+                </p>
+              </article>
+              <article>
+                <strong>介绍图</strong>
+                <p @click="openFullTextDialog('介绍图最终提示词', selectedQueueTask.finalIntroPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalIntroPrompt || '后端生成中') }}
+                </p>
               </article>
             </div>
           </section>
