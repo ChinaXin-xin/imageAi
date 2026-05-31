@@ -20,4 +20,4 @@ image-ai:
     api-key: ${IMAGE_AI_GPT_API_KEY:}
     model: ${IMAGE_AI_GPT_MODEL:gpt-5.5}
   image-generation:
-    model: ${IMAGE_AI_IMAGE_MODEL:image-2}
+    model: ${IMAGE_AI_IMAGE_MODEL:gpt-image-2}

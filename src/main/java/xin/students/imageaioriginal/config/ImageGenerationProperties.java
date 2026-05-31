@@ -7,6 +7,6 @@ public record ImageGenerationProperties(
         String model
 ) {
     public String resolvedModel() {
-        return model == null || model.isBlank() ? "image-2" : model.trim();
+        return model == null || model.isBlank() ? "gpt-image-2" : model.trim();
     }
 }

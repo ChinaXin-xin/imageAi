@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import xin.students.imageaioriginal.model.DefaultPromptSettings;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
+import xin.students.imageaioriginal.model.ImageTaskFileView;
 import xin.students.imageaioriginal.model.ImageTaskKitSpec;
 import xin.students.imageaioriginal.model.ImageTaskPayload;
 import xin.students.imageaioriginal.model.ImageTaskResultView;
@@ -572,6 +573,7 @@ public class ImageTaskQueueService {
                 fileSummary(record),
                 record.payload(),
                 record.payload().kitSpecs() == null ? List.of() : record.payload().kitSpecs(),
+                listTaskFiles(connection, record.id()),
                 record.analysis(),
                 record.finalMainPrompt(),
                 record.finalIntroPrompt(),
@@ -608,6 +610,49 @@ public class ImageTaskQueueService {
             }
         }
         return results;
+    }
+
+    private Map<String, List<ImageTaskFileView>> listTaskFiles(Connection connection, String taskId) throws SQLException {
+        Map<String, List<ImageTaskFileView>> files = new LinkedHashMap<>();
+        files.put("实拍图", new ArrayList<>());
+        files.put("包装图", new ArrayList<>());
+        files.put("模板图", new ArrayList<>());
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select id, file_group, file_name, content_type, file_size, content
+                from image_task_files
+                where task_id = ?
+                order by file_group asc, sort_order asc, id asc
+                """)) {
+            statement.setString(1, taskId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    String group = resultSet.getString("file_group");
+                    String groupName = fileGroupName(group);
+                    StoredTaskFile storedFile = new StoredTaskFile(
+                            group,
+                            resultSet.getString("file_name"),
+                            resultSet.getString("content_type"),
+                            resultSet.getBytes("content"),
+                            0
+                    );
+                    Thumbnail thumbnail = createThumbnail(List.of(storedFile));
+                    String preview = thumbnail.bytes() == null || thumbnail.bytes().length == 0
+                            ? ""
+                            : "data:" + normalizeText(thumbnail.contentType(), "image/jpeg") + ";base64,"
+                            + Base64.getEncoder().encodeToString(thumbnail.bytes());
+                    files.computeIfAbsent(groupName, ignored -> new ArrayList<>()).add(new ImageTaskFileView(
+                            resultSet.getLong("id"),
+                            group,
+                            groupName,
+                            resultSet.getString("file_name"),
+                            resultSet.getString("content_type"),
+                            resultSet.getLong("file_size"),
+                            preview
+                    ));
+                }
+            }
+        }
+        return files;
     }
 
     private ResultStats resultStats(Connection connection, String taskId) throws SQLException {
@@ -956,6 +1001,15 @@ public class ImageTaskQueueService {
         summary.put("包装图", record.packageImageCount());
         summary.put("模板图", record.templateCount());
         return summary;
+    }
+
+    private String fileGroupName(String fileGroup) {
+        return switch (fileGroup == null ? "" : fileGroup) {
+            case "realPhoto" -> "实拍图";
+            case "packageImage" -> "包装图";
+            case "template" -> "模板图";
+            default -> fileGroup;
+        };
     }
 
     private String thumbnailDataUrl(TaskRecord record) {

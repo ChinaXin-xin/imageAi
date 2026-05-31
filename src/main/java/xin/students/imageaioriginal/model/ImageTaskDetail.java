@@ -17,6 +17,7 @@ public record ImageTaskDetail(
         Map<String, Integer> fileSummary,
         ImageTaskPayload form,
         List<ImageTaskKitSpec> kitSpecs,
+        Map<String, List<ImageTaskFileView>> files,
         Map<String, String> analysis,
         String finalMainPrompt,
         String finalIntroPrompt,

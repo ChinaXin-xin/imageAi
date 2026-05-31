@@ -922,21 +922,82 @@ h1 {
   font-size: 12px;
 }
 
+.queue-detail-dialog,
+.queue-detail-dialog.el-dialog,
+.queue-detail-dialog .el-dialog {
+  width: 90vw;
+  max-width: 1480px;
+  height: 90vh;
+  margin: 5vh auto 0;
+  border-radius: 16px;
+}
+
+.queue-detail-dialog .el-dialog__header {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.queue-detail-dialog .el-dialog__body {
+  height: calc(90vh - 64px);
+  overflow-y: auto;
+  padding: 18px 24px 24px;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.queue-detail-dialog .el-dialog__body::-webkit-scrollbar,
+.full-text-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.queue-detail-dialog .el-dialog__body::-webkit-scrollbar-thumb,
+.full-text-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
 .queue-detail-head {
   display: grid;
   align-items: center;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
   margin-bottom: 16px;
 }
 
 .queue-detail-thumb {
-  width: 112px;
-  height: 112px;
+  width: 96px;
+  height: 96px;
+}
+
+.queue-detail-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+}
+
+.compact-descriptions {
+  margin-bottom: 14px;
+}
+
+.compact-descriptions .el-descriptions__cell {
+  padding: 8px 10px !important;
+}
+
+.queue-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 14px;
 }
 
 .detail-block {
-  margin-top: 16px;
+  min-width: 0;
+  margin-top: 0;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .detail-block h3 {
@@ -945,8 +1006,107 @@ h1 {
   font-size: 14px;
 }
 
+.detail-wide {
+  grid-column: 1 / -1;
+}
+
+.submitted-file-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.submitted-file-title {
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.submitted-file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 10px;
+}
+
+.submitted-file-card {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.submitted-file-card img,
+.submitted-file-card > span {
+  display: flex;
+  width: 100%;
+  height: 86px;
+  align-items: center;
+  justify-content: center;
+  object-fit: cover;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.submitted-file-card p {
+  margin: 0;
+  padding: 7px 8px;
+  overflow: hidden;
+  border-top: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-inline {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.analysis-grid,
+.prompt-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.analysis-card,
+.prompt-preview-grid article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #edf1f5;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.analysis-card strong,
+.prompt-preview-grid strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.analysis-card p,
+.prompt-preview-grid p {
+  max-height: 118px;
+  overflow: hidden;
+  cursor: default;
+  white-space: pre-wrap;
+}
+
+.analysis-card p.clickable,
+.prompt-preview-grid p {
+  cursor: pointer;
+}
+
+.analysis-card p.clickable:hover,
+.prompt-preview-grid p:hover {
+  color: #2563eb;
+}
+
 .result-list {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
 }
 
@@ -963,10 +1123,40 @@ h1 {
   gap: 8px;
 }
 
+.result-preview {
+  width: 100%;
+  max-height: 220px;
+  margin-top: 10px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.full-text-dialog,
+.full-text-dialog.el-dialog,
+.full-text-dialog .el-dialog {
+  max-width: 980px;
+  border-radius: 14px;
+}
+
+.full-text-dialog .el-dialog__body {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+
+.full-text-dialog pre {
+  margin: 0;
+  color: #1f2937;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
 }
 
 .settings-page::-webkit-scrollbar {

@@ -79,6 +79,9 @@ const newDefaultSellingPoint = ref('');
 const taskQueue = ref<ImageTaskSummary[]>([]);
 const selectedQueueTask = ref<ImageTaskDetail | null>(null);
 const queueDetailVisible = ref(false);
+const fullTextDialogVisible = ref(false);
+const fullTextDialogTitle = ref('');
+const fullTextDialogContent = ref('');
 const queueLoading = ref(false);
 const queueErrorMessage = ref('');
 const addingTask = ref(false);
@@ -90,6 +93,7 @@ const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色',
 const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体', '高级电商', 'TEMU爆款'];
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
+const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图'];
 
 const taskForm = ref({
   productName: '',
@@ -584,6 +588,34 @@ function taskProgress(task: ImageTaskSummary | ImageTaskDetail): number {
 
 function fileCount(task: ImageTaskSummary | ImageTaskDetail, type: UploadGroup): number {
   return task.fileSummary?.[type] ?? 0;
+}
+
+function analysisPreview(value: string | null | undefined): string {
+  if (!value) return '暂无';
+  return value.length > 300 ? `${value.slice(0, 300)}...` : value;
+}
+
+function isLongText(value: string | null | undefined): boolean {
+  return Boolean(value && value.length > 300);
+}
+
+function openFullTextDialog(title: string, content: string | null | undefined) {
+  if (!content) return;
+  fullTextDialogTitle.value = title;
+  fullTextDialogContent.value = content;
+  fullTextDialogVisible.value = true;
+}
+
+function taskFilesByGroup(type: UploadGroup) {
+  return selectedQueueTask.value?.files?.[type] ?? [];
+}
+
+function generatedImageSrc(result: { imageUrl?: string | null; imageBase64?: string | null }): string {
+  if (result.imageUrl) return result.imageUrl;
+  if (!result.imageBase64) return '';
+  return result.imageBase64.startsWith('data:')
+    ? result.imageBase64
+    : `data:image/png;base64,${result.imageBase64}`;
 }
 
 function resetTaskForm() {
@@ -1483,8 +1515,11 @@ function pageSubtitle(): string {
     <el-dialog
       v-model="queueDetailVisible"
       title="生图详情"
-      width="760px"
+      width="90vw"
+      top="5vh"
       class="queue-detail-dialog"
+      append-to-body
+      destroy-on-close
     >
       <div v-if="selectedQueueTask" class="queue-detail">
         <div class="queue-detail-head">
@@ -1492,9 +1527,11 @@ function pageSubtitle(): string {
             <img v-if="selectedQueueTask.thumbnail" :src="selectedQueueTask.thumbnail" :alt="selectedQueueTask.thumbnailName" />
             <span v-else>无缩略图</span>
           </div>
-          <div>
-            <h2>{{ selectedQueueTask.productName }}</h2>
-            <p>{{ selectedQueueTask.createdAt }} / {{ selectedQueueTask.statusText }}</p>
+          <div class="queue-detail-title">
+            <div>
+              <h2>{{ selectedQueueTask.productName }}</h2>
+              <p>{{ selectedQueueTask.createdAt }} / {{ selectedQueueTask.statusText }}</p>
+            </div>
             <div class="queue-tags">
               <span>{{ selectedQueueTask.form.platform }}</span>
               <span>{{ selectedQueueTask.form.customWidth }} x {{ selectedQueueTask.form.customHeight }}</span>
@@ -1504,7 +1541,7 @@ function pageSubtitle(): string {
           </div>
         </div>
 
-        <el-descriptions :column="2" border>
+        <el-descriptions class="compact-descriptions" :column="4" size="small" border>
           <el-descriptions-item label="机型">{{ selectedQueueTask.form.model || '自动识别' }}</el-descriptions-item>
           <el-descriptions-item label="手机颜色">{{ selectedQueueTask.form.phoneColor }}</el-descriptions-item>
           <el-descriptions-item label="设计风格">{{ selectedQueueTask.form.style }}</el-descriptions-item>
@@ -1518,57 +1555,98 @@ function pageSubtitle(): string {
             包装 {{ fileCount(selectedQueueTask, '包装图') }} /
             模板 {{ fileCount(selectedQueueTask, '模板图') }}
           </el-descriptions-item>
-          <el-descriptions-item label="卖点">
+          <el-descriptions-item label="卖点" :span="3">
             {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}
           </el-descriptions-item>
-          <el-descriptions-item label="错误信息" v-if="selectedQueueTask.errorMessage">
-            {{ selectedQueueTask.errorMessage }}
+          <el-descriptions-item v-if="selectedQueueTask.errorMessage" label="错误信息" :span="4">
+            <span class="queue-error-text">{{ selectedQueueTask.errorMessage }}</span>
           </el-descriptions-item>
         </el-descriptions>
 
-        <div class="detail-block">
-          <h3>套装规格</h3>
-          <div class="queue-tags">
-            <span v-for="item in selectedQueueTask.kitSpecs" :key="item.name">
-              {{ item.name }} x {{ item.quantity }}
-            </span>
-          </div>
-        </div>
-
-        <div class="detail-block">
-          <h3>提示词</h3>
-          <p><strong>主图：</strong>{{ selectedQueueTask.form.mainPrompt || '未填写' }}</p>
-          <p><strong>介绍图：</strong>{{ selectedQueueTask.form.introPrompt || '未填写' }}</p>
-        </div>
-
-        <div class="detail-block">
-          <h3>后端深析结果</h3>
-          <p><strong>实拍图：</strong>{{ selectedQueueTask.analysis?.实拍图 || '暂无' }}</p>
-          <p><strong>包装图：</strong>{{ selectedQueueTask.analysis?.包装图 || '暂无' }}</p>
-          <p><strong>模板图：</strong>{{ selectedQueueTask.analysis?.模板图 || '暂无' }}</p>
-        </div>
-
-        <div class="detail-block">
-          <h3>最终生图提示词</h3>
-          <p><strong>主图：</strong>{{ selectedQueueTask.finalMainPrompt || '后端生成中' }}</p>
-          <p><strong>介绍图：</strong>{{ selectedQueueTask.finalIntroPrompt || '后端生成中' }}</p>
-        </div>
-
-        <div class="detail-block">
-          <h3>生成结果</h3>
-          <el-empty v-if="selectedQueueTask.results.length === 0" description="暂无生成结果" />
-          <div v-else class="result-list">
-            <article v-for="result in selectedQueueTask.results" :key="result.id" class="result-row">
-              <div>
-                <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
-                <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
+        <div class="queue-detail-grid">
+          <section class="detail-block">
+            <h3>提交图片</h3>
+            <div class="submitted-file-groups">
+              <div v-for="type in uploadGroups" :key="type" class="submitted-file-group">
+                <div class="submitted-file-title">{{ type }} {{ taskFilesByGroup(type).length }}</div>
+                <div v-if="taskFilesByGroup(type).length" class="submitted-file-grid">
+                  <article v-for="file in taskFilesByGroup(type)" :key="file.id" class="submitted-file-card">
+                    <img v-if="file.preview" :src="file.preview" :alt="file.fileName" />
+                    <span v-else>无预览</span>
+                    <p>{{ file.fileName }}</p>
+                  </article>
+                </div>
+                <p v-else class="empty-inline">未上传</p>
               </div>
-              <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
-              <p v-else-if="result.imageBase64"><strong>图片数据：</strong>已返回 base64 图片数据</p>
-              <p v-if="result.revisedPrompt"><strong>修订提示词：</strong>{{ result.revisedPrompt }}</p>
-              <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
-            </article>
-          </div>
+            </div>
+          </section>
+
+          <section class="detail-block">
+            <h3>套装规格</h3>
+            <div class="queue-tags">
+              <span v-for="item in selectedQueueTask.kitSpecs" :key="item.name">
+                {{ item.name }} x {{ item.quantity }}
+              </span>
+            </div>
+          </section>
+
+          <section class="detail-block detail-wide">
+            <h3>后端深析结果</h3>
+            <div class="analysis-grid">
+              <article v-for="type in uploadGroups" :key="type" class="analysis-card">
+                <strong>{{ type }}</strong>
+                <p
+                  :class="{ clickable: isLongText(selectedQueueTask.analysis?.[type]) }"
+                  @click="openFullTextDialog(`${type}深析结果`, selectedQueueTask.analysis?.[type])"
+                >
+                  {{ analysisPreview(selectedQueueTask.analysis?.[type]) }}
+                </p>
+                <el-button
+                  v-if="isLongText(selectedQueueTask.analysis?.[type])"
+                  text
+                  type="primary"
+                  @click="openFullTextDialog(`${type}深析结果`, selectedQueueTask.analysis?.[type])"
+                >
+                  查看全文
+                </el-button>
+              </article>
+            </div>
+          </section>
+
+          <section class="detail-block detail-wide">
+            <h3>最终生图提示词</h3>
+            <div class="prompt-preview-grid">
+              <article>
+                <strong>主图</strong>
+                <p @click="openFullTextDialog('主图最终提示词', selectedQueueTask.finalMainPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalMainPrompt || '后端生成中') }}
+                </p>
+              </article>
+              <article>
+                <strong>介绍图</strong>
+                <p @click="openFullTextDialog('介绍图最终提示词', selectedQueueTask.finalIntroPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalIntroPrompt || '后端生成中') }}
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section class="detail-block detail-wide">
+            <h3>生成结果</h3>
+            <el-empty v-if="selectedQueueTask.results.length === 0" description="暂无生成结果" />
+            <div v-else class="result-list">
+              <article v-for="result in selectedQueueTask.results" :key="result.id" class="result-row">
+                <div>
+                  <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
+                  <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
+                </div>
+                <img v-if="generatedImageSrc(result)" class="result-preview" :src="generatedImageSrc(result)" :alt="`${result.resultType} ${result.itemIndex}`" />
+                <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
+                <p v-if="result.revisedPrompt"><strong>修订提示词：</strong>{{ analysisPreview(result.revisedPrompt) }}</p>
+                <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
+              </article>
+            </div>
+          </section>
         </div>
 
         <div class="dialog-actions">
@@ -1577,6 +1655,17 @@ function pageSubtitle(): string {
           </el-button>
         </div>
       </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="fullTextDialogVisible"
+      :title="fullTextDialogTitle"
+      width="70vw"
+      top="8vh"
+      class="full-text-dialog"
+      append-to-body
+    >
+      <pre>{{ fullTextDialogContent }}</pre>
     </el-dialog>
   </el-config-provider>
 </template>

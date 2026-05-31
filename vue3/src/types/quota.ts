@@ -101,6 +101,16 @@ export interface ImageTaskResult {
   updatedAt: string;
 }
 
+export interface ImageTaskFileView {
+  id: number;
+  group: string;
+  groupName: string;
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+  preview: string;
+}
+
 export interface ImageTaskSummary {
   id: string;
   productName: string;
@@ -121,6 +131,7 @@ export interface ImageTaskDetail extends ImageTaskSummary {
   startedAt: string;
   completedAt: string;
   kitSpecs: ImageTaskKitSpec[];
+  files: Record<string, ImageTaskFileView[]>;
   analysis: Record<string, string>;
   finalMainPrompt?: string | null;
   finalIntroPrompt?: string | null;
