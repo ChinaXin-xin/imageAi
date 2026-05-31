@@ -57,6 +57,8 @@ public class ImageTaskQueueService {
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final int STALE_GENERATION_SECONDS = 6 * 60;
+    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 6 分钟未返回，已自动标记失败，请稍后重试。";
     private static final int THUMB_MAX_EDGE = 320;
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
@@ -89,6 +91,7 @@ public class ImageTaskQueueService {
     @PostConstruct
     public void initialize() {
         ensureTables();
+        failStaleRunningTasks();
         resumeUnfinishedTasks();
     }
 
@@ -136,6 +139,7 @@ public class ImageTaskQueueService {
 
     public List<ImageTaskSummary> listTasks() {
         ensureTables();
+        failStaleRunningTasks();
         List<ImageTaskSummary> tasks = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
@@ -154,6 +158,7 @@ public class ImageTaskQueueService {
 
     public ImageTaskDetail getTask(String taskId) {
         ensureTables();
+        failStaleRunningTasks();
         try (Connection connection = dataSource.getConnection()) {
             TaskRecord record = findTask(connection, taskId);
             if (record == null) {
@@ -167,6 +172,7 @@ public class ImageTaskQueueService {
 
     public ImageTaskDetail retryTask(String taskId) {
         ensureTables();
+        failStaleRunningTasks();
         try (Connection connection = dataSource.getConnection()) {
             TaskRecord record = findTask(connection, taskId);
             if (record == null) {
@@ -202,6 +208,60 @@ public class ImageTaskQueueService {
             return;
         }
         taskIds.forEach(this::startProcessing);
+    }
+
+    private void failStaleRunningTasks() {
+        try (Connection connection = dataSource.getConnection()) {
+            failStaleRunningTasks(connection);
+        } catch (SQLException ex) {
+            LOG.warn("mark stale image tasks failed", ex);
+        }
+    }
+
+    private void failStaleRunningTasks(Connection connection) throws SQLException {
+        List<String> taskIds = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select distinct r.task_id
+                from image_task_results r
+                join image_tasks t on t.id = r.task_id
+                where t.status = 'GENERATING'
+                  and r.status = 'GENERATING'
+                  and r.updated_at < timestampadd(second, ?, current_timestamp(3))
+                """)) {
+            statement.setInt(1, -STALE_GENERATION_SECONDS);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    taskIds.add(resultSet.getString("task_id"));
+                }
+            }
+        }
+        for (String taskId : taskIds) {
+            failStaleRunningTask(connection, taskId);
+        }
+    }
+
+    private void failStaleRunningTask(Connection connection, String taskId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update image_task_results
+                set status = 'FAILED', error_message = ?, updated_at = current_timestamp(3)
+                where task_id = ? and status in ('GENERATING', 'QUEUED')
+                """)) {
+            statement.setString(1, STALE_GENERATION_MESSAGE);
+            statement.setString(2, taskId);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update image_tasks
+                set status = 'FAILED',
+                    error_message = ?,
+                    completed_at = current_timestamp(3),
+                    updated_at = current_timestamp(3)
+                where id = ? and status = 'GENERATING'
+                """)) {
+            statement.setString(1, STALE_GENERATION_MESSAGE);
+            statement.setString(2, taskId);
+            statement.executeUpdate();
+        }
     }
 
     private void processTask(String taskId) {
@@ -293,7 +353,9 @@ public class ImageTaskQueueService {
                     normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
                     referenceImages
             );
-            completeResult(job.resultId(), generatedImage);
+            if (!completeResult(job.resultId(), generatedImage)) {
+                throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
+            }
         } catch (Exception ex) {
             failResult(job.resultId(), ex);
             throw ex;
@@ -913,27 +975,29 @@ public class ImageTaskQueueService {
              PreparedStatement statement = connection.prepareStatement("""
                      update image_task_results
                      set status = 'GENERATING', updated_at = current_timestamp(3)
-                     where id = ?
+                     where id = ? and status = 'QUEUED'
                      """)) {
             statement.setLong(1, resultId);
-            statement.executeUpdate();
+            if (statement.executeUpdate() == 0) {
+                throw new IllegalStateException("生成结果状态不可用，请重试：" + resultId);
+            }
         } catch (SQLException ex) {
             throw new IllegalStateException("更新生成结果状态失败：" + resultId, ex);
         }
     }
 
-    private void completeResult(
+    private boolean completeResult(
             long resultId,
             ImageGenerationService.GeneratedImage generatedImage
     ) {
         try (Connection connection = dataSource.getConnection()) {
-            completeResult(connection, resultId, generatedImage);
+            return completeResult(connection, resultId, generatedImage);
         } catch (SQLException ex) {
             throw new IllegalStateException("保存生成结果失败：" + resultId, ex);
         }
     }
 
-    private void completeResult(
+    private boolean completeResult(
             Connection connection,
             long resultId,
             ImageGenerationService.GeneratedImage generatedImage
@@ -942,14 +1006,14 @@ public class ImageTaskQueueService {
                 update image_task_results
                 set status = 'COMPLETED', image_url = ?, image_base64 = ?, revised_prompt = ?, raw_response = ?,
                     updated_at = current_timestamp(3)
-                where id = ?
+                where id = ? and status = 'GENERATING'
                 """)) {
             statement.setString(1, generatedImage.imageUrl());
             statement.setString(2, generatedImage.imageBase64());
             statement.setString(3, generatedImage.revisedPrompt());
             statement.setString(4, generatedImage.rawResponse());
             statement.setLong(5, resultId);
-            statement.executeUpdate();
+            return statement.executeUpdate() > 0;
         }
     }
 
@@ -965,7 +1029,7 @@ public class ImageTaskQueueService {
         try (PreparedStatement statement = connection.prepareStatement("""
                 update image_task_results
                 set status = 'FAILED', error_message = ?, updated_at = current_timestamp(3)
-                where id = ?
+                where id = ? and status <> 'COMPLETED'
                 """)) {
             statement.setString(1, abbreviate(ex.getMessage(), 4000));
             statement.setLong(2, resultId);
@@ -1000,7 +1064,7 @@ public class ImageTaskQueueService {
                 set status = ?, error_message = ?, updated_at = current_timestamp(3),
                     started_at = case when ? then coalesce(started_at, current_timestamp(3)) else started_at end,
                     completed_at = case when ? then current_timestamp(3) else completed_at end
-                where id = ?
+                where id = ? and (? = 'FAILED' or status <> 'FAILED')
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, status);
@@ -1008,6 +1072,7 @@ public class ImageTaskQueueService {
             statement.setBoolean(3, markStarted);
             statement.setBoolean(4, markCompleted);
             statement.setString(5, taskId);
+            statement.setString(6, status);
             statement.executeUpdate();
         }
     }

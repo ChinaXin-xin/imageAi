@@ -2,6 +2,7 @@ package xin.students.imageaioriginal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
@@ -21,19 +22,30 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ImageGenerationService {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
-    private static final Duration READ_TIMEOUT = Duration.ofMinutes(6);
+    private static final Duration READ_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration HARD_TIMEOUT = Duration.ofMinutes(5);
+    private static final AtomicInteger REQUEST_THREAD_INDEX = new AtomicInteger();
 
     private final GptProperties gptProperties;
     private final ImageGenerationProperties imageGenerationProperties;
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final ExecutorService requestExecutor = Executors.newCachedThreadPool(imageRequestThreadFactory());
 
     public ImageGenerationService(
             GptProperties gptProperties,
@@ -50,6 +62,11 @@ public class ImageGenerationService {
         requestFactory.setReadTimeout(READ_TIMEOUT);
         this.restClient = restClientBuilder.requestFactory(requestFactory).build();
         this.objectMapper = objectMapper;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        requestExecutor.shutdownNow();
     }
 
     public GeneratedImage generate(
@@ -84,9 +101,15 @@ public class ImageGenerationService {
                 prompt
         );
 
-        JsonNode response = referenceCount > 0
-                ? generateWithReferences(referenceImages, model, prompt, size)
-                : generateFromText(request);
+        JsonNode response = requestWithHardTimeout(
+                () -> referenceCount > 0
+                        ? generateWithReferences(referenceImages, model, prompt, size)
+                        : generateFromText(request),
+                requestId,
+                taskId,
+                resultType,
+                itemIndex
+        );
 
         JsonNode first = response == null ? null : response.path("data").path(0);
         String imageUrl = text(first, "url");
@@ -109,6 +132,48 @@ public class ImageGenerationService {
                 revisedPrompt == null ? "-" : revisedPrompt
         );
         return new GeneratedImage(imageUrl, b64Json, revisedPrompt, rawResponse);
+    }
+
+    private JsonNode requestWithHardTimeout(
+            ImageRequest request,
+            String requestId,
+            String taskId,
+            String resultType,
+            int itemIndex
+    ) {
+        Future<JsonNode> future = requestExecutor.submit(request::execute);
+        try {
+            return future.get(HARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            LOG.warn(
+                    "gpt.image.timeout id={} taskId={} type={} index={} timeoutSeconds={}",
+                    requestId,
+                    taskId,
+                    resultType,
+                    itemIndex,
+                    HARD_TIMEOUT.toSeconds()
+            );
+            throw new IllegalStateException("生图接口超过 " + HARD_TIMEOUT.toMinutes() + " 分钟仍未返回，已自动终止本次生成，请稍后重试。", ex);
+        } catch (InterruptedException ex) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("生图请求被中断，请稍后重试。", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("生图请求失败：" + cause.getMessage(), cause);
+        }
+    }
+
+    private ThreadFactory imageRequestThreadFactory() {
+        return runnable -> {
+            Thread thread = new Thread(runnable, "image-generation-request-" + REQUEST_THREAD_INDEX.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     private String imageGenerationUrl() {
@@ -219,6 +284,11 @@ public class ImageGenerationService {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    @FunctionalInterface
+    private interface ImageRequest {
+        JsonNode execute();
     }
 
     public record GeneratedImage(
