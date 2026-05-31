@@ -778,6 +778,154 @@ h1 {
   scrollbar-width: thin;
 }
 
+.queue-page {
+  height: 100%;
+  min-height: 0;
+}
+
+.queue-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.queue-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.queue-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.queue-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.queue-row {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #edf1f5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.queue-row + .queue-row {
+  margin-top: 10px;
+}
+
+.queue-thumb,
+.queue-detail-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.queue-thumb {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.queue-thumb img,
+.queue-detail-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.queue-main {
+  min-width: 0;
+}
+
+.queue-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.queue-title-row h2,
+.queue-detail h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.queue-main p,
+.queue-detail-head p,
+.detail-block p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.queue-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.queue-tags span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+}
+
+.queue-side {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.queue-detail-head {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.queue-detail-thumb {
+  width: 112px;
+  height: 112px;
+}
+
+.detail-block {
+  margin-top: 16px;
+}
+
+.detail-block h3 {
+  margin: 0 0 8px;
+  color: #111827;
+  font-size: 14px;
+}
+
 .settings-page::-webkit-scrollbar {
   width: 6px;
 }

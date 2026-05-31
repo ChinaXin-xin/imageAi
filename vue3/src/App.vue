@@ -37,13 +37,53 @@ const DEFAULT_ANALYSIS_PROMPT =
   '请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。';
 const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'];
 
+type UploadGroup = '实拍图' | '包装图' | '模板图';
+type AnalysisUploadGroup = '实拍图' | '包装图';
+
+interface TaskFormSnapshot {
+  productName: string;
+  model: string;
+  platform: string;
+  ratio: string;
+  customWidth: number;
+  customHeight: number;
+  phoneColor: string;
+  customColor: string;
+  logoName: string;
+  wallpaperName: string;
+  style: string;
+  layout: string;
+  sellingPoints: string[];
+  hdEnabled: boolean;
+  privacyEnabled: boolean;
+  hdQuantity: number;
+  privacyQuantity: number;
+  mainImageCount: number;
+  introImageCount: number;
+  language: string;
+  mainPrompt: string;
+  introPrompt: string;
+}
+
+interface QueuedTask {
+  id: string;
+  productName: string;
+  createdAt: string;
+  thumbnail: string;
+  thumbnailName: string;
+  fileSummary: Record<UploadGroup, number>;
+  form: TaskFormSnapshot;
+  kitSpecs: Array<{ name: string; quantity: number }>;
+  analysis: Record<AnalysisUploadGroup, string>;
+}
+
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
 const systemErrorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
-const activePage = ref<'quota' | 'task' | 'settings'>('quota');
+const activePage = ref<'quota' | 'task' | 'queue' | 'settings'>('quota');
 const systemOverview = ref<SystemOverview | null>(null);
 const defaultSettings = ref<DefaultPromptSettings>({
   mainPrompt: DEFAULT_MAIN_PROMPT,
@@ -55,16 +95,20 @@ const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
 const packageImageFiles = ref<UploadUserFile[]>([]);
-const uploadAnalysis = ref<Record<'实拍图' | '包装图', UploadImageAnalysis | null>>({
+const templateFiles = ref<UploadUserFile[]>([]);
+const uploadAnalysis = ref<Record<AnalysisUploadGroup, UploadImageAnalysis | null>>({
   实拍图: null,
   包装图: null,
 });
-const analysisLoading = ref<Record<'实拍图' | '包装图', boolean>>({
+const analysisLoading = ref<Record<AnalysisUploadGroup, boolean>>({
   实拍图: false,
   包装图: false,
 });
 const previewUrls = ref<Record<string, string>>({});
 const newDefaultSellingPoint = ref('');
+const taskQueue = ref<QueuedTask[]>([]);
+const selectedQueueTask = ref<QueuedTask | null>(null);
+const queueDetailVisible = ref(false);
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
 const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
@@ -306,12 +350,12 @@ async function savePromptSettings() {
   }
 }
 
-function uploadFilesFor(type: '实拍图' | '包装图'): File[] {
+function uploadFilesFor(type: AnalysisUploadGroup): File[] {
   const source = type === '实拍图' ? realPhotoFiles.value : packageImageFiles.value;
   return source.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
 }
 
-async function analyzeUploadImage(type: '实拍图' | '包装图') {
+async function analyzeUploadImage(type: AnalysisUploadGroup) {
   const files = uploadFilesFor(type);
   if (files.length === 0) {
     ElMessage.warning(`请先上传${type}。`);
@@ -329,8 +373,19 @@ async function analyzeUploadImage(type: '实拍图' | '包装图') {
   }
 }
 
+function resetUploadAnalysis(type: AnalysisUploadGroup) {
+  uploadAnalysis.value[type] = null;
+  analysisLoading.value[type] = false;
+}
+
 function uploadKey(file: UploadUserFile): string {
   return String(file.uid ?? file.name);
+}
+
+function uploadListFor(type: UploadGroup) {
+  if (type === '实拍图') return realPhotoFiles;
+  if (type === '包装图') return packageImageFiles;
+  return templateFiles;
 }
 
 function filePreviewUrl(file: UploadUserFile): string {
@@ -351,10 +406,20 @@ function handleUploadRemove(file: UploadUserFile) {
   }
 }
 
-function removeUploadFile(type: '实拍图' | '包装图', file: UploadUserFile) {
-  const source = type === '实拍图' ? realPhotoFiles : packageImageFiles;
+function removeUploadFile(type: UploadGroup, file: UploadUserFile) {
+  const source = uploadListFor(type);
   source.value = source.value.filter((item) => uploadKey(item) !== uploadKey(file));
   handleUploadRemove(file);
+  if (type === '实拍图' && source.value.length === 0) {
+    resetUploadAnalysis('实拍图');
+  }
+  if (type === '包装图' && source.value.length === 0) {
+    resetUploadAnalysis('包装图');
+  }
+  if (realPhotoFiles.value.length + packageImageFiles.value.length + templateFiles.value.length === 0) {
+    resetUploadAnalysis('实拍图');
+    resetUploadAnalysis('包装图');
+  }
 }
 
 function addDefaultSellingPoint() {
@@ -379,6 +444,7 @@ function clearUploadedImagesAndAnalysis() {
   previewUrls.value = {};
   realPhotoFiles.value = [];
   packageImageFiles.value = [];
+  templateFiles.value = [];
   uploadAnalysis.value = {
     实拍图: null,
     包装图: null,
@@ -419,9 +485,81 @@ function autoRecognizeKitSpecs() {
   ElMessage.success('已按经典套装规格自动识别。');
 }
 
-function addToTaskQueue() {
+async function addToTaskQueue() {
   ensureProductName();
+  const task: QueuedTask = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    productName: taskForm.value.productName,
+    createdAt: new Date().toLocaleString(),
+    thumbnail: await createQueueThumbnail(),
+    thumbnailName: firstUploadedFile()?.name || '暂无缩略图',
+    fileSummary: {
+      实拍图: realPhotoFiles.value.length,
+      包装图: packageImageFiles.value.length,
+      模板图: templateFiles.value.length,
+    },
+    form: snapshotTaskForm(),
+    kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
+    analysis: {
+      实拍图: uploadAnalysis.value.实拍图?.result || '',
+      包装图: uploadAnalysis.value.包装图?.result || '',
+    },
+  };
+  taskQueue.value.unshift(task);
+  selectedQueueTask.value = task;
+  activePage.value = 'queue';
   ElMessage.success(`任务已添加到队列：${taskForm.value.productName}`);
+}
+
+function snapshotTaskForm(): TaskFormSnapshot {
+  return {
+    productName: taskForm.value.productName,
+    model: taskForm.value.model,
+    platform: taskForm.value.platform,
+    ratio: taskForm.value.ratio,
+    customWidth: taskForm.value.customWidth,
+    customHeight: taskForm.value.customHeight,
+    phoneColor: taskForm.value.phoneColor,
+    customColor: taskForm.value.customColor,
+    logoName: taskForm.value.logoName,
+    wallpaperName: taskForm.value.wallpaperName,
+    style: taskForm.value.style,
+    layout: taskForm.value.layout,
+    sellingPoints: [...taskForm.value.sellingPoints],
+    hdEnabled: taskForm.value.hdEnabled,
+    privacyEnabled: taskForm.value.privacyEnabled,
+    hdQuantity: taskForm.value.hdQuantity,
+    privacyQuantity: taskForm.value.privacyQuantity,
+    mainImageCount: taskForm.value.mainImageCount,
+    introImageCount: taskForm.value.introImageCount,
+    language: taskForm.value.language,
+    mainPrompt: taskForm.value.mainPrompt,
+    introPrompt: taskForm.value.introPrompt,
+  };
+}
+
+function firstUploadedFile(): File | null {
+  const uploadFile = templateFiles.value[0] || realPhotoFiles.value[0] || packageImageFiles.value[0];
+  return uploadFile?.raw ? (uploadFile.raw as unknown as File) : null;
+}
+
+async function createQueueThumbnail(): Promise<string> {
+  const file = firstUploadedFile();
+  return file ? readFileAsDataUrl(file) : '';
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function openQueueDetail(task: QueuedTask) {
+  selectedQueueTask.value = task;
+  queueDetailVisible.value = true;
 }
 
 function resetTaskForm() {
@@ -464,18 +602,21 @@ function resetTaskForm() {
 
 function pageTitle(): string {
   if (activePage.value === 'quota') return 'ImageAI 额度监控';
+  if (activePage.value === 'queue') return '任务队列';
   if (activePage.value === 'settings') return '默认设置';
   return '创建新任务';
 }
 
 function pageEyebrow(): string {
   if (activePage.value === 'quota') return 'CLI Proxy API Management';
+  if (activePage.value === 'queue') return 'ImageAI Queue';
   if (activePage.value === 'settings') return 'ImageAI Defaults';
   return 'ImageAI Task Center';
 }
 
 function pageSubtitle(): string {
   if (activePage.value === 'quota') return '集中查看账号额度、图片生成余量与服务器资源状态。';
+  if (activePage.value === 'queue') return '按任务查看待生成图片的参数、素材缩略图和生图详情。';
   if (activePage.value === 'settings') return '维护主图和介绍图默认提示词，添加任务时自动带入。';
   return '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。';
 }
@@ -525,6 +666,15 @@ function pageSubtitle(): string {
           </button>
           <button
             class="nav-item"
+            :class="{ active: activePage === 'queue' }"
+            type="button"
+            @click="activePage = 'queue'"
+          >
+            <el-icon><Document /></el-icon>
+            <span v-if="!isCollapsed">任务队列</span>
+          </button>
+          <button
+            class="nav-item"
             :class="{ active: activePage === 'settings' }"
             type="button"
             @click="activePage = 'settings'"
@@ -553,17 +703,17 @@ function pageSubtitle(): string {
               刷新
             </el-button>
           </div>
-          <div v-else class="topbar-actions">
+          <div v-else-if="activePage === 'task'" class="topbar-actions">
             <el-button
-              v-if="activePage === 'task'"
               type="primary"
               :icon="Plus"
               @click="addToTaskQueue"
             >
               添加到任务队列
             </el-button>
+          </div>
+          <div v-else-if="activePage === 'settings'" class="topbar-actions">
             <el-button
-              v-else
               type="primary"
               :icon="Document"
               :loading="settingsSaving"
@@ -571,6 +721,9 @@ function pageSubtitle(): string {
             >
               保存默认设置
             </el-button>
+          </div>
+          <div v-else class="topbar-actions">
+            <span class="refresh-time">{{ taskQueue.length }} 个任务</span>
           </div>
         </el-header>
 
@@ -769,10 +922,26 @@ function pageSubtitle(): string {
                     <span>模板图</span>
                     <small>仅支持上传一张</small>
                   </div>
-                  <el-upload class="compact-upload" action="#" drag :limit="1" :auto-upload="false">
+                  <el-upload
+                    v-model:file-list="templateFiles"
+                    class="compact-upload"
+                    action="#"
+                    drag
+                    :limit="1"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    @remove="handleUploadRemove"
+                  >
                     <el-icon><Upload /></el-icon>
                     <div>上传模板图</div>
                   </el-upload>
+                  <div v-if="templateFiles.length" class="preview-grid">
+                    <div v-for="file in templateFiles" :key="uploadKey(file)" class="preview-tile">
+                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <span>{{ file.name }}</span>
+                      <button type="button" @click="removeUploadFile('模板图', file)">移除</button>
+                    </div>
+                  </div>
                 </div>
               </section>
 
@@ -1040,6 +1209,50 @@ function pageSubtitle(): string {
             </div>
           </section>
 
+          <section v-else-if="activePage === 'queue'" class="queue-page">
+            <section class="queue-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>任务队列</h2>
+                  <p>一行一个任务，点击缩略图查看当前生图参数详情。</p>
+                </div>
+                <span>{{ taskQueue.length }} 个任务</span>
+              </div>
+
+              <el-empty
+                v-if="taskQueue.length === 0"
+                description="暂无任务，先在添加任务页点击添加到任务队列"
+              />
+
+              <div v-else class="queue-list">
+                <article v-for="task in taskQueue" :key="task.id" class="queue-row">
+                  <button class="queue-thumb" type="button" @click="openQueueDetail(task)">
+                    <img v-if="task.thumbnail" :src="task.thumbnail" :alt="task.thumbnailName" />
+                    <span v-else>无图</span>
+                  </button>
+                  <div class="queue-main">
+                    <div class="queue-title-row">
+                      <h2>{{ task.productName }}</h2>
+                      <el-tag effect="plain">待生成</el-tag>
+                    </div>
+                    <p>{{ task.form.platform }} / {{ task.form.customWidth }} x {{ task.form.customHeight }} / {{ task.form.language }}</p>
+                    <div class="queue-tags">
+                      <span>实拍图 {{ task.fileSummary.实拍图 }}</span>
+                      <span>包装图 {{ task.fileSummary.包装图 }}</span>
+                      <span>模板图 {{ task.fileSummary.模板图 }}</span>
+                      <span>主图 {{ task.form.mainImageCount }}</span>
+                      <span>介绍图 {{ task.form.introImageCount }}</span>
+                    </div>
+                  </div>
+                  <div class="queue-side">
+                    <span>{{ task.createdAt }}</span>
+                    <el-button text type="primary" @click="openQueueDetail(task)">查看详情</el-button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </section>
+
           <section v-else class="settings-page">
             <section class="task-card settings-card" v-loading="settingsLoading">
               <div class="task-card-head">
@@ -1219,5 +1432,70 @@ function pageSubtitle(): string {
         </el-main>
       </el-container>
     </el-container>
+
+    <el-dialog
+      v-model="queueDetailVisible"
+      title="生图详情"
+      width="760px"
+      class="queue-detail-dialog"
+    >
+      <div v-if="selectedQueueTask" class="queue-detail">
+        <div class="queue-detail-head">
+          <div class="queue-detail-thumb">
+            <img v-if="selectedQueueTask.thumbnail" :src="selectedQueueTask.thumbnail" :alt="selectedQueueTask.thumbnailName" />
+            <span v-else>无缩略图</span>
+          </div>
+          <div>
+            <h2>{{ selectedQueueTask.productName }}</h2>
+            <p>{{ selectedQueueTask.createdAt }}</p>
+            <div class="queue-tags">
+              <span>{{ selectedQueueTask.form.platform }}</span>
+              <span>{{ selectedQueueTask.form.customWidth }} x {{ selectedQueueTask.form.customHeight }}</span>
+              <span>{{ selectedQueueTask.form.language }}</span>
+            </div>
+          </div>
+        </div>
+
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="机型">{{ selectedQueueTask.form.model || '自动识别' }}</el-descriptions-item>
+          <el-descriptions-item label="手机颜色">{{ selectedQueueTask.form.phoneColor }}</el-descriptions-item>
+          <el-descriptions-item label="设计风格">{{ selectedQueueTask.form.style }}</el-descriptions-item>
+          <el-descriptions-item label="布局模式">{{ selectedQueueTask.form.layout }}</el-descriptions-item>
+          <el-descriptions-item label="主图数量">{{ selectedQueueTask.form.mainImageCount }}</el-descriptions-item>
+          <el-descriptions-item label="介绍图数量">{{ selectedQueueTask.form.introImageCount }}</el-descriptions-item>
+          <el-descriptions-item label="高清数量">{{ selectedQueueTask.form.hdEnabled ? selectedQueueTask.form.hdQuantity : 0 }}</el-descriptions-item>
+          <el-descriptions-item label="防窥数量">{{ selectedQueueTask.form.privacyEnabled ? selectedQueueTask.form.privacyQuantity : 0 }}</el-descriptions-item>
+          <el-descriptions-item label="素材数量">
+            实拍 {{ selectedQueueTask.fileSummary.实拍图 }} /
+            包装 {{ selectedQueueTask.fileSummary.包装图 }} /
+            模板 {{ selectedQueueTask.fileSummary.模板图 }}
+          </el-descriptions-item>
+          <el-descriptions-item label="卖点">
+            {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="detail-block">
+          <h3>套装规格</h3>
+          <div class="queue-tags">
+            <span v-for="item in selectedQueueTask.kitSpecs" :key="item.name">
+              {{ item.name }} x {{ item.quantity }}
+            </span>
+          </div>
+        </div>
+
+        <div class="detail-block">
+          <h3>提示词</h3>
+          <p><strong>主图：</strong>{{ selectedQueueTask.form.mainPrompt || '未填写' }}</p>
+          <p><strong>介绍图：</strong>{{ selectedQueueTask.form.introPrompt || '未填写' }}</p>
+        </div>
+
+        <div class="detail-block">
+          <h3>深析结果</h3>
+          <p><strong>实拍图：</strong>{{ selectedQueueTask.analysis.实拍图 || '暂无' }}</p>
+          <p><strong>包装图：</strong>{{ selectedQueueTask.analysis.包装图 || '暂无' }}</p>
+        </div>
+      </div>
+    </el-dialog>
   </el-config-provider>
 </template>
