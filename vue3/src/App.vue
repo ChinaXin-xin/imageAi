@@ -270,7 +270,7 @@ onMounted(() => {
   refreshQuota();
   loadPromptSettings();
   loadTaskQueue(false);
-  window.addEventListener('keydown', handleImageViewerKeydown);
+  window.addEventListener('keydown', handleImageViewerKeydown, true);
   queueRefreshTimer = window.setInterval(() => {
     if (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status))) {
       loadTaskQueue(false);
@@ -282,7 +282,7 @@ onUnmounted(() => {
   if (queueRefreshTimer) {
     window.clearInterval(queueRefreshTimer);
   }
-  window.removeEventListener('keydown', handleImageViewerKeydown);
+  window.removeEventListener('keydown', handleImageViewerKeydown, true);
 });
 
 watch(
@@ -713,7 +713,7 @@ function taskStatusTagType(status: string): 'success' | 'info' | 'warning' | 'da
 
 function taskProgress(task: ImageTaskSummary | ImageTaskDetail): number {
   if (!task.totalCount) return isRunningTask(task.status) ? 5 : task.status === 'COMPLETED' ? 100 : 0;
-  return Math.round((task.completedCount / task.totalCount) * 100);
+  return Math.min(100, Math.max(0, Math.round((task.completedCount / task.totalCount) * 100)));
 }
 
 function fileCount(task: ImageTaskSummary | ImageTaskDetail, type: UploadGroup): number {
@@ -758,6 +758,9 @@ function rotateImageViewer() {
 
 function handleImageViewerKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && imageViewerVisible.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
     closeImageViewer();
   }
 }
@@ -1599,7 +1602,7 @@ function pageSubtitle(): string {
                       <span>模板图 {{ fileCount(task, '模板图') }}</span>
                       <span>主图 {{ task.form.mainImageCount }}</span>
                       <span>介绍图 {{ task.form.introImageCount }}</span>
-                      <span>生成 {{ task.completedCount }} / {{ task.totalCount }}</span>
+                      <span>进度 {{ task.completedCount }} / {{ task.totalCount }}</span>
                     </div>
                     <el-progress
                       class="queue-progress"
@@ -1836,7 +1839,7 @@ function pageSubtitle(): string {
               <span>{{ selectedQueueTask.form.platform }}</span>
               <span>{{ selectedQueueTask.form.customWidth }} x {{ selectedQueueTask.form.customHeight }}</span>
               <span>{{ selectedQueueTask.form.language }}</span>
-              <span>生成 {{ selectedQueueTask.completedCount }} / {{ selectedQueueTask.totalCount }}</span>
+              <span>进度 {{ selectedQueueTask.completedCount }} / {{ selectedQueueTask.totalCount }}</span>
             </div>
           </div>
         </div>
@@ -1864,7 +1867,7 @@ function pageSubtitle(): string {
         </el-descriptions>
 
         <div class="queue-detail-grid">
-          <section class="detail-block">
+          <section class="detail-block submitted-block">
             <h3>提交图片</h3>
             <div class="submitted-file-groups">
               <div v-for="type in uploadGroups" :key="type" class="submitted-file-group">
@@ -1893,7 +1896,7 @@ function pageSubtitle(): string {
             </div>
           </section>
 
-          <section class="detail-block">
+          <section class="detail-block kit-spec-block">
             <h3>套装规格</h3>
             <div v-if="visibleKitSpecs(selectedQueueTask).length" class="queue-tags">
               <span v-for="item in visibleKitSpecs(selectedQueueTask)" :key="item.name">

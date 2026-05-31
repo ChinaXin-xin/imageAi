@@ -38,6 +38,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -54,6 +56,7 @@ public class ImageTaskQueueService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int THUMB_MAX_EDGE = 320;
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
@@ -229,22 +232,15 @@ public class ImageTaskQueueService {
             );
             saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
             clearResults(taskId);
+            List<GenerationJob> jobs = createGenerationJobs(taskId, finalMainPrompt, finalIntroPrompt, record.payload());
             updateTaskState(taskId, "GENERATING", null, false, false);
 
             List<StoredUploadImage> referenceImages = readAllStoredImages(taskId);
-            int total = 0;
-            int mainCount = positive(record.payload().mainImageCount());
-            int introCount = positive(record.payload().introImageCount());
-            for (int index = 1; index <= mainCount; index++) {
-                total++;
-                generateOne(taskId, "主图", index, mainCount, finalMainPrompt, record.payload(), referenceImages);
-            }
-            for (int index = 1; index <= introCount; index++) {
-                total++;
-                generateOne(taskId, "介绍图", index, introCount, finalIntroPrompt, record.payload(), referenceImages);
+            for (GenerationJob job : jobs) {
+                generateOne(taskId, job, record.payload(), referenceImages);
             }
 
-            if (total == 0) {
+            if (jobs.isEmpty()) {
                 LOG.info("image.task.no-generation taskId={}", taskId);
             }
             updateTaskState(taskId, "COMPLETED", null, false, true);
@@ -254,30 +250,52 @@ public class ImageTaskQueueService {
         }
     }
 
+    private List<GenerationJob> createGenerationJobs(
+            String taskId,
+            String finalMainPrompt,
+            String finalIntroPrompt,
+            ImageTaskPayload payload
+    ) {
+        List<GenerationJob> jobs = new ArrayList<>();
+        int mainCount = positive(payload.mainImageCount());
+        int introCount = positive(payload.introImageCount());
+        for (int index = 1; index <= mainCount; index++) {
+            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount);
+            long resultId = insertResult(taskId, "主图", index, prompt, "QUEUED");
+            jobs.add(new GenerationJob(resultId, "主图", index, prompt));
+        }
+        for (int index = 1; index <= introCount; index++) {
+            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount);
+            long resultId = insertResult(taskId, "介绍图", index, prompt, "QUEUED");
+            jobs.add(new GenerationJob(resultId, "介绍图", index, prompt));
+        }
+        return jobs;
+    }
+
+    private String generationItemPrompt(String basePrompt, String resultType, int index, int total) {
+        return basePrompt + "\n\n【当前生成】" + resultType + "第 " + index + " / " + total + " 张。";
+    }
+
     private void generateOne(
             String taskId,
-            String resultType,
-            int index,
-            int total,
-            String basePrompt,
+            GenerationJob job,
             ImageTaskPayload payload,
             List<StoredUploadImage> referenceImages
     ) {
-        String prompt = basePrompt + "\n\n【当前生成】" + resultType + "第 " + index + " / " + total + " 张。";
-        long resultId = insertResult(taskId, resultType, index, prompt);
+        markResultGenerating(job.resultId());
         try {
             ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
                     taskId,
-                    resultType,
-                    index,
-                    prompt,
+                    job.resultType(),
+                    job.index(),
+                    job.prompt(),
                     normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
                     normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
                     referenceImages
             );
-            completeResult(resultId, generatedImage);
+            completeResult(job.resultId(), generatedImage);
         } catch (Exception ex) {
-            failResult(resultId, ex);
+            failResult(job.resultId(), ex);
             throw ex;
         }
     }
@@ -306,6 +324,7 @@ public class ImageTaskQueueService {
         }
         UploadImageAnalysis result = uploadImageAnalysisService.analyzeStored(label, prompt, files);
         analysis.put(label, result.result());
+        savePartialAnalysis(taskId, analysis);
     }
 
     private String buildGenerationPrompt(
@@ -338,6 +357,8 @@ public class ImageTaskQueueService {
         if (!"未选择".equals(productTypeText)) {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
+        builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
+        builder.append("【修订提示词】如果生图接口返回 revised_prompt，必须使用中文。\n");
         builder.append("\n");
         builder.append("【生成前强制深析上传图结果】\n");
         analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
@@ -553,7 +574,7 @@ public class ImageTaskQueueService {
     }
 
     private ImageTaskSummary toSummary(Connection connection, TaskRecord record) throws SQLException {
-        ResultStats stats = resultStats(connection, record.id());
+        ResultStats stats = progressStats(connection, record);
         return new ImageTaskSummary(
                 record.id(),
                 record.productName(),
@@ -572,7 +593,7 @@ public class ImageTaskQueueService {
     }
 
     private ImageTaskDetail toDetail(Connection connection, TaskRecord record) throws SQLException {
-        ResultStats stats = resultStats(connection, record.id());
+        ResultStats stats = progressStats(connection, record);
         return new ImageTaskDetail(
                 record.id(),
                 record.productName(),
@@ -671,7 +692,21 @@ public class ImageTaskQueueService {
         return files;
     }
 
-    private ResultStats resultStats(Connection connection, String taskId) throws SQLException {
+    private ResultStats progressStats(Connection connection, TaskRecord record) throws SQLException {
+        ResultStats generationStats = generationResultStats(connection, record.id());
+        int analysisTotal = countStoredImages(connection, record.id());
+        int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
+        int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
+        int analysisCompleted = analysisCompletedCount(connection, record, analysisTotal);
+        int total = analysisTotal + generationTotal;
+        int completed = analysisCompleted + generationStats.completed();
+        if ("COMPLETED".equals(record.status())) {
+            completed = total;
+        }
+        return new ResultStats(Math.min(completed, total), total);
+    }
+
+    private ResultStats generationResultStats(Connection connection, String taskId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 select
                   count(*) as total_count,
@@ -686,6 +721,56 @@ public class ImageTaskQueueService {
             }
         }
         return new ResultStats(0, 0);
+    }
+
+    private int analysisCompletedCount(Connection connection, TaskRecord record, int analysisTotal) throws SQLException {
+        if (analysisTotal == 0) {
+            return 0;
+        }
+        if ("GENERATING".equals(record.status()) || "COMPLETED".equals(record.status())) {
+            return analysisTotal;
+        }
+        return Math.min(analysisTotal, analyzedStoredImageCount(connection, record.id(), record.analysis()));
+    }
+
+    private int analyzedStoredImageCount(Connection connection, String taskId, Map<String, String> analysis) throws SQLException {
+        if (analysis == null || analysis.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Map.Entry<String, String> entry : analysis.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isBlank()) {
+                continue;
+            }
+            String fileGroup = fileGroupCode(entry.getKey());
+            if (!fileGroup.isBlank()) {
+                count += countStoredImages(connection, taskId, fileGroup);
+            }
+        }
+        return count;
+    }
+
+    private int countStoredImages(Connection connection, String taskId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*) from image_task_files where task_id = ?
+                """)) {
+            statement.setString(1, taskId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() ? resultSet.getInt(1) : 0;
+            }
+        }
+    }
+
+    private int countStoredImages(Connection connection, String taskId, String fileGroup) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*) from image_task_files where task_id = ? and file_group = ?
+                """)) {
+            statement.setString(1, taskId);
+            statement.setString(2, fileGroup);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() ? resultSet.getInt(1) : 0;
+            }
+        }
     }
 
     private List<StoredUploadImage> readStoredImages(String taskId, String fileGroup) {
@@ -745,6 +830,21 @@ public class ImageTaskQueueService {
         }
     }
 
+    private void savePartialAnalysis(String taskId, Map<String, String> analysis) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     update image_tasks
+                     set analysis_json = ?, updated_at = current_timestamp(3)
+                     where id = ?
+                     """)) {
+            statement.setString(1, toJson(analysis));
+            statement.setString(2, taskId);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("保存深析进度失败：" + taskId, ex);
+        }
+    }
+
     private void saveAnalysisAndPrompts(
             Connection connection,
             String taskId,
@@ -780,23 +880,24 @@ public class ImageTaskQueueService {
         }
     }
 
-    private long insertResult(String taskId, String resultType, int index, String prompt) {
+    private long insertResult(String taskId, String resultType, int index, String prompt, String status) {
         try (Connection connection = dataSource.getConnection()) {
-            return insertResult(connection, taskId, resultType, index, prompt);
+            return insertResult(connection, taskId, resultType, index, prompt, status);
         } catch (SQLException ex) {
             throw new IllegalStateException("创建生成结果记录失败：" + taskId, ex);
         }
     }
 
-    private long insertResult(Connection connection, String taskId, String resultType, int index, String prompt) throws SQLException {
+    private long insertResult(Connection connection, String taskId, String resultType, int index, String prompt, String status) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 insert into image_task_results (task_id, result_type, item_index, status, prompt)
-                values (?, ?, ?, 'GENERATING', ?)
+                values (?, ?, ?, ?, ?)
                 """, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, taskId);
             statement.setString(2, resultType);
             statement.setInt(3, index);
-            statement.setString(4, prompt);
+            statement.setString(4, status);
+            statement.setString(5, prompt);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -805,6 +906,20 @@ public class ImageTaskQueueService {
             }
         }
         throw new IllegalStateException("创建生成结果记录失败");
+    }
+
+    private void markResultGenerating(long resultId) {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     update image_task_results
+                     set status = 'GENERATING', updated_at = current_timestamp(3)
+                     where id = ?
+                     """)) {
+            statement.setLong(1, resultId);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("更新生成结果状态失败：" + resultId, ex);
+        }
     }
 
     private void completeResult(
@@ -1080,6 +1195,17 @@ public class ImageTaskQueueService {
         };
     }
 
+    private String fileGroupCode(String label) {
+        return switch (label == null ? "" : label) {
+            case "实拍图" -> "realPhoto";
+            case "包装图" -> "packageImage";
+            case "模板图" -> "template";
+            case "Logo图" -> "logo";
+            case "壁纸图" -> "wallpaper";
+            default -> "";
+        };
+    }
+
     private String thumbnailDataUrl(TaskRecord record) {
         if (record.thumbnail() == null || record.thumbnail().length == 0) {
             return "";
@@ -1184,7 +1310,12 @@ public class ImageTaskQueueService {
     }
 
     private String formatTime(Timestamp timestamp) {
-        return timestamp == null ? "" : timestamp.toLocalDateTime().format(TIME_FORMATTER);
+        return timestamp == null
+                ? ""
+                : timestamp.toLocalDateTime()
+                .atZone(ZoneOffset.UTC)
+                .withZoneSameInstant(DISPLAY_ZONE)
+                .format(TIME_FORMATTER);
     }
 
     private String abbreviate(String value, int maxLength) {
@@ -1207,6 +1338,14 @@ public class ImageTaskQueueService {
             byte[] bytes,
             String contentType,
             String fileName
+    ) {
+    }
+
+    private record GenerationJob(
+            long resultId,
+            String resultType,
+            int index,
+            String prompt
     ) {
     }
 

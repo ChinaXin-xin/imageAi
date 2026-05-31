@@ -573,6 +573,7 @@ h1 {
 .image-action-wrap {
   position: relative;
   display: block;
+  container-type: size;
   min-width: 0;
   overflow: hidden;
   cursor: zoom-in;
@@ -585,22 +586,37 @@ h1 {
 
 .image-download-button {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: max(2px, 3%);
+  bottom: max(2px, 3%);
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: min(20%, 30px);
+  height: auto;
+  aspect-ratio: 1;
   align-items: center;
   justify-content: center;
   border: 0;
   border-radius: 999px;
+  padding: 0;
   background: rgba(15, 23, 42, 0.56);
   color: #fff;
   cursor: pointer;
-  font-size: 15px;
+  font-size: clamp(7px, 58%, 15px);
+  line-height: 1;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.16s ease, background 0.16s ease;
+}
+
+@supports (width: 1cqw) {
+  .image-download-button {
+    width: min(20cqw, 20cqh, 30px);
+  }
+}
+
+.image-download-button .el-icon,
+.image-download-button .el-icon svg {
+  width: 62%;
+  height: 62%;
 }
 
 .image-action-wrap:hover .image-download-button,
@@ -616,9 +632,13 @@ h1 {
 .image-download-button.brand-download-button {
   right: 1px;
   bottom: 1px;
-  width: 14px;
-  height: 14px;
-  font-size: 10px;
+  width: min(20%, 10px);
+}
+
+@supports (width: 1cqw) {
+  .image-download-button.brand-download-button {
+    width: min(20cqw, 20cqh, 10px);
+  }
 }
 
 .line-upload .el-upload-list {
@@ -1054,7 +1074,7 @@ h1 {
 
 .queue-detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 2.5fr) minmax(180px, 0.55fr);
   gap: 14px;
 }
 
@@ -1077,6 +1097,15 @@ h1 {
   grid-column: 1 / -1;
 }
 
+.submitted-block {
+  min-height: 260px;
+}
+
+.kit-spec-block {
+  align-self: start;
+  min-height: 132px;
+}
+
 .submitted-file-groups {
   display: grid;
   gap: 12px;
@@ -1091,7 +1120,7 @@ h1 {
 
 .submitted-file-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 10px;
 }
 
@@ -1106,7 +1135,7 @@ h1 {
 .submitted-file-card > span {
   display: flex;
   width: 100%;
-  height: 86px;
+  height: 118px;
   align-items: center;
   justify-content: center;
   object-fit: cover;
@@ -1246,21 +1275,22 @@ h1 {
   inset: 0;
   display: grid;
   place-items: center;
+  padding: 48px 32px;
   background: rgba(15, 23, 42, 0.84);
 }
 
 .image-viewer-stage {
   display: grid;
-  width: min(92vw, 1440px);
-  height: min(86vh, 960px);
+  width: min(94vw, 1720px);
+  height: min(88vh, 1120px);
   place-items: center;
   overflow: hidden;
 }
 
 .image-viewer-stage img {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   transition: transform 0.18s ease;
 }
@@ -1668,6 +1698,15 @@ h1 {
 
   .kit-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .queue-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .submitted-block,
+  .kit-spec-block {
+    min-height: 0;
   }
 }
 

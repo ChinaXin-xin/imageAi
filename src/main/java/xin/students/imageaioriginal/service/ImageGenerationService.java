@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MultiValueMap;
@@ -15,6 +16,7 @@ import xin.students.imageaioriginal.config.GptProperties;
 import xin.students.imageaioriginal.config.ImageGenerationProperties;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,6 +26,8 @@ import java.util.UUID;
 public class ImageGenerationService {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration READ_TIMEOUT = Duration.ofMinutes(6);
 
     private final GptProperties gptProperties;
     private final ImageGenerationProperties imageGenerationProperties;
@@ -41,7 +45,10 @@ public class ImageGenerationService {
         this.gptProperties = gptProperties;
         this.imageGenerationProperties = imageGenerationProperties;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
-        this.restClient = restClientBuilder.build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = restClientBuilder.requestFactory(requestFactory).build();
         this.objectMapper = objectMapper;
     }
 
