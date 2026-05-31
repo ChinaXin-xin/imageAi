@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
 public class ApiLoggingFilter extends OncePerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.http");
+    private static final int MAX_BODY_LOG_LENGTH = 2000;
+    private static final int LARGE_BODY_BYTES = 8 * 1024;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -94,7 +96,8 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         if (body.length == 0) {
             return "-";
         }
-        return abbreviate(new String(body, charset(request.getCharacterEncoding())), 2000);
+        String sanitizedBody = sanitizeBody(new String(body, charset(request.getCharacterEncoding())));
+        return largeBodySummary(body.length, sanitizedBody, "request");
     }
 
     private String bodySummary(ContentCachingResponseWrapper response) {
@@ -102,7 +105,8 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         if (body.length == 0) {
             return "-";
         }
-        return abbreviate(new String(body, charset(response.getCharacterEncoding())), 2000);
+        String sanitizedBody = sanitizeBody(new String(body, responseCharset(response)));
+        return largeBodySummary(body.length, sanitizedBody, "response");
     }
 
     private Charset charset(String encoding) {
@@ -114,6 +118,39 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         } catch (Exception ex) {
             return StandardCharsets.UTF_8;
         }
+    }
+
+    private Charset responseCharset(ContentCachingResponseWrapper response) {
+        String contentType = response.getContentType();
+        if (contentType != null) {
+            String lowerContentType = contentType.toLowerCase();
+            int charsetIndex = lowerContentType.indexOf("charset=");
+            if (charsetIndex >= 0) {
+                return charset(contentType.substring(charsetIndex + "charset=".length()).trim());
+            }
+            if (lowerContentType.contains("json") || lowerContentType.startsWith("text/")) {
+                return StandardCharsets.UTF_8;
+            }
+        }
+        return charset(response.getCharacterEncoding());
+    }
+
+    private String sanitizeBody(String value) {
+        String sanitized = value.replaceAll(
+                "(\"(?:thumbnail|preview|imageBase64|image_base64)\"\\s*:\\s*\")([^\"]*)(\")",
+                "$1[image omitted]$3"
+        );
+        return sanitized.replaceAll(
+                "data:image/[^;\"']+;base64,[A-Za-z0-9+/=\\r\\n]+",
+                "data:image;base64,[omitted]"
+        );
+    }
+
+    private String largeBodySummary(int byteLength, String sanitizedBody, String bodyType) {
+        if (byteLength > LARGE_BODY_BYTES && sanitizedBody.length() > MAX_BODY_LOG_LENGTH) {
+            return "[%s omitted: %dB, too large for log]".formatted(bodyType, byteLength);
+        }
+        return abbreviate(sanitizedBody, MAX_BODY_LOG_LENGTH);
     }
 
     private String parameterSummary(HttpServletRequest request) {

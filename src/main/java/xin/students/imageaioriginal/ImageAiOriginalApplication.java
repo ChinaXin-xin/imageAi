@@ -11,5 +11,4 @@ public class ImageAiOriginalApplication {
     public static void main(String[] args) {
         SpringApplication.run(ImageAiOriginalApplication.class, args);
     }
-
 }
