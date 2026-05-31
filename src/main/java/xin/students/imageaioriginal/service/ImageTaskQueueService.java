@@ -55,6 +55,8 @@ public class ImageTaskQueueService {
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int THUMB_MAX_EDGE = 320;
+    private static final int DEFAULT_IMAGE_SIZE = 1536;
+    private static final int IMAGE_SIZE_STEP = 16;
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -263,8 +265,8 @@ public class ImageTaskQueueService {
                     resultType,
                     index,
                     prompt,
-                    positiveOrDefault(payload.customWidth(), 1500),
-                    positiveOrDefault(payload.customHeight(), 1500)
+                    normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
+                    normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE)
             );
             completeResult(resultId, generatedImage);
         } catch (Exception ex) {
@@ -309,9 +311,9 @@ public class ImageTaskQueueService {
         builder.append("【商品名称】").append(normalizeText(payload.productName(), "未命名商品")).append("\n");
         builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
         builder.append("【尺寸】")
-                .append(positiveOrDefault(payload.customWidth(), 1500))
+                .append(normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE))
                 .append("x")
-                .append(positiveOrDefault(payload.customHeight(), 1500))
+                .append(normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE))
                 .append("\n");
         builder.append("【语言】").append(normalizeText(payload.language(), "英文")).append("\n");
         builder.append("【机型】").append(normalizeText(payload.model(), "根据上传图自动识别")).append("\n");
@@ -346,13 +348,15 @@ public class ImageTaskQueueService {
 
     private ImageTaskPayload normalizePayload(ImageTaskPayload payload) {
         String productName = normalizeText(payload.productName(), randomProductName());
+        String ratio = normalizeLegacyRatio(normalizeText(payload.ratio(), "1536:1536"));
+        int[] imageSize = normalizeImageSize(ratio, payload.customWidth(), payload.customHeight());
         return new ImageTaskPayload(
                 productName,
                 normalizeNullable(payload.model()),
                 normalizeText(payload.platform(), "Amazon"),
-                normalizeText(payload.ratio(), "1500:1500"),
-                positiveOrDefault(payload.customWidth(), 1500),
-                positiveOrDefault(payload.customHeight(), 1500),
+                ratio,
+                imageSize[0],
+                imageSize[1],
                 normalizeText(payload.phoneColor(), "自动"),
                 normalizeText(payload.customColor(), "#2563eb"),
                 normalizeNullable(payload.logoName()),
@@ -989,6 +993,42 @@ public class ImageTaskQueueService {
     private int positiveOrDefault(Integer value, int fallback) {
         int normalized = positive(value);
         return normalized > 0 ? normalized : fallback;
+    }
+
+    private String normalizeLegacyRatio(String ratio) {
+        return switch (ratio) {
+            case "1500:1500" -> "1536:1536";
+            case "1000:1000" -> "1024:1024";
+            case "900:600" -> "960:640";
+            default -> ratio;
+        };
+    }
+
+    private int[] normalizeImageSize(String ratio, Integer customWidth, Integer customHeight) {
+        if (!"自定义".equals(ratio)) {
+            String[] parts = ratio.split(":");
+            if (parts.length == 2) {
+                try {
+                    int width = normalizeImageDimension(Integer.parseInt(parts[0]), DEFAULT_IMAGE_SIZE);
+                    int height = normalizeImageDimension(Integer.parseInt(parts[1]), DEFAULT_IMAGE_SIZE);
+                    return new int[]{width, height};
+                } catch (NumberFormatException ignored) {
+                    // Fall through to custom size normalization.
+                }
+            }
+        }
+        return new int[]{
+                normalizeImageDimension(customWidth, DEFAULT_IMAGE_SIZE),
+                normalizeImageDimension(customHeight, DEFAULT_IMAGE_SIZE)
+        };
+    }
+
+    private int normalizeImageDimension(Integer value, int fallback) {
+        int normalized = positiveOrDefault(value, fallback);
+        if (normalized < 300) {
+            normalized = fallback;
+        }
+        return Math.max(IMAGE_SIZE_STEP, Math.round((float) normalized / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
     }
 
     private int countGroup(List<StoredTaskFile> files, String fileGroup) {

@@ -44,6 +44,8 @@ const DEFAULT_ANALYSIS_PROMPT =
   '请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。';
 const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'];
 const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
+const DEFAULT_IMAGE_SIZE = 1536;
+const IMAGE_SIZE_STEP = 16;
 
 type UploadGroup = '实拍图' | '包装图' | '模板图';
 type AnalysisUploadGroup = '实拍图' | '包装图';
@@ -91,7 +93,7 @@ const addingTask = ref(false);
 let queueRefreshTimer: number | undefined;
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
-const ratioOptions = ['1500:1500', '1000:1000', '900:600', '自定义'];
+const ratioOptions = ['1536:1536', '1024:1024', '960:640', '自定义'];
 const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色', '紫色', '绿色', '自定义'];
 const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体', '高级电商', 'TEMU爆款'];
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
@@ -102,9 +104,9 @@ const taskForm = ref({
   productName: '',
   model: '',
   platform: 'Amazon',
-  ratio: '1500:1500',
-  customWidth: 1500,
-  customHeight: 1500,
+  ratio: '1536:1536',
+  customWidth: DEFAULT_IMAGE_SIZE,
+  customHeight: DEFAULT_IMAGE_SIZE,
   phoneColor: '自动',
   customColor: '#2563eb',
   logoName: '',
@@ -286,6 +288,7 @@ function restoreTaskDraft() {
         ...taskForm.value,
         ...draft.taskForm,
       };
+      normalizeTaskImageSize();
     }
     if (draft.kitSpecs?.length) {
       const cachedSpecs = new Map(draft.kitSpecs.map((item) => [item.name, item.quantity]));
@@ -326,6 +329,35 @@ function isActivePage(value: string): value is ActivePage {
   return ['quota', 'task', 'queue', 'settings'].includes(value);
 }
 
+function normalizeImageDimension(value: number | null | undefined, fallback = DEFAULT_IMAGE_SIZE): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 300) {
+    return fallback;
+  }
+  return Math.max(304, Math.round(numericValue / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
+}
+
+function normalizeLegacyRatio(ratio: string): string {
+  if (ratio === '1500:1500') return '1536:1536';
+  if (ratio === '1000:1000') return '1024:1024';
+  if (ratio === '900:600') return '960:640';
+  return ratio;
+}
+
+function normalizeTaskImageSize() {
+  taskForm.value.ratio = normalizeLegacyRatio(taskForm.value.ratio);
+  if (taskForm.value.ratio !== '自定义') {
+    const [width, height] = taskForm.value.ratio.split(':').map((value) => Number(value));
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      taskForm.value.customWidth = width;
+      taskForm.value.customHeight = height;
+      return;
+    }
+  }
+  taskForm.value.customWidth = normalizeImageDimension(taskForm.value.customWidth);
+  taskForm.value.customHeight = normalizeImageDimension(taskForm.value.customHeight);
+}
+
 function randomProductName(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
 }
@@ -339,11 +371,11 @@ function ensureProductName() {
 function selectPlatform(platform: string) {
   taskForm.value.platform = platform;
   if (platform === 'Amazon') {
-    selectRatio('1500:1500');
+    selectRatio('1536:1536');
   } else if (platform === 'TEMU') {
-    selectRatio('1000:1000');
+    selectRatio('1024:1024');
   } else if (platform === 'TikTok Shop') {
-    selectRatio('900:600');
+    selectRatio('960:640');
   }
 }
 
@@ -413,6 +445,11 @@ async function savePromptSettings() {
 function uploadFilesFor(type: AnalysisUploadGroup): File[] {
   const source = type === '实拍图' ? realPhotoFiles.value : packageImageFiles.value;
   return source.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
+}
+
+function normalizeCustomImageSize() {
+  taskForm.value.ratio = '自定义';
+  normalizeTaskImageSize();
 }
 
 async function analyzeUploadImage(type: AnalysisUploadGroup) {
@@ -547,6 +584,7 @@ function autoRecognizeKitSpecs() {
 
 async function addToTaskQueue() {
   ensureProductName();
+  normalizeTaskImageSize();
   addingTask.value = true;
   try {
     const createdTask = await createImageTask(snapshotTaskForm(), {
@@ -566,6 +604,7 @@ async function addToTaskQueue() {
 }
 
 function snapshotTaskForm(): ImageTaskPayload {
+  normalizeTaskImageSize();
   return {
     productName: taskForm.value.productName,
     model: taskForm.value.model,
@@ -693,9 +732,9 @@ function resetTaskForm() {
     productName: '',
     model: '',
     platform: 'Amazon',
-    ratio: '1500:1500',
-    customWidth: 1500,
-    customHeight: 1500,
+    ratio: '1536:1536',
+    customWidth: DEFAULT_IMAGE_SIZE,
+    customHeight: DEFAULT_IMAGE_SIZE,
     phoneColor: '自动',
     customColor: '#2563eb',
     logoName: '',
@@ -1136,7 +1175,7 @@ function pageSubtitle(): string {
                           <button class="help-button" type="button">?</button>
                         </template>
                         <p class="help-copy">
-                          Image 2 生图建议使用正方形或接近平台规范的尺寸。Amazon 常用 1500 x 1500；TEMU 可用 1000 x 1000；横版场景可用 900 x 600。自定义时请保持宽高不小于 300。
+                          Image 2 要求宽高都能被 16 整除。推荐 Amazon 用 1536 x 1536；TEMU 用 1024 x 1024；横版场景用 960 x 640。自定义尺寸会自动吸附到 16 的倍数。
                         </p>
                       </el-popover>
                     </div>
@@ -1152,9 +1191,21 @@ function pageSubtitle(): string {
                       </button>
                     </div>
                     <div class="ratio-inputs">
-                      <el-input-number v-model="taskForm.customWidth" :min="300" controls-position="right" />
+                      <el-input-number
+                        v-model="taskForm.customWidth"
+                        :min="304"
+                        :step="16"
+                        controls-position="right"
+                        @change="normalizeCustomImageSize"
+                      />
                       <span>×</span>
-                      <el-input-number v-model="taskForm.customHeight" :min="300" controls-position="right" />
+                      <el-input-number
+                        v-model="taskForm.customHeight"
+                        :min="304"
+                        :step="16"
+                        controls-position="right"
+                        @change="normalizeCustomImageSize"
+                      />
                     </div>
                   </div>
                 </div>
