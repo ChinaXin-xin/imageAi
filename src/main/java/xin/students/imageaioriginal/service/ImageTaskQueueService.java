@@ -98,7 +98,9 @@ public class ImageTaskQueueService {
             String payloadJson,
             List<MultipartFile> realPhotoFiles,
             List<MultipartFile> packageImageFiles,
-            List<MultipartFile> templateFiles
+            List<MultipartFile> templateFiles,
+            List<MultipartFile> logoFiles,
+            List<MultipartFile> wallpaperFiles
     ) {
         ensureTables();
         ImageTaskPayload payload = normalizePayload(parsePayload(payloadJson));
@@ -107,6 +109,8 @@ public class ImageTaskQueueService {
         files.addAll(toStoredTaskFiles("realPhoto", realPhotoFiles));
         files.addAll(toStoredTaskFiles("packageImage", packageImageFiles));
         files.addAll(toStoredTaskFiles("template", templateFiles));
+        files.addAll(toStoredTaskFiles("logo", logoFiles));
+        files.addAll(toStoredTaskFiles("wallpaper", wallpaperFiles));
         Thumbnail thumbnail = createThumbnail(files);
 
         try (Connection connection = dataSource.getConnection()) {
@@ -227,16 +231,17 @@ public class ImageTaskQueueService {
             clearResults(taskId);
             updateTaskState(taskId, "GENERATING", null, false, false);
 
+            List<StoredUploadImage> referenceImages = readAllStoredImages(taskId);
             int total = 0;
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
             for (int index = 1; index <= mainCount; index++) {
                 total++;
-                generateOne(taskId, "主图", index, mainCount, finalMainPrompt, record.payload());
+                generateOne(taskId, "主图", index, mainCount, finalMainPrompt, record.payload(), referenceImages);
             }
             for (int index = 1; index <= introCount; index++) {
                 total++;
-                generateOne(taskId, "介绍图", index, introCount, finalIntroPrompt, record.payload());
+                generateOne(taskId, "介绍图", index, introCount, finalIntroPrompt, record.payload(), referenceImages);
             }
 
             if (total == 0) {
@@ -255,7 +260,8 @@ public class ImageTaskQueueService {
             int index,
             int total,
             String basePrompt,
-            ImageTaskPayload payload
+            ImageTaskPayload payload,
+            List<StoredUploadImage> referenceImages
     ) {
         String prompt = basePrompt + "\n\n【当前生成】" + resultType + "第 " + index + " / " + total + " 张。";
         long resultId = insertResult(taskId, resultType, index, prompt);
@@ -266,7 +272,8 @@ public class ImageTaskQueueService {
                     index,
                     prompt,
                     normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
-                    normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE)
+                    normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
+                    referenceImages
             );
             completeResult(resultId, generatedImage);
         } catch (Exception ex) {
@@ -281,6 +288,8 @@ public class ImageTaskQueueService {
         analyzeGroup(taskId, "realPhoto", "实拍图", prompt, analysis);
         analyzeGroup(taskId, "packageImage", "包装图", prompt, analysis);
         analyzeGroup(taskId, "template", "模板图", prompt, analysis);
+        analyzeGroup(taskId, "logo", "Logo图", prompt, analysis);
+        analyzeGroup(taskId, "wallpaper", "壁纸图", prompt, analysis);
         return analysis;
     }
 
@@ -307,8 +316,6 @@ public class ImageTaskQueueService {
     ) {
         StringBuilder builder = new StringBuilder();
         builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n\n");
-        builder.append("【任务类型】").append(imageType).append("\n");
-        builder.append("【商品名称】").append(normalizeText(payload.productName(), "未命名商品")).append("\n");
         builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
         builder.append("【尺寸】")
                 .append(normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE))
@@ -320,15 +327,18 @@ public class ImageTaskQueueService {
         builder.append("【手机颜色】").append(normalizeText(payload.phoneColor(), "自动")).append("\n");
         builder.append("【设计风格】").append(normalizeText(payload.style(), "自动")).append("\n");
         builder.append("【布局模式】").append(normalizeText(payload.layout(), "自动")).append("\n");
-        builder.append("【Logo】").append(normalizeText(payload.logoName(), "按上传图或品牌名识别")).append("\n");
-        builder.append("【壁纸】").append(normalizeText(payload.wallpaperName(), "按上传图或需求匹配")).append("\n");
+        appendLogoContext(builder, payload, analysis);
+        appendWallpaperContext(builder, payload, analysis);
         builder.append("【卖点】").append(joinList(payload.sellingPoints())).append("\n");
-        builder.append("【套装规格】").append(joinKitSpecs(payload.kitSpecs())).append("\n");
-        builder.append("【产品类型】高清=").append(Boolean.TRUE.equals(payload.hdEnabled()))
-                .append("，高清数量=").append(positive(payload.hdQuantity()))
-                .append("；防窥=").append(Boolean.TRUE.equals(payload.privacyEnabled()))
-                .append("，防窥数量=").append(positive(payload.privacyQuantity()))
-                .append("\n\n");
+        String kitSpecText = joinKitSpecs(payload.kitSpecs());
+        if (!"未选择".equals(kitSpecText)) {
+            builder.append("【套装规格】").append(kitSpecText).append("\n");
+        }
+        String productTypeText = productTypeText(payload);
+        if (!"未选择".equals(productTypeText)) {
+            builder.append("【产品类型】").append(productTypeText).append("\n");
+        }
+        builder.append("\n");
         builder.append("【生成前强制深析上传图结果】\n");
         analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
         builder.append("\n必须严格结合以上深析结果生成，不要遗漏可见细节，不要编造深析结果中没有的信息。");
@@ -621,6 +631,8 @@ public class ImageTaskQueueService {
         files.put("实拍图", new ArrayList<>());
         files.put("包装图", new ArrayList<>());
         files.put("模板图", new ArrayList<>());
+        files.put("Logo图", new ArrayList<>());
+        files.put("壁纸图", new ArrayList<>());
         try (PreparedStatement statement = connection.prepareStatement("""
                 select id, file_group, file_name, content_type, file_size, content
                 from image_task_files
@@ -681,6 +693,20 @@ public class ImageTaskQueueService {
             return readStoredImages(connection, taskId, fileGroup);
         } catch (SQLException ex) {
             throw new IllegalStateException("读取任务素材失败：" + taskId + "/" + fileGroup, ex);
+        }
+    }
+
+    private List<StoredUploadImage> readAllStoredImages(String taskId) {
+        try (Connection connection = dataSource.getConnection()) {
+            List<StoredUploadImage> images = new ArrayList<>();
+            images.addAll(readStoredImages(connection, taskId, "realPhoto"));
+            images.addAll(readStoredImages(connection, taskId, "packageImage"));
+            images.addAll(readStoredImages(connection, taskId, "template"));
+            images.addAll(readStoredImages(connection, taskId, "logo"));
+            images.addAll(readStoredImages(connection, taskId, "wallpaper"));
+            return images;
+        } catch (SQLException ex) {
+            throw new IllegalStateException("读取任务原图失败：" + taskId, ex);
         }
     }
 
@@ -1048,6 +1074,8 @@ public class ImageTaskQueueService {
             case "realPhoto" -> "实拍图";
             case "packageImage" -> "包装图";
             case "template" -> "模板图";
+            case "logo" -> "Logo图";
+            case "wallpaper" -> "壁纸图";
             default -> fileGroup;
         };
     }
@@ -1088,8 +1116,58 @@ public class ImageTaskQueueService {
         }
         List<String> items = specs.stream()
                 .filter(spec -> spec != null && spec.name() != null && !spec.name().isBlank())
+                .filter(spec -> positive(spec.quantity()) > 0)
                 .map(spec -> spec.name() + " x " + positive(spec.quantity()))
                 .toList();
+        return items.isEmpty() ? "未选择" : String.join("、", items);
+    }
+
+    private void appendLogoContext(StringBuilder builder, ImageTaskPayload payload, Map<String, String> analysis) {
+        boolean hasLogoImage = analysis.containsKey("Logo图");
+        String logoName = normalizeNullable(payload.logoName());
+        if (logoName.isEmpty() && !hasLogoImage) {
+            return;
+        }
+        builder.append("【Logo】");
+        if (!logoName.isEmpty()) {
+            builder.append(logoName);
+            if (hasLogoImage) {
+                builder.append("，参考上传Logo图识别");
+            }
+        } else {
+            builder.append("按上传图识别");
+        }
+        builder.append("\n");
+    }
+
+    private void appendWallpaperContext(StringBuilder builder, ImageTaskPayload payload, Map<String, String> analysis) {
+        boolean hasWallpaperImage = analysis.containsKey("壁纸图");
+        String wallpaperName = normalizeNullable(payload.wallpaperName());
+        if (wallpaperName.isEmpty() && !hasWallpaperImage) {
+            return;
+        }
+        builder.append("【壁纸】");
+        if (!wallpaperName.isEmpty()) {
+            builder.append(wallpaperName);
+            if (hasWallpaperImage) {
+                builder.append("，参考上传壁纸图匹配");
+            }
+        } else {
+            builder.append("按上传图或需求匹配");
+        }
+        builder.append("\n");
+    }
+
+    private String productTypeText(ImageTaskPayload payload) {
+        int hdQuantity = Boolean.TRUE.equals(payload.hdEnabled()) ? positive(payload.hdQuantity()) : 0;
+        int privacyQuantity = Boolean.TRUE.equals(payload.privacyEnabled()) ? positive(payload.privacyQuantity()) : 0;
+        List<String> items = new ArrayList<>();
+        if (hdQuantity > 0) {
+            items.add("高清 x " + hdQuantity);
+        }
+        if (privacyQuantity > 0) {
+            items.add("防窥 x " + privacyQuantity);
+        }
         return items.isEmpty() ? "未选择" : String.join("、", items);
     }
 

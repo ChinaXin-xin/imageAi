@@ -2,13 +2,16 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   CircleCheck,
+  Close,
   Document,
+  Download,
   Expand,
   Fold,
   Setting,
   Monitor,
   Plus,
   Refresh,
+  RefreshRight,
   Upload,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
@@ -47,9 +50,14 @@ const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
 const DEFAULT_IMAGE_SIZE = 1536;
 const IMAGE_SIZE_STEP = 16;
 
-type UploadGroup = '实拍图' | '包装图' | '模板图';
+type UploadGroup = '实拍图' | '包装图' | '模板图' | 'Logo图' | '壁纸图';
 type AnalysisUploadGroup = '实拍图' | '包装图';
 type ActivePage = 'quota' | 'task' | 'queue' | 'settings';
+
+type ViewerImage = {
+  src: string;
+  name: string;
+};
 
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
@@ -71,6 +79,8 @@ const taskDraftRestored = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
 const packageImageFiles = ref<UploadUserFile[]>([]);
 const templateFiles = ref<UploadUserFile[]>([]);
+const logoFiles = ref<UploadUserFile[]>([]);
+const wallpaperFiles = ref<UploadUserFile[]>([]);
 const uploadAnalysis = ref<Record<AnalysisUploadGroup, UploadImageAnalysis | null>>({
   实拍图: null,
   包装图: null,
@@ -90,6 +100,9 @@ const fullTextDialogContent = ref('');
 const queueLoading = ref(false);
 const queueErrorMessage = ref('');
 const addingTask = ref(false);
+const imageViewerVisible = ref(false);
+const imageViewerImage = ref<ViewerImage | null>(null);
+const imageViewerRotation = ref(0);
 let queueRefreshTimer: number | undefined;
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
@@ -98,7 +111,7 @@ const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色',
 const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体', '高级电商', 'TEMU爆款'];
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
-const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图'];
+const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图', 'Logo图', '壁纸图'];
 
 const taskForm = ref({
   productName: '',
@@ -257,6 +270,7 @@ onMounted(() => {
   refreshQuota();
   loadPromptSettings();
   loadTaskQueue(false);
+  window.addEventListener('keydown', handleImageViewerKeydown);
   queueRefreshTimer = window.setInterval(() => {
     if (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status))) {
       loadTaskQueue(false);
@@ -268,6 +282,7 @@ onUnmounted(() => {
   if (queueRefreshTimer) {
     window.clearInterval(queueRefreshTimer);
   }
+  window.removeEventListener('keydown', handleImageViewerKeydown);
 });
 
 watch(
@@ -482,7 +497,9 @@ function uploadKey(file: UploadUserFile): string {
 function uploadListFor(type: UploadGroup) {
   if (type === '实拍图') return realPhotoFiles;
   if (type === '包装图') return packageImageFiles;
-  return templateFiles;
+  if (type === '模板图') return templateFiles;
+  if (type === 'Logo图') return logoFiles;
+  return wallpaperFiles;
 }
 
 function filePreviewUrl(file: UploadUserFile): string {
@@ -542,6 +559,8 @@ function clearUploadedImagesAndAnalysis() {
   realPhotoFiles.value = [];
   packageImageFiles.value = [];
   templateFiles.value = [];
+  logoFiles.value = [];
+  wallpaperFiles.value = [];
   uploadAnalysis.value = {
     实拍图: null,
     包装图: null,
@@ -591,6 +610,8 @@ async function addToTaskQueue() {
       realPhotoFiles: rawUploadFiles(realPhotoFiles.value),
       packageImageFiles: rawUploadFiles(packageImageFiles.value),
       templateFiles: rawUploadFiles(templateFiles.value),
+      logoFiles: rawUploadFiles(logoFiles.value),
+      wallpaperFiles: rawUploadFiles(wallpaperFiles.value),
     });
     selectedQueueTask.value = createdTask;
     activePage.value = 'queue';
@@ -713,6 +734,66 @@ function openFullTextDialog(title: string, content: string | null | undefined) {
   fullTextDialogTitle.value = title;
   fullTextDialogContent.value = content;
   fullTextDialogVisible.value = true;
+}
+
+function openImageViewer(src: string | null | undefined, name: string | null | undefined) {
+  if (!src) return;
+  imageViewerImage.value = {
+    src,
+    name: name?.trim() || 'image.png',
+  };
+  imageViewerRotation.value = 0;
+  imageViewerVisible.value = true;
+}
+
+function closeImageViewer() {
+  imageViewerVisible.value = false;
+  imageViewerImage.value = null;
+  imageViewerRotation.value = 0;
+}
+
+function rotateImageViewer() {
+  imageViewerRotation.value = (imageViewerRotation.value + 90) % 360;
+}
+
+function handleImageViewerKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && imageViewerVisible.value) {
+    closeImageViewer();
+  }
+}
+
+function sanitizeDownloadName(name: string | null | undefined): string {
+  const normalized = name?.trim().replace(/[\\/:*?"<>|]/g, '_') || 'image.png';
+  return /\.[a-z0-9]{2,5}$/i.test(normalized) ? normalized : `${normalized}.png`;
+}
+
+async function downloadImage(src: string | null | undefined, name: string | null | undefined) {
+  if (!src) return;
+  const anchor = document.createElement('a');
+  anchor.download = sanitizeDownloadName(name);
+  try {
+    if (src.startsWith('data:') || src.startsWith('blob:')) {
+      anchor.href = src;
+    } else {
+      const response = await fetch(src);
+      if (!response.ok) {
+        throw new Error(response.statusText);
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      anchor.href = objectUrl;
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  } catch (error) {
+    anchor.href = src;
+    anchor.target = '_blank';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    ElMessage.warning('图片已在新窗口打开，可从浏览器保存。');
+  }
 }
 
 function taskFilesByGroup(type: UploadGroup) {
@@ -1015,9 +1096,14 @@ function pageSubtitle(): string {
                   </el-upload>
                   <div v-if="realPhotoFiles.length" class="preview-grid">
                     <div v-for="file in realPhotoFiles" :key="uploadKey(file)" class="preview-tile">
-                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                        <img :src="filePreviewUrl(file)" :alt="file.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
                       <span>{{ file.name }}</span>
-                      <button type="button" @click="removeUploadFile('实拍图', file)">移除</button>
+                      <button class="remove-upload-button" type="button" @click="removeUploadFile('实拍图', file)">移除</button>
                     </div>
                   </div>
                   <p
@@ -1070,9 +1156,14 @@ function pageSubtitle(): string {
                   </el-upload>
                   <div v-if="packageImageFiles.length" class="preview-grid">
                     <div v-for="file in packageImageFiles" :key="uploadKey(file)" class="preview-tile">
-                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                        <img :src="filePreviewUrl(file)" :alt="file.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
                       <span>{{ file.name }}</span>
-                      <button type="button" @click="removeUploadFile('包装图', file)">移除</button>
+                      <button class="remove-upload-button" type="button" @click="removeUploadFile('包装图', file)">移除</button>
                     </div>
                   </div>
                   <p
@@ -1103,9 +1194,14 @@ function pageSubtitle(): string {
                   </el-upload>
                   <div v-if="templateFiles.length" class="preview-grid">
                     <div v-for="file in templateFiles" :key="uploadKey(file)" class="preview-tile">
-                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                        <img :src="filePreviewUrl(file)" :alt="file.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
                       <span>{{ file.name }}</span>
-                      <button type="button" @click="removeUploadFile('模板图', file)">移除</button>
+                      <button class="remove-upload-button" type="button" @click="removeUploadFile('模板图', file)">移除</button>
                     </div>
                   </div>
                 </div>
@@ -1121,9 +1217,29 @@ function pageSubtitle(): string {
                 <div class="two-fields">
                   <div class="form-row">
                     <label>Logo 图片</label>
-                    <el-upload class="line-upload" action="#" :auto-upload="false" :limit="1">
+                    <el-upload
+                      v-model:file-list="logoFiles"
+                      class="line-upload"
+                      action="#"
+                      :auto-upload="false"
+                      :limit="1"
+                      :show-file-list="false"
+                      @remove="handleUploadRemove"
+                    >
                       <el-button :icon="Upload">上传 Logo</el-button>
                     </el-upload>
+                    <div v-if="logoFiles.length" class="preview-grid compact-preview-grid">
+                      <div v-for="file in logoFiles" :key="uploadKey(file)" class="preview-tile">
+                        <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                          <img :src="filePreviewUrl(file)" :alt="file.name" />
+                          <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                            <el-icon><Download /></el-icon>
+                          </button>
+                        </div>
+                        <span>{{ file.name }}</span>
+                        <button class="remove-upload-button" type="button" @click="removeUploadFile('Logo图', file)">移除</button>
+                      </div>
+                    </div>
                   </div>
                   <div class="form-row">
                     <label>Logo 名称</label>
@@ -1135,10 +1251,31 @@ function pageSubtitle(): string {
                 </div>
                 <div class="form-row">
                   <label>手机壁纸</label>
-                  <el-upload class="compact-upload" action="#" drag :limit="1" :auto-upload="false">
+                  <el-upload
+                    v-model:file-list="wallpaperFiles"
+                    class="compact-upload"
+                    action="#"
+                    drag
+                    :limit="1"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    @remove="handleUploadRemove"
+                  >
                     <el-icon><Upload /></el-icon>
                     <div>上传壁纸，可选</div>
                   </el-upload>
+                  <div v-if="wallpaperFiles.length" class="preview-grid compact-preview-grid">
+                    <div v-for="file in wallpaperFiles" :key="uploadKey(file)" class="preview-tile">
+                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                        <img :src="filePreviewUrl(file)" :alt="file.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
+                      <span>{{ file.name }}</span>
+                      <button class="remove-upload-button" type="button" @click="removeUploadFile('壁纸图', file)">移除</button>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>
@@ -1416,10 +1553,25 @@ function pageSubtitle(): string {
 
               <div v-else class="queue-list">
                 <article v-for="task in taskQueue" :key="task.id" class="queue-row">
-                  <button class="queue-thumb" type="button" @click="openQueueDetail(task)">
+                  <div
+                    class="queue-thumb image-action-wrap"
+                    role="button"
+                    tabindex="0"
+                    @click="task.thumbnail ? openImageViewer(task.thumbnail, task.thumbnailName) : openQueueDetail(task)"
+                    @keydown.enter="task.thumbnail ? openImageViewer(task.thumbnail, task.thumbnailName) : openQueueDetail(task)"
+                  >
                     <img v-if="task.thumbnail" :src="task.thumbnail" :alt="task.thumbnailName" />
+                    <button
+                      v-if="task.thumbnail"
+                      class="image-download-button"
+                      type="button"
+                      title="下载图片"
+                      @click.stop="downloadImage(task.thumbnail, task.thumbnailName)"
+                    >
+                      <el-icon><Download /></el-icon>
+                    </button>
                     <span v-else>无图</span>
-                  </button>
+                  </div>
                   <div class="queue-main">
                     <div class="queue-title-row">
                       <h2>{{ task.productName }}</h2>
@@ -1645,7 +1797,19 @@ function pageSubtitle(): string {
       <div v-if="selectedQueueTask" class="queue-detail">
         <div class="queue-detail-head">
           <div class="queue-detail-thumb">
-            <img v-if="selectedQueueTask.thumbnail" :src="selectedQueueTask.thumbnail" :alt="selectedQueueTask.thumbnailName" />
+            <div
+              v-if="selectedQueueTask.thumbnail"
+              class="image-action-wrap"
+              role="button"
+              tabindex="0"
+              @click="openImageViewer(selectedQueueTask.thumbnail, selectedQueueTask.thumbnailName)"
+              @keydown.enter="openImageViewer(selectedQueueTask.thumbnail, selectedQueueTask.thumbnailName)"
+            >
+              <img :src="selectedQueueTask.thumbnail" :alt="selectedQueueTask.thumbnailName" />
+              <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(selectedQueueTask.thumbnail, selectedQueueTask.thumbnailName)">
+                <el-icon><Download /></el-icon>
+              </button>
+            </div>
             <span v-else>无缩略图</span>
           </div>
           <div class="queue-detail-title">
@@ -1692,7 +1856,19 @@ function pageSubtitle(): string {
                 <div class="submitted-file-title">{{ type }} {{ taskFilesByGroup(type).length }}</div>
                 <div v-if="taskFilesByGroup(type).length" class="submitted-file-grid">
                   <article v-for="file in taskFilesByGroup(type)" :key="file.id" class="submitted-file-card">
-                    <img v-if="file.preview" :src="file.preview" :alt="file.fileName" />
+                    <div
+                      v-if="file.preview"
+                      class="image-action-wrap"
+                      role="button"
+                      tabindex="0"
+                      @click="openImageViewer(file.preview, file.fileName)"
+                      @keydown.enter="openImageViewer(file.preview, file.fileName)"
+                    >
+                      <img :src="file.preview" :alt="file.fileName" />
+                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(file.preview, file.fileName)">
+                        <el-icon><Download /></el-icon>
+                      </button>
+                    </div>
                     <span v-else>无预览</span>
                     <p>{{ file.fileName }}</p>
                   </article>
@@ -1761,7 +1937,19 @@ function pageSubtitle(): string {
                   <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
                   <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
                 </div>
-                <img v-if="generatedImageSrc(result)" class="result-preview" :src="generatedImageSrc(result)" :alt="`${result.resultType} ${result.itemIndex}`" />
+                <div
+                  v-if="generatedImageSrc(result)"
+                  class="result-preview image-action-wrap"
+                  role="button"
+                  tabindex="0"
+                  @click="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)"
+                  @keydown.enter="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)"
+                >
+                  <img :src="generatedImageSrc(result)" :alt="`${result.resultType} ${result.itemIndex}`" />
+                  <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)">
+                    <el-icon><Download /></el-icon>
+                  </button>
+                </div>
                 <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
                 <p v-if="result.revisedPrompt"><strong>修订提示词：</strong>{{ analysisPreview(result.revisedPrompt) }}</p>
                 <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
@@ -1788,5 +1976,31 @@ function pageSubtitle(): string {
     >
       <pre>{{ fullTextDialogContent }}</pre>
     </el-dialog>
+
+    <Teleport to="body">
+      <div v-if="imageViewerVisible && imageViewerImage" class="image-viewer-mask" @click="closeImageViewer">
+        <button class="image-viewer-close" type="button" title="关闭" @click.stop="closeImageViewer">
+          <el-icon><Close /></el-icon>
+        </button>
+        <button class="image-viewer-rotate" type="button" title="旋转" @click.stop="rotateImageViewer">
+          <el-icon><RefreshRight /></el-icon>
+        </button>
+        <div class="image-viewer-stage" @click.stop>
+          <img
+            :src="imageViewerImage.src"
+            :alt="imageViewerImage.name"
+            :style="{ transform: `rotate(${imageViewerRotation}deg)` }"
+          />
+        </div>
+        <button
+          class="image-viewer-download"
+          type="button"
+          title="下载图片"
+          @click.stop="downloadImage(imageViewerImage.src, imageViewerImage.name)"
+        >
+          <el-icon><Download /></el-icon>
+        </button>
+      </div>
+    </Teleport>
   </el-config-provider>
 </template>

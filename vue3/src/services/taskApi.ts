@@ -99,6 +99,8 @@ export async function createImageTask(
     realPhotoFiles: File[];
     packageImageFiles: File[];
     templateFiles: File[];
+    logoFiles: File[];
+    wallpaperFiles: File[];
   },
 ): Promise<ImageTaskDetail> {
   const formData = new FormData();
@@ -106,6 +108,8 @@ export async function createImageTask(
   files.realPhotoFiles.forEach((file) => formData.append('realPhotoFiles', file));
   files.packageImageFiles.forEach((file) => formData.append('packageImageFiles', file));
   files.templateFiles.forEach((file) => formData.append('templateFiles', file));
+  files.logoFiles.forEach((file) => formData.append('logoFiles', file));
+  files.wallpaperFiles.forEach((file) => formData.append('wallpaperFiles', file));
 
   const response = await fetch(`${API_BASE_URL}/api/tasks`, {
     method: 'POST',

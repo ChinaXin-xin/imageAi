@@ -4,13 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import xin.students.imageaioriginal.config.GptProperties;
 import xin.students.imageaioriginal.config.ImageGenerationProperties;
+import xin.students.imageaioriginal.model.StoredUploadImage;
 
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -40,10 +45,19 @@ public class ImageGenerationService {
         this.objectMapper = objectMapper;
     }
 
-    public GeneratedImage generate(String taskId, String resultType, int itemIndex, String prompt, int width, int height) {
+    public GeneratedImage generate(
+            String taskId,
+            String resultType,
+            int itemIndex,
+            String prompt,
+            int width,
+            int height,
+            List<StoredUploadImage> referenceImages
+    ) {
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         String model = imageGenerationProperties.resolvedModel();
         String size = Math.max(1, width) + "x" + Math.max(1, height);
+        int referenceCount = referenceImages == null ? 0 : referenceImages.size();
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
@@ -52,23 +66,20 @@ public class ImageGenerationService {
         request.put("size", size);
 
         LOG.info(
-                "gpt.image.start id={} taskId={} type={} index={} model={} size={} prompt={}",
+                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} prompt={}",
                 requestId,
                 taskId,
                 resultType,
                 itemIndex,
                 model,
                 size,
+                referenceCount,
                 prompt
         );
 
-        JsonNode response = restClient.post()
-                .uri(imageGenerationUrl())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + uploadImageAnalysisService.resolveApiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode response = referenceCount > 0
+                ? generateWithReferences(referenceImages, model, prompt, size)
+                : generateFromText(request);
 
         JsonNode first = response == null ? null : response.path("data").path(0);
         String imageUrl = text(first, "url");
@@ -103,6 +114,76 @@ public class ImageGenerationService {
             return baseUrl + "/images/generations";
         }
         return baseUrl + "/v1/images/generations";
+    }
+
+    private String imageEditsUrl() {
+        String baseUrl = gptProperties.baseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) {
+            baseUrl = gptProperties.resolvedBaseUrl();
+        }
+        baseUrl = baseUrl.trim().replaceAll("/+$", "");
+        if (baseUrl.endsWith("/v1")) {
+            return baseUrl + "/images/edits";
+        }
+        return baseUrl + "/v1/images/edits";
+    }
+
+    private JsonNode generateFromText(Map<String, Object> request) {
+        return restClient.post()
+                .uri(imageGenerationUrl())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + uploadImageAnalysisService.resolveApiKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    private JsonNode generateWithReferences(List<StoredUploadImage> referenceImages, String model, String prompt, String size) {
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("model", model);
+        builder.part("prompt", prompt);
+        builder.part("n", "1");
+        builder.part("size", size);
+        for (StoredUploadImage image : referenceImages) {
+            if (image == null || image.bytes() == null || image.bytes().length == 0) {
+                continue;
+            }
+            builder.part("image[]", imageResource(image))
+                    .filename(safeFileName(image.fileName()))
+                    .contentType(safeMediaType(image.contentType()));
+        }
+        MultiValueMap<String, org.springframework.http.HttpEntity<?>> body = builder.build();
+        return restClient.post()
+                .uri(imageEditsUrl())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + uploadImageAnalysisService.resolveApiKey())
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    private ByteArrayResource imageResource(StoredUploadImage image) {
+        return new ByteArrayResource(image.bytes()) {
+            @Override
+            public String getFilename() {
+                return safeFileName(image.fileName());
+            }
+        };
+    }
+
+    private MediaType safeMediaType(String contentType) {
+        try {
+            return contentType == null || contentType.isBlank()
+                    ? MediaType.IMAGE_JPEG
+                    : MediaType.parseMediaType(contentType);
+        } catch (Exception ex) {
+            return MediaType.IMAGE_JPEG;
+        }
+    }
+
+    private String safeFileName(String fileName) {
+        String normalized = fileName == null || fileName.isBlank() ? "reference-image.jpg" : fileName.trim();
+        return normalized.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
     private String text(JsonNode node, String... names) {

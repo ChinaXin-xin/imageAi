@@ -513,6 +513,10 @@ h1 {
   margin-top: 10px;
 }
 
+.compact-preview-grid {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 112px));
+}
+
 .preview-tile {
   position: relative;
   min-width: 0;
@@ -540,7 +544,7 @@ h1 {
   white-space: nowrap;
 }
 
-.preview-tile button {
+.remove-upload-button {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -555,8 +559,49 @@ h1 {
   opacity: 0;
 }
 
-.preview-tile:hover button {
+.preview-tile:hover .remove-upload-button {
   opacity: 1;
+}
+
+.image-action-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.image-action-wrap:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.image-download-button {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+  opacity: 0;
+  transition: opacity 0.16s ease, background 0.16s ease;
+}
+
+.image-action-wrap:hover .image-download-button,
+.image-action-wrap:focus-within .image-download-button {
+  opacity: 1;
+}
+
+.image-download-button:hover {
+  background: rgba(15, 23, 42, 0.82);
 }
 
 .line-upload .el-upload-list {
@@ -863,6 +908,11 @@ h1 {
   object-fit: cover;
 }
 
+.queue-detail-thumb .image-action-wrap {
+  width: 100%;
+  height: 100%;
+}
+
 .queue-main {
   min-width: 0;
 }
@@ -1035,7 +1085,7 @@ h1 {
   background: #f8fafc;
 }
 
-.submitted-file-card img,
+.submitted-file-card .image-action-wrap,
 .submitted-file-card > span {
   display: flex;
   width: 100%;
@@ -1045,6 +1095,12 @@ h1 {
   object-fit: cover;
   color: #94a3b8;
   font-size: 12px;
+}
+
+.submitted-file-card .image-action-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .submitted-file-card p {
@@ -1128,6 +1184,14 @@ h1 {
   max-height: 220px;
   margin-top: 10px;
   border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.result-preview img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
   object-fit: contain;
   background: #fff;
 }
@@ -1157,6 +1221,71 @@ h1 {
   font-size: 14px;
   line-height: 1.75;
   white-space: pre-wrap;
+}
+
+.image-viewer-mask {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.84);
+}
+
+.image-viewer-stage {
+  display: grid;
+  width: min(92vw, 1440px);
+  height: min(86vh, 960px);
+  place-items: center;
+  overflow: hidden;
+}
+
+.image-viewer-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.18s ease;
+}
+
+.image-viewer-close,
+.image-viewer-rotate,
+.image-viewer-download {
+  position: fixed;
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #fff;
+  cursor: pointer;
+  font-size: 20px;
+  transition: background 0.16s ease, transform 0.16s ease;
+}
+
+.image-viewer-close:hover,
+.image-viewer-rotate:hover,
+.image-viewer-download:hover {
+  background: rgba(15, 23, 42, 0.86);
+  transform: translateY(-1px);
+}
+
+.image-viewer-close {
+  top: 22px;
+  right: 22px;
+}
+
+.image-viewer-rotate {
+  top: 22px;
+  right: 76px;
+}
+
+.image-viewer-download {
+  right: 28px;
+  bottom: 28px;
 }
 
 .settings-page::-webkit-scrollbar {
