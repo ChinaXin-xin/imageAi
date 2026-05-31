@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   CircleCheck,
   Document,
@@ -43,9 +43,11 @@ const DEFAULT_INTRO_PROMPT =
 const DEFAULT_ANALYSIS_PROMPT =
   '请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。';
 const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'];
+const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
 
 type UploadGroup = '实拍图' | '包装图' | '模板图';
 type AnalysisUploadGroup = '实拍图' | '包装图';
+type ActivePage = 'quota' | 'task' | 'queue' | 'settings';
 
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
@@ -53,7 +55,7 @@ const errorMessage = ref('');
 const systemErrorMessage = ref('');
 const lastRefreshAt = ref('');
 const isCollapsed = ref(false);
-const activePage = ref<'quota' | 'task' | 'queue' | 'settings'>('quota');
+const activePage = ref<ActivePage>('quota');
 const systemOverview = ref<SystemOverview | null>(null);
 const defaultSettings = ref<DefaultPromptSettings>({
   mainPrompt: DEFAULT_MAIN_PROMPT,
@@ -63,6 +65,7 @@ const defaultSettings = ref<DefaultPromptSettings>({
 });
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
+const taskDraftRestored = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
 const packageImageFiles = ref<UploadUserFile[]>([]);
 const templateFiles = ref<UploadUserFile[]>([]);
@@ -129,6 +132,14 @@ const kitSpecs = ref([
   { name: '挂卡', quantity: 0 },
   { name: '固定器', quantity: 0 },
 ]);
+
+type TaskDraftCache = {
+  taskForm?: Partial<typeof taskForm.value>;
+  kitSpecs?: Array<{ name: string; quantity: number }>;
+  activePage?: ActivePage;
+  isCollapsed?: boolean;
+  savedAt?: string;
+};
 
 const sellingPointOptions = computed(() => {
   const merged = [...defaultSettings.value.customSellingPoints, ...taskForm.value.sellingPoints]
@@ -240,6 +251,7 @@ function systemFallbackText(): string {
 }
 
 onMounted(() => {
+  restoreTaskDraft();
   refreshQuota();
   loadPromptSettings();
   loadTaskQueue(false);
@@ -255,6 +267,64 @@ onUnmounted(() => {
     window.clearInterval(queueRefreshTimer);
   }
 });
+
+watch(
+  [taskForm, kitSpecs, activePage, isCollapsed],
+  () => {
+    saveTaskDraft();
+  },
+  { deep: true },
+);
+
+function restoreTaskDraft() {
+  try {
+    const rawDraft = window.localStorage.getItem(TASK_DRAFT_CACHE_KEY);
+    if (!rawDraft) return;
+    const draft = JSON.parse(rawDraft) as TaskDraftCache;
+    if (draft.taskForm) {
+      taskForm.value = {
+        ...taskForm.value,
+        ...draft.taskForm,
+      };
+    }
+    if (draft.kitSpecs?.length) {
+      const cachedSpecs = new Map(draft.kitSpecs.map((item) => [item.name, item.quantity]));
+      kitSpecs.value = kitSpecs.value.map((item) => ({
+        ...item,
+        quantity: Math.max(0, Number(cachedSpecs.get(item.name) ?? item.quantity)),
+      }));
+    }
+    if (draft.activePage && isActivePage(draft.activePage)) {
+      activePage.value = draft.activePage;
+    }
+    if (typeof draft.isCollapsed === 'boolean') {
+      isCollapsed.value = draft.isCollapsed;
+    }
+    taskDraftRestored.value = true;
+  } catch (error) {
+    console.warn('恢复添加任务草稿失败', error);
+    window.localStorage.removeItem(TASK_DRAFT_CACHE_KEY);
+  }
+}
+
+function saveTaskDraft() {
+  try {
+    const draft: TaskDraftCache = {
+      taskForm: { ...taskForm.value },
+      kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
+      activePage: activePage.value,
+      isCollapsed: isCollapsed.value,
+      savedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(TASK_DRAFT_CACHE_KEY, JSON.stringify(draft));
+  } catch (error) {
+    console.warn('保存添加任务草稿失败', error);
+  }
+}
+
+function isActivePage(value: string): value is ActivePage {
+  return ['quota', 'task', 'queue', 'settings'].includes(value);
+}
 
 function randomProductName(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
@@ -308,7 +378,7 @@ async function loadPromptSettings() {
     if (!taskForm.value.introPrompt.trim()) {
       taskForm.value.introPrompt = normalizedSettings.introPrompt;
     }
-    if (normalizedSettings.customSellingPoints.length > 0) {
+    if (!taskDraftRestored.value && normalizedSettings.customSellingPoints.length > 0) {
       taskForm.value.sellingPoints = [...normalizedSettings.customSellingPoints];
     }
   } catch (error) {
