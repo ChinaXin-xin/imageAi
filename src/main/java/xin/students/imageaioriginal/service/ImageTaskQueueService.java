@@ -158,16 +158,14 @@ public class ImageTaskQueueService {
     public ImageTaskDetail retryTask(String taskId) {
         ensureTables();
         try (Connection connection = dataSource.getConnection()) {
-            if (findTask(connection, taskId) == null) {
+            TaskRecord record = findTask(connection, taskId);
+            if (record == null) {
                 throw new IllegalArgumentException("任务不存在：" + taskId);
             }
-            try (PreparedStatement deleteResults = connection.prepareStatement(
-                    "delete from image_task_results where task_id = ?"
-            )) {
-                deleteResults.setString(1, taskId);
-                deleteResults.executeUpdate();
+            if (isRunningStatus(record.status())) {
+                throw new IllegalStateException("任务正在执行中，不需要重试：" + statusText(record.status()));
             }
-            updateTaskState(connection, taskId, "QUEUED", null, false, false);
+            resetTaskForRetry(connection, taskId);
         } catch (SQLException ex) {
             throw new IllegalStateException("重试任务失败", ex);
         }
@@ -197,14 +195,14 @@ public class ImageTaskQueueService {
     }
 
     private void processTask(String taskId) {
-        try (Connection connection = dataSource.getConnection()) {
-            TaskRecord record = findTask(connection, taskId);
-            if (record == null || "COMPLETED".equals(record.status())) {
+        try {
+            TaskRecord record = findTask(taskId);
+            if (record == null || "COMPLETED".equals(record.status()) || "FAILED".equals(record.status())) {
                 return;
             }
-            updateTaskState(connection, taskId, "ANALYZING", null, true, false);
+            updateTaskState(taskId, "ANALYZING", null, true, false);
 
-            Map<String, String> analysis = analyzeUploadedFiles(connection, taskId, record.payload());
+            Map<String, String> analysis = analyzeUploadedFiles(taskId);
             if (requiresGeneration(record.payload()) && analysis.isEmpty()) {
                 throw new IllegalStateException("生成主图或介绍图前必须先深析上传图，请至少上传实拍图、包装图或模板图。");
             }
@@ -222,26 +220,26 @@ public class ImageTaskQueueService {
                     record.payload(),
                     analysis
             );
-            saveAnalysisAndPrompts(connection, taskId, analysis, finalMainPrompt, finalIntroPrompt);
-            clearResults(connection, taskId);
-            updateTaskState(connection, taskId, "GENERATING", null, false, false);
+            saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
+            clearResults(taskId);
+            updateTaskState(taskId, "GENERATING", null, false, false);
 
             int total = 0;
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
             for (int index = 1; index <= mainCount; index++) {
                 total++;
-                generateOne(connection, taskId, "主图", index, mainCount, finalMainPrompt, record.payload());
+                generateOne(taskId, "主图", index, mainCount, finalMainPrompt, record.payload());
             }
             for (int index = 1; index <= introCount; index++) {
                 total++;
-                generateOne(connection, taskId, "介绍图", index, introCount, finalIntroPrompt, record.payload());
+                generateOne(taskId, "介绍图", index, introCount, finalIntroPrompt, record.payload());
             }
 
             if (total == 0) {
                 LOG.info("image.task.no-generation taskId={}", taskId);
             }
-            updateTaskState(connection, taskId, "COMPLETED", null, false, true);
+            updateTaskState(taskId, "COMPLETED", null, false, true);
         } catch (Exception ex) {
             LOG.error("image.task.failed taskId={} message={}", taskId, ex.getMessage(), ex);
             failTask(taskId, ex);
@@ -249,16 +247,15 @@ public class ImageTaskQueueService {
     }
 
     private void generateOne(
-            Connection connection,
             String taskId,
             String resultType,
             int index,
             int total,
             String basePrompt,
             ImageTaskPayload payload
-    ) throws SQLException {
+    ) {
         String prompt = basePrompt + "\n\n【当前生成】" + resultType + "第 " + index + " / " + total + " 张。";
-        long resultId = insertResult(connection, taskId, resultType, index, prompt);
+        long resultId = insertResult(taskId, resultType, index, prompt);
         try {
             ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
                     taskId,
@@ -268,31 +265,30 @@ public class ImageTaskQueueService {
                     positiveOrDefault(payload.customWidth(), 1500),
                     positiveOrDefault(payload.customHeight(), 1500)
             );
-            completeResult(connection, resultId, generatedImage);
+            completeResult(resultId, generatedImage);
         } catch (Exception ex) {
-            failResult(connection, resultId, ex);
+            failResult(resultId, ex);
             throw ex;
         }
     }
 
-    private Map<String, String> analyzeUploadedFiles(Connection connection, String taskId, ImageTaskPayload payload) throws SQLException {
+    private Map<String, String> analyzeUploadedFiles(String taskId) {
         Map<String, String> analysis = new LinkedHashMap<>();
         String prompt = defaultPromptSettingsService.getSettings().analysisPrompt();
-        analyzeGroup(connection, taskId, "realPhoto", "实拍图", prompt, analysis);
-        analyzeGroup(connection, taskId, "packageImage", "包装图", prompt, analysis);
-        analyzeGroup(connection, taskId, "template", "模板图", prompt, analysis);
+        analyzeGroup(taskId, "realPhoto", "实拍图", prompt, analysis);
+        analyzeGroup(taskId, "packageImage", "包装图", prompt, analysis);
+        analyzeGroup(taskId, "template", "模板图", prompt, analysis);
         return analysis;
     }
 
     private void analyzeGroup(
-            Connection connection,
             String taskId,
             String fileGroup,
             String label,
             String prompt,
             Map<String, String> analysis
-    ) throws SQLException {
-        List<StoredUploadImage> files = readStoredImages(connection, taskId, fileGroup);
+    ) {
+        List<StoredUploadImage> files = readStoredImages(taskId, fileGroup);
         if (files.isEmpty()) {
             return;
         }
@@ -508,6 +504,14 @@ public class ImageTaskQueueService {
         return null;
     }
 
+    private TaskRecord findTask(String taskId) {
+        try (Connection connection = dataSource.getConnection()) {
+            return findTask(connection, taskId);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("读取任务失败：" + taskId, ex);
+        }
+    }
+
     private TaskRecord readTaskRecord(ResultSet resultSet) throws SQLException {
         ImageTaskPayload payload = parsePayload(resultSet.getString("payload_json"));
         return new TaskRecord(
@@ -623,6 +627,14 @@ public class ImageTaskQueueService {
         return new ResultStats(0, 0);
     }
 
+    private List<StoredUploadImage> readStoredImages(String taskId, String fileGroup) {
+        try (Connection connection = dataSource.getConnection()) {
+            return readStoredImages(connection, taskId, fileGroup);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("读取任务素材失败：" + taskId + "/" + fileGroup, ex);
+        }
+    }
+
     private List<StoredUploadImage> readStoredImages(Connection connection, String taskId, String fileGroup) throws SQLException {
         List<StoredUploadImage> images = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
@@ -646,6 +658,19 @@ public class ImageTaskQueueService {
     }
 
     private void saveAnalysisAndPrompts(
+            String taskId,
+            Map<String, String> analysis,
+            String finalMainPrompt,
+            String finalIntroPrompt
+    ) {
+        try (Connection connection = dataSource.getConnection()) {
+            saveAnalysisAndPrompts(connection, taskId, analysis, finalMainPrompt, finalIntroPrompt);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("保存深析结果和最终提示词失败：" + taskId, ex);
+        }
+    }
+
+    private void saveAnalysisAndPrompts(
             Connection connection,
             String taskId,
             Map<String, String> analysis,
@@ -665,10 +690,26 @@ public class ImageTaskQueueService {
         }
     }
 
+    private void clearResults(String taskId) {
+        try (Connection connection = dataSource.getConnection()) {
+            clearResults(connection, taskId);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("清理旧生成结果失败：" + taskId, ex);
+        }
+    }
+
     private void clearResults(Connection connection, String taskId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("delete from image_task_results where task_id = ?")) {
             statement.setString(1, taskId);
             statement.executeUpdate();
+        }
+    }
+
+    private long insertResult(String taskId, String resultType, int index, String prompt) {
+        try (Connection connection = dataSource.getConnection()) {
+            return insertResult(connection, taskId, resultType, index, prompt);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("创建生成结果记录失败：" + taskId, ex);
         }
     }
 
@@ -692,6 +733,17 @@ public class ImageTaskQueueService {
     }
 
     private void completeResult(
+            long resultId,
+            ImageGenerationService.GeneratedImage generatedImage
+    ) {
+        try (Connection connection = dataSource.getConnection()) {
+            completeResult(connection, resultId, generatedImage);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("保存生成结果失败：" + resultId, ex);
+        }
+    }
+
+    private void completeResult(
             Connection connection,
             long resultId,
             ImageGenerationService.GeneratedImage generatedImage
@@ -711,6 +763,14 @@ public class ImageTaskQueueService {
         }
     }
 
+    private void failResult(long resultId, Exception ex) {
+        try (Connection connection = dataSource.getConnection()) {
+            failResult(connection, resultId, ex);
+        } catch (SQLException sqlEx) {
+            LOG.error("image.task.result-fail-state.failed resultId={}", resultId, sqlEx);
+        }
+    }
+
     private void failResult(Connection connection, long resultId, Exception ex) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 update image_task_results
@@ -720,6 +780,20 @@ public class ImageTaskQueueService {
             statement.setString(1, abbreviate(ex.getMessage(), 4000));
             statement.setLong(2, resultId);
             statement.executeUpdate();
+        }
+    }
+
+    private void updateTaskState(
+            String taskId,
+            String status,
+            String errorMessage,
+            boolean markStarted,
+            boolean markCompleted
+    ) {
+        try (Connection connection = dataSource.getConnection()) {
+            updateTaskState(connection, taskId, status, errorMessage, markStarted, markCompleted);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("更新任务状态失败：" + taskId, ex);
         }
     }
 
@@ -744,6 +818,25 @@ public class ImageTaskQueueService {
             statement.setBoolean(3, markStarted);
             statement.setBoolean(4, markCompleted);
             statement.setString(5, taskId);
+            statement.executeUpdate();
+        }
+    }
+
+    private void resetTaskForRetry(Connection connection, String taskId) throws SQLException {
+        clearResults(connection, taskId);
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update image_tasks
+                set status = 'QUEUED',
+                    error_message = null,
+                    analysis_json = null,
+                    final_main_prompt = null,
+                    final_intro_prompt = null,
+                    started_at = null,
+                    completed_at = null,
+                    updated_at = current_timestamp(3)
+                where id = ?
+                """)) {
+            statement.setString(1, taskId);
             statement.executeUpdate();
         }
     }
@@ -882,6 +975,10 @@ public class ImageTaskQueueService {
             case "FAILED" -> "失败";
             default -> status;
         };
+    }
+
+    private boolean isRunningStatus(String status) {
+        return "QUEUED".equals(status) || "ANALYZING".equals(status) || "GENERATING".equals(status);
     }
 
     private String joinList(List<String> values) {
