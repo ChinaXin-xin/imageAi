@@ -1,5 +1,6 @@
 import type {
   DefaultPromptSettings,
+  ExtraAccessory,
   ImageTaskDetail,
   ImageTaskPayload,
   ImageTaskSummary,
@@ -165,6 +166,43 @@ export async function createTargetTemplate(
 
 export async function deleteTargetTemplate(templateId: number): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/target-templates/${templateId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+export async function loadExtraAccessories(): Promise<ExtraAccessory[]> {
+  const response = await fetch(`${API_BASE_URL}/api/extra-accessories`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as ExtraAccessory[];
+}
+
+export async function createExtraAccessory(file: File, name?: string): Promise<ExtraAccessory> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (name?.trim()) {
+    formData.append('name', name.trim());
+  }
+  const response = await fetch(`${API_BASE_URL}/api/extra-accessories`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as ExtraAccessory;
+}
+
+export async function deleteExtraAccessory(accessoryId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/extra-accessories/${accessoryId}`, {
     method: 'DELETE',
   });
   if (!response.ok) {

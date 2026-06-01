@@ -632,8 +632,9 @@ h1 {
 .preview-tile img {
   display: block;
   width: 100%;
+  height: 100%;
   aspect-ratio: 1 / 1;
-  object-fit: cover;
+  object-fit: contain;
   background: #f8fafc;
 }
 
@@ -669,10 +670,15 @@ h1 {
 .image-action-wrap {
   position: relative;
   display: block;
-  container-type: size;
+  container-type: inline-size;
   min-width: 0;
   overflow: hidden;
   cursor: zoom-in;
+}
+
+.preview-tile .image-action-wrap {
+  aspect-ratio: 1 / 1;
+  background: #f8fafc;
 }
 
 .image-action-wrap:focus-visible {
@@ -828,8 +834,13 @@ h1 {
 }
 
 .kit-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: #334155;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stepper {
@@ -859,6 +870,32 @@ h1 {
 .stepper strong {
   color: #111827;
   font-size: 13px;
+}
+
+.accessory-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.kit-remove-button {
+  border: 0;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.kit-remove-button:hover {
+  color: #b91c1c;
+}
+
+.compact-empty {
+  --el-empty-padding: 12px 0;
+  margin-bottom: 12px;
 }
 
 .selling-points {
@@ -983,6 +1020,68 @@ h1 {
 .template-add-button {
   width: 100%;
   margin-top: 12px;
+}
+
+.accessory-panel {
+  margin-top: 18px;
+}
+
+.accessory-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr) 180px;
+  gap: 14px;
+  align-items: start;
+}
+
+.accessory-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.accessory-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.accessory-preview {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.accessory-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.accessory-card strong,
+.accessory-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accessory-card strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.accessory-card small {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 11px;
 }
 
 .target-template-list {
@@ -1948,7 +2047,9 @@ h1 {
   .generation-grid,
   .prompt-grid,
   .target-template-selectors,
-  .template-columns {
+  .template-columns,
+  .accessory-form,
+  .accessory-picker {
     grid-template-columns: 1fr;
   }
 

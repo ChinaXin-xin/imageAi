@@ -73,6 +73,17 @@ export interface TargetTemplate {
   updatedAt: string;
 }
 
+export interface ExtraAccessory {
+  id: number;
+  name: string;
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ImageTaskKitSpec {
   name: string;
   quantity: number;

@@ -24,13 +24,16 @@ import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
 import { loadSystemOverview } from './services/systemApi';
 import {
   analyzeUploadedImages,
+  createExtraAccessory,
   createImageTask,
   createTargetTemplate,
+  deleteExtraAccessory,
   deleteImageTask,
   deleteTargetTemplate,
   loadImageTask,
   loadImageTasks,
   loadDefaultPromptSettings,
+  loadExtraAccessories,
   loadTargetTemplates,
   pauseImageTask,
   retryImageTask,
@@ -41,6 +44,7 @@ import type {
   CodexQuotaAccount,
   DashboardStats,
   DefaultPromptSettings,
+  ExtraAccessory,
   ImageTaskDetail,
   ImageTaskPayload,
   ImageTaskSummary,
@@ -129,6 +133,13 @@ const queueDetailVisible = ref(false);
 const targetTemplates = ref<TargetTemplate[]>([]);
 const targetTemplatesLoading = ref(false);
 const targetTemplateErrorMessage = ref('');
+const extraAccessories = ref<ExtraAccessory[]>([]);
+const extraAccessoriesLoading = ref(false);
+const extraAccessoryName = ref('');
+const extraAccessoryFiles = ref<UploadUserFile[]>([]);
+const extraAccessoryUploading = ref(false);
+const selectedAccessoryId = ref<number | null>(null);
+const selectedAccessoryQuantity = ref(1);
 const targetTemplateUploading = ref<Record<TargetTemplateType, boolean>>({
   MAIN: false,
   INTRO: false,
@@ -215,14 +226,7 @@ const taskForm = ref({
   introTargetTemplateId: null as number | null,
 });
 
-const kitSpecs = ref([
-  { name: '钢化膜', quantity: 0 },
-  { name: '镜头膜', quantity: 0 },
-  { name: '清洁包', quantity: 0 },
-  { name: '除螨贴', quantity: 0 },
-  { name: '挂卡', quantity: 0 },
-  { name: '固定器', quantity: 0 },
-]);
+const kitSpecs = ref<Array<{ name: string; quantity: number }>>([]);
 
 type TaskDraftCache = {
   taskForm?: Partial<typeof taskForm.value>;
@@ -237,6 +241,11 @@ const sellingPointOptions = computed(() => {
     .filter((point) => point && point.trim())
     .map((point) => point.trim());
   return Array.from(new Set(merged));
+});
+
+const availableAccessories = computed(() => {
+  const selected = new Set(kitSpecs.value.map((item) => item.name));
+  return extraAccessories.value.filter((item) => !selected.has(item.name));
 });
 
 const stats = computed<DashboardStats>(() => {
@@ -347,6 +356,7 @@ onMounted(() => {
   loadPromptSettings();
   loadTaskQueue(false);
   loadTargetTemplateList(false);
+  loadExtraAccessoryList(false);
   window.addEventListener('keydown', handleImageViewerKeydown, true);
   window.addEventListener('resize', updateImageViewerViewport);
   queueRefreshTimer = window.setInterval(() => {
@@ -403,11 +413,12 @@ function restoreTaskDraft() {
       normalizeTaskImageSize();
     }
     if (draft.kitSpecs?.length) {
-      const cachedSpecs = new Map(draft.kitSpecs.map((item) => [item.name, item.quantity]));
-      kitSpecs.value = kitSpecs.value.map((item) => ({
-        ...item,
-        quantity: Math.max(0, Number(cachedSpecs.get(item.name) ?? item.quantity)),
-      }));
+      kitSpecs.value = draft.kitSpecs
+        .filter((item) => item.name && Number(item.quantity) > 0)
+        .map((item) => ({
+          name: item.name,
+          quantity: Math.max(1, Number(item.quantity)),
+        }));
     }
     if (draft.activePage && isActivePage(draft.activePage)) {
       activePage.value = draft.activePage;
@@ -501,7 +512,11 @@ function selectRatio(ratio: string) {
 }
 
 function updateQuantity(index: number, delta: number) {
-  kitSpecs.value[index].quantity = Math.max(0, kitSpecs.value[index].quantity + delta);
+  kitSpecs.value[index].quantity = Math.max(1, kitSpecs.value[index].quantity + delta);
+}
+
+function removeKitSpec(index: number) {
+  kitSpecs.value.splice(index, 1);
 }
 
 async function loadPromptSettings() {
@@ -685,19 +700,15 @@ function autoRecognizeLogo() {
 }
 
 function autoRecognizeKitSpecs() {
-  const defaults: Record<string, number> = {
-    钢化膜: 1,
-    镜头膜: 1,
-    清洁包: 1,
-    除螨贴: 2,
-    挂卡: 1,
-    固定器: 0,
-  };
-  kitSpecs.value = kitSpecs.value.map((item) => ({
-    ...item,
-    quantity: defaults[item.name] ?? 0,
+  if (!extraAccessories.value.length) {
+    ElMessage.warning('请先在目标模板页下方添加额外配件。');
+    return;
+  }
+  kitSpecs.value = extraAccessories.value.map((item) => ({
+    name: item.name,
+    quantity: 1,
   }));
-  ElMessage.success('已按经典套装规格自动识别。');
+  ElMessage.success('已从额外配件库带入套餐规格。');
 }
 
 async function addToTaskQueue() {
@@ -793,6 +804,22 @@ async function loadTargetTemplateList(showLoading = true) {
   }
 }
 
+async function loadExtraAccessoryList(showLoading = true) {
+  if (showLoading) {
+    extraAccessoriesLoading.value = true;
+  }
+  targetTemplateErrorMessage.value = '';
+  try {
+    extraAccessories.value = await loadExtraAccessories();
+  } catch (error) {
+    targetTemplateErrorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (showLoading) {
+      extraAccessoriesLoading.value = false;
+    }
+  }
+}
+
 function targetTemplatesByType(type: TargetTemplateType): TargetTemplate[] {
   return targetTemplates.value.filter((template) => template.templateType === type);
 }
@@ -815,6 +842,12 @@ function targetTemplateDisabledReason(type: TargetTemplateType): string {
 function handleTargetTemplateSelectVisible(visible: boolean) {
   if (visible) {
     loadTargetTemplateList(false);
+  }
+}
+
+function handleExtraAccessorySelectVisible(visible: boolean) {
+  if (visible) {
+    loadExtraAccessoryList(false);
   }
 }
 
@@ -879,6 +912,74 @@ async function removeTargetTemplate(template: TargetTemplate) {
     if (error === 'cancel' || error === 'close') return;
     ElMessage.error(error instanceof Error ? error.message : String(error));
   }
+}
+
+function clearExtraAccessoryUpload() {
+  extraAccessoryFiles.value.forEach(handleUploadRemove);
+  extraAccessoryFiles.value = [];
+}
+
+async function addExtraAccessory() {
+  const rawFile = extraAccessoryFiles.value.find((file) => file.raw)?.raw as File | undefined;
+  if (!rawFile) {
+    ElMessage.warning('请先上传额外配件图片。');
+    return;
+  }
+  extraAccessoryUploading.value = true;
+  try {
+    const created = await createExtraAccessory(rawFile, extraAccessoryName.value || rawFile.name);
+    await loadExtraAccessoryList(false);
+    extraAccessoryName.value = '';
+    clearExtraAccessoryUpload();
+    ElMessage.success(`额外配件「${created.name}」已保存。`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    extraAccessoryUploading.value = false;
+  }
+}
+
+async function removeExtraAccessory(accessory: ExtraAccessory) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除额外配件「${accessory.name}」吗？已经创建的历史任务不会被删除。`,
+      '删除额外配件',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+    await deleteExtraAccessory(accessory.id);
+    kitSpecs.value = kitSpecs.value.filter((item) => item.name !== accessory.name);
+    await loadExtraAccessoryList(false);
+    ElMessage.success('额外配件已删除。');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function selectedAccessory(): ExtraAccessory | null {
+  return extraAccessories.value.find((item) => item.id === selectedAccessoryId.value) ?? null;
+}
+
+function addSelectedAccessoryToKit() {
+  const accessory = selectedAccessory();
+  if (!accessory) {
+    ElMessage.warning('请先选择配件。');
+    return;
+  }
+  if (kitSpecs.value.some((item) => item.name === accessory.name)) {
+    ElMessage.warning('该配件已经添加到套餐规格。');
+    return;
+  }
+  kitSpecs.value.push({
+    name: accessory.name,
+    quantity: Math.max(1, selectedAccessoryQuantity.value),
+  });
+  selectedAccessoryId.value = null;
+  selectedAccessoryQuantity.value = 1;
 }
 
 async function deleteQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
@@ -1205,7 +1306,7 @@ function resetTaskForm() {
     taskForm.value.introPrompt = defaultSettings.value.introPrompt;
   }
   taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
-  kitSpecs.value = kitSpecs.value.map((item) => ({ ...item, quantity: 0 }));
+  kitSpecs.value = [];
   clearUploadedImagesAndAnalysis();
   ElMessage.success('任务参数已重置。');
 }
@@ -1301,7 +1402,7 @@ function pageSubtitle(): string {
             class="nav-item"
             :class="{ active: activePage === 'templates' }"
             type="button"
-            @click="activePage = 'templates'; loadTargetTemplateList(false)"
+            @click="activePage = 'templates'; loadTargetTemplateList(false); loadExtraAccessoryList(false)"
           >
             <el-icon><CircleCheck /></el-icon>
             <span v-if="!isCollapsed">目标模板</span>
@@ -1347,8 +1448,8 @@ function pageSubtitle(): string {
             </el-button>
           </div>
           <div v-else-if="activePage === 'templates'" class="topbar-actions">
-            <span class="refresh-time">{{ targetTemplates.length }} 个模板</span>
-            <el-button :icon="Refresh" :loading="targetTemplatesLoading" @click="loadTargetTemplateList()">
+            <span class="refresh-time">{{ targetTemplates.length }} 个模板 / {{ extraAccessories.length }} 个配件</span>
+            <el-button :icon="Refresh" :loading="targetTemplatesLoading || extraAccessoriesLoading" @click="loadTargetTemplateList(); loadExtraAccessoryList()">
               刷新
             </el-button>
           </div>
@@ -1808,12 +1909,40 @@ function pageSubtitle(): string {
                 <div class="task-card-head">
                   <div>
                     <h2>套装规格与卖点</h2>
-                    <p>默认数量为 0，可按任务需要手动调整。</p>
+                    <p>从额外配件库选择配件后设置数量，数量最低为 1。</p>
                   </div>
-                  <el-button size="small" text type="primary" @click="autoRecognizeKitSpecs">自动识别</el-button>
+                  <el-button size="small" text type="primary" @click="autoRecognizeKitSpecs">从配件库带入</el-button>
                 </div>
 
-                <div class="kit-grid">
+                <div class="accessory-picker">
+                  <el-select
+                    v-model="selectedAccessoryId"
+                    filterable
+                    clearable
+                    placeholder="选择额外配件"
+                    @visible-change="handleExtraAccessorySelectVisible"
+                  >
+                    <el-option
+                      v-for="accessory in availableAccessories"
+                      :key="accessory.id"
+                      :label="accessory.name"
+                      :value="accessory.id"
+                    >
+                      <div class="template-option">
+                        <img :src="accessory.preview" :alt="accessory.name" />
+                        <div>
+                          <strong>{{ accessory.name }}</strong>
+                          <small>{{ accessory.fileName }}</small>
+                        </div>
+                      </div>
+                    </el-option>
+                  </el-select>
+                  <el-input-number v-model="selectedAccessoryQuantity" :min="1" :max="99" />
+                  <el-button type="primary" :icon="Plus" @click="addSelectedAccessoryToKit">添加配件</el-button>
+                </div>
+                <p v-if="!extraAccessories.length" class="field-hint">暂无额外配件，请先到“目标模板”页下方添加。</p>
+
+                <div v-if="kitSpecs.length" class="kit-grid">
                   <div v-for="(item, index) in kitSpecs" :key="item.name" class="kit-item">
                     <span>{{ item.name }}</span>
                     <div class="stepper">
@@ -1821,8 +1950,10 @@ function pageSubtitle(): string {
                       <strong>{{ item.quantity }}</strong>
                       <button type="button" @click="updateQuantity(index, 1)">+</button>
                     </div>
+                    <button class="kit-remove-button" type="button" @click="removeKitSpec(index)">删除</button>
                   </div>
                 </div>
+                <el-empty v-else class="compact-empty" description="未选择配件" />
 
                 <div class="form-row no-margin">
                   <label>卖点多选</label>
@@ -2203,6 +2334,87 @@ function pageSubtitle(): string {
                 </div>
                 <el-empty v-else description="暂无目标模板" />
               </article>
+            </section>
+
+            <section class="template-panel accessory-panel" v-loading="extraAccessoriesLoading">
+              <div class="task-card-head">
+                <div>
+                  <h2>额外配件</h2>
+                  <p>维护套餐规格中可选择的配件，添加任务时从这里选择配件并设置数量。</p>
+                </div>
+              </div>
+
+              <div class="accessory-form">
+                <div class="form-row">
+                  <label>配件名称</label>
+                  <el-input
+                    v-model="extraAccessoryName"
+                    placeholder="例如：钢化膜、镜头膜、清洁包"
+                  />
+                </div>
+                <div>
+                  <el-upload
+                    v-model:file-list="extraAccessoryFiles"
+                    class="compact-upload"
+                    action="#"
+                    drag
+                    :limit="1"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                  >
+                    <el-icon><Upload /></el-icon>
+                    <div>拖拽或点击上传配件图</div>
+                  </el-upload>
+                  <div v-if="extraAccessoryFiles.length" class="preview-grid compact-preview-grid">
+                    <div
+                      v-for="file in extraAccessoryFiles"
+                      :key="uploadKey(file)"
+                      class="preview-tile"
+                    >
+                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                        <img :src="filePreviewUrl(file)" :alt="file.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
+                      <span>{{ file.name }}</span>
+                      <button class="remove-upload-button" type="button" @click="clearExtraAccessoryUpload">移除</button>
+                    </div>
+                  </div>
+                </div>
+                <el-button
+                  class="template-add-button"
+                  type="primary"
+                  :icon="Plus"
+                  :loading="extraAccessoryUploading"
+                  @click="addExtraAccessory"
+                >
+                  添加额外配件
+                </el-button>
+              </div>
+
+              <div v-if="extraAccessories.length" class="accessory-list">
+                <article v-for="accessory in extraAccessories" :key="accessory.id" class="accessory-card">
+                  <div
+                    class="accessory-preview image-action-wrap"
+                    role="button"
+                    tabindex="0"
+                    @click="openImageViewer(accessory.preview, accessory.fileName)"
+                    @keydown.enter="openImageViewer(accessory.preview, accessory.fileName)"
+                  >
+                    <img :src="accessory.preview" :alt="accessory.name" />
+                    <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(accessory.preview, accessory.fileName)">
+                      <el-icon><Download /></el-icon>
+                    </button>
+                  </div>
+                  <div>
+                    <strong>{{ accessory.name }}</strong>
+                    <small>{{ accessory.fileName }} / {{ accessory.createdAt }}</small>
+                  </div>
+                  <el-button text type="danger" :icon="Delete" @click="removeExtraAccessory(accessory)">删除</el-button>
+                </article>
+              </div>
+              <el-empty v-else description="暂无额外配件" />
             </section>
           </section>
 
