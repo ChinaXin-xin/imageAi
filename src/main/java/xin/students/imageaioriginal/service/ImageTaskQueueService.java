@@ -581,12 +581,22 @@ public class ImageTaskQueueService {
             TargetTemplateService.TargetTemplateRecord targetTemplate
     ) {
         StringBuilder builder = new StringBuilder();
-        builder.append("【上传图深析结果】\n");
+        builder.append("【最高优先级：真实产品结构锁定】\n");
+        builder.append("必须以已上传的实拍图、包装图和配件参考图为准，先还原真实产品结构，再应用电商构图和风格。\n");
+        builder.append("如果上传图结构、深析结果、机型常识、目标模板风格或用户风格词发生冲突，优先级为：上传参考图 > 上传图深析结果 > 套装规格数量 > 任务参数 > 目标模板风格 > 通用风格词。\n");
+        builder.append("不要把产品改成模型记忆中的通用款、标准款或常见款；不得统一本来大小不一致的孔位；不得增加、删除、移动或遮挡孔位、缺口、边缘轮廓和配件。\n\n");
+
+        builder.append("【上传图深析结果（结构依据）】\n");
         analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
         builder.append("\n");
-        builder.append("【").append(imageType).append("提示词默认内容】")
-                .append(normalizeText(basePrompt, "生成跨境电商图片。"))
-                .append("\n\n");
+
+        builder.append("【手机膜/镜头膜结构生成规则】\n");
+        builder.append("镜头膜、屏幕膜、保护壳等精密配件必须按上传图的外轮廓、开孔数量、开孔位置和开孔大小生成。\n");
+        builder.append("如果深析结果提到多个小孔大小不同、位置不对称或外形异形，必须保留这些差异；禁止为了整齐美观把孔位做成一样大、等距、标准圆环或分离镜圈。\n");
+        builder.append("镜头膜孔洞应是真实贯穿开孔或真实透明孔位，不要在孔内添加不存在的摄像头镜片、金属装饰圈、螺丝、图标或文字。\n\n");
+
+        appendKitLock(builder, payload);
+
         builder.append("【任务参数】\n");
         builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
         builder.append("【尺寸】")
@@ -603,18 +613,31 @@ public class ImageTaskQueueService {
         appendWallpaperContext(builder, payload, analysis);
         builder.append("【卖点】").append(joinList(payload.sellingPoints())).append("\n");
         String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        if (!"未选择".equals(kitSpecText)) {
-            builder.append("【套装规格】").append(kitSpecText).append("\n");
-            appendAccessoryReferenceContext(builder, payload.kitSpecs());
-        }
+        builder.append("【套装规格】").append(kitSpecText).append("\n");
         String productTypeText = productTypeText(payload);
         if (!"未选择".equals(productTypeText)) {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
+        builder.append("\n【").append(imageType).append("画面要求】\n");
+        builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
+        builder.append("上述画面要求只用于构图、光影和商业质感，不得覆盖或改写上传图中的真实产品结构。\n");
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
+        builder.append("\n【负面约束】\n");
+        builder.append("不要生成通用手机膜套装；不要把异形镜头膜改成标准三星镜头膜；不要把不同大小的小孔做成相同大小；不要把一体式镜头膜改成分离圆环；不要添加未选择配件；不要添加不存在的孔、镜片、包装、文字、Logo、水印或装饰元素；不要让风格光效遮挡产品细节。\n");
         builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；画面必须包含与机型一致的手机或手机模型；套装规格里每一种配件都要严格按数量出现，数量为 1 就出现 1 个，数量为 2 就出现 2 个，未选择的配件不要出现；不要遗漏可见细节，不要编造深析结果中没有的信息。");
         return builder.toString();
+    }
+
+    private void appendKitLock(StringBuilder builder, ImageTaskPayload payload) {
+        String kitSpecText = joinKitSpecs(payload.kitSpecs());
+        if ("未选择".equals(kitSpecText)) {
+            return;
+        }
+        builder.append("【套装规格数量锁定】").append(kitSpecText).append("\n");
+        builder.append("套装规格里的每一种配件都必须按数量准确出现：数量为 1 只出现 1 个，数量为 2 只出现 2 个；未选择的配件不要出现。\n");
+        appendAccessoryReferenceContext(builder, payload.kitSpecs());
+        builder.append("\n");
     }
 
     private void appendAccessoryReferenceContext(StringBuilder builder, List<ImageTaskKitSpec> specs) {
@@ -639,7 +662,7 @@ public class ImageTaskQueueService {
         builder.append("【").append(imageType).append("目标模板风格】")
                 .append(targetTemplate.styleAnalysis())
                 .append("\n");
-        builder.append("【").append(imageType).append("目标模板约束】只参考该模板的构图、光影、背景、质感和排版风格，不要把模板中的商品替换到当前商品里。\n");
+        builder.append("【").append(imageType).append("目标模板约束】目标模板只作为低优先级视觉风格参考，只参考构图、光影、背景、质感和排版风格；不要把模板中的商品替换到当前商品里，不要因为模板风格改变上传实拍图中的孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {

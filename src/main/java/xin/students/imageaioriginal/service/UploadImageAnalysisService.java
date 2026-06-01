@@ -42,8 +42,19 @@ public class UploadImageAnalysisService {
     private static final int PRIMARY_MAX_EDGE = 1400;
     private static final int FALLBACK_MAX_EDGE = 1000;
     private static final int TARGET_IMAGE_BYTES = 1_200_000;
-    private static final String DEFAULT_ANALYSIS_PROMPT =
-            "请客观描述上传图片中的可见内容、主体、文字、颜色、材质、包装、场景、构图和可用于生成图片的关键信息，不要编造看不见的信息。";
+    private static final String DEFAULT_ANALYSIS_PROMPT = """
+            请客观深析上传图片，重点输出后续生图必须锁定的真实产品结构，不要编造看不见的信息。
+
+            如果图片中包含手机膜、镜头膜、保护壳或电子配件，必须逐项描述：
+            1. 产品类型、外轮廓、边缘形状、缺口、倒角和厚度感；
+            2. 开孔/孔位数量、相对位置、排列方向、每个孔的相对大小；
+            3. 哪些孔位大小不一致、哪些结构是非对称或异形结构；
+            4. 材质、颜色、透明度、反光、高光、表面纹理；
+            5. 包装、托盘、贴纸、无尘布、酒精包等可见配件的形状、颜色、数量和相对尺寸；
+            6. 生图时必须禁止模型改成通用款、标准款或常见款的关键细节。
+
+            输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
+            """;
 
     private final GptProperties gptProperties;
     private final CliProxyProperties cliProxyProperties;
