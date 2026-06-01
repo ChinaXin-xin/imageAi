@@ -999,6 +999,63 @@ function isLongText(value: string | null | undefined): boolean {
   return Boolean(value && value.length > 300);
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function inlineMarkdown(value: string): string {
+  return escapeHtml(value)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+}
+
+function markdownToHtml(value: string): string {
+  const lines = value.replace(/\r\n/g, '\n').split('\n');
+  const html: string[] = [];
+  let inList = false;
+
+  const closeList = () => {
+    if (inList) {
+      html.push('</ul>');
+      inList = false;
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeList();
+      html.push('<br>');
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(4, heading[1].length + 1);
+      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    const listItem = trimmed.match(/^[-*]\s+(.+)$/);
+    if (listItem) {
+      if (!inList) {
+        html.push('<ul>');
+        inList = true;
+      }
+      html.push(`<li>${inlineMarkdown(listItem[1])}</li>`);
+      continue;
+    }
+    closeList();
+    html.push(`<p>${inlineMarkdown(trimmed)}</p>`);
+  }
+  closeList();
+  return html.join('');
+}
+
 function openFullTextDialog(title: string, content: string | null | undefined) {
   if (!content) return;
   fullTextDialogTitle.value = title;
@@ -2133,6 +2190,8 @@ function pageSubtitle(): string {
                       <p>{{ analysisPreview(template.styleAnalysis) }}</p>
                       <el-button
                         v-if="isLongText(template.styleAnalysis)"
+                        class="text-more-button"
+                        size="small"
                         text
                         type="primary"
                         @click="openFullTextDialog(`${template.templateTypeText}目标模板风格`, template.styleAnalysis)"
@@ -2455,6 +2514,8 @@ function pageSubtitle(): string {
                 </p>
                 <el-button
                   v-if="isLongText(selectedQueueTask.analysis?.[type])"
+                  class="text-more-button"
+                  size="small"
                   text
                   type="primary"
                   @click="openFullTextDialog(`${type}深析结果`, selectedQueueTask.analysis?.[type])"
@@ -2535,7 +2596,7 @@ function pageSubtitle(): string {
       class="full-text-dialog"
       append-to-body
     >
-      <pre>{{ fullTextDialogContent }}</pre>
+      <div class="markdown-content" v-html="markdownToHtml(fullTextDialogContent)" />
     </el-dialog>
 
     <Teleport to="body">

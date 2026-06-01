@@ -603,6 +603,11 @@ h1 {
   font-size: 22px;
 }
 
+.compact-upload .el-upload-list,
+.line-upload .el-upload-list {
+  display: none;
+}
+
 .preview-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
@@ -729,10 +734,6 @@ h1 {
   .image-download-button.brand-download-button {
     width: min(20cqw, 20cqh, 10px);
   }
-}
-
-.line-upload .el-upload-list {
-  margin-top: 6px;
 }
 
 .segmented-list,
@@ -1043,6 +1044,15 @@ h1 {
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.text-more-button {
+  display: flex;
+  width: fit-content;
+  min-height: 24px;
+  margin: 8px 0 0 auto;
+  padding: 0 6px;
+  font-size: 12px;
 }
 
 .queue-panel {
@@ -1464,13 +1474,55 @@ h1 {
   overflow-y: auto;
 }
 
-.full-text-dialog pre {
+.markdown-content {
   margin: 0;
   color: #1f2937;
   font-family: inherit;
   font-size: 14px;
   line-height: 1.75;
-  white-space: pre-wrap;
+}
+
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 18px 0 8px;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.markdown-content h2 {
+  font-size: 20px;
+}
+
+.markdown-content h3 {
+  font-size: 17px;
+}
+
+.markdown-content h4 {
+  font-size: 15px;
+}
+
+.markdown-content p {
+  margin: 8px 0;
+}
+
+.markdown-content ul {
+  margin: 8px 0 12px;
+  padding-left: 22px;
+}
+
+.markdown-content li {
+  margin: 4px 0;
+}
+
+.markdown-content code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.92em;
 }
 
 .image-viewer-mask {
