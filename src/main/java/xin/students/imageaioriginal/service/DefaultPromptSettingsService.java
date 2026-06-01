@@ -49,10 +49,11 @@ public class DefaultPromptSettingsService {
              );
              ResultSet resultSet = statement.executeQuery()) {
             if (resultSet.next()) {
+                String analysisPrompt = normalize(resultSet.getString("analysis_prompt"), DEFAULT_ANALYSIS_PROMPT);
                 return new DefaultPromptSettings(
-                        resultSet.getString("main_prompt"),
-                        resultSet.getString("intro_prompt"),
-                        normalize(resultSet.getString("analysis_prompt"), DEFAULT_ANALYSIS_PROMPT),
+                        normalizeGenerationPrompt(resultSet.getString("main_prompt"), DEFAULT_MAIN_PROMPT, analysisPrompt),
+                        normalizeGenerationPrompt(resultSet.getString("intro_prompt"), DEFAULT_INTRO_PROMPT, analysisPrompt),
+                        analysisPrompt,
                         parseSellingPoints(resultSet.getString("custom_selling_points"))
                 );
             }
@@ -69,9 +70,9 @@ public class DefaultPromptSettingsService {
 
     public DefaultPromptSettings saveSettings(DefaultPromptSettings settings) {
         ensureTable();
-        String mainPrompt = normalize(settings.mainPrompt(), DEFAULT_MAIN_PROMPT);
-        String introPrompt = normalize(settings.introPrompt(), DEFAULT_INTRO_PROMPT);
         String analysisPrompt = normalize(settings.analysisPrompt(), DEFAULT_ANALYSIS_PROMPT);
+        String mainPrompt = normalizeGenerationPrompt(settings.mainPrompt(), DEFAULT_MAIN_PROMPT, analysisPrompt);
+        String introPrompt = normalizeGenerationPrompt(settings.introPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt);
         List<String> customSellingPoints = normalizeSellingPoints(settings.customSellingPoints());
 
         try (Connection connection = dataSource.getConnection();
@@ -133,6 +134,26 @@ public class DefaultPromptSettingsService {
             return fallback;
         }
         return value.trim();
+    }
+
+    private String normalizeGenerationPrompt(String value, String fallback, String analysisPrompt) {
+        String normalized = normalize(value, fallback);
+        if (sameText(normalized, analysisPrompt) || looksLikeAnalysisPrompt(normalized)) {
+            return fallback;
+        }
+        return normalized;
+    }
+
+    private boolean sameText(String left, String right) {
+        return left != null && right != null && left.trim().equals(right.trim());
+    }
+
+    private boolean looksLikeAnalysisPrompt(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
+        return normalized.contains("请分析上传图片")
+                || normalized.contains("深析上传图")
+                || normalized.contains("只分析图片中与手机膜产品相关的内容")
+                || (normalized.contains("输出要求") && normalized.contains("不要写设计建议"));
     }
 
     private List<String> parseSellingPoints(String value) {

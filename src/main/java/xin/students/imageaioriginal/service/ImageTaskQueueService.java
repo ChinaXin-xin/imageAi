@@ -363,13 +363,13 @@ public class ImageTaskQueueService {
             DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
             String finalMainPrompt = buildGenerationPrompt(
                     "主图",
-                    normalizeText(record.payload().mainPrompt(), settings.mainPrompt()),
+                    generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
                     record.payload(),
                     analysis
             );
             String finalIntroPrompt = buildGenerationPrompt(
                     "介绍图",
-                    normalizeText(record.payload().introPrompt(), settings.introPrompt()),
+                    generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
                     record.payload(),
                     analysis
             );
@@ -488,7 +488,13 @@ public class ImageTaskQueueService {
             Map<String, String> analysis
     ) {
         StringBuilder builder = new StringBuilder();
-        builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n\n");
+        builder.append("【上传图深析结果】\n");
+        analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
+        builder.append("\n");
+        builder.append("【").append(imageType).append("提示词默认内容】")
+                .append(normalizeText(basePrompt, "生成跨境电商图片。"))
+                .append("\n\n");
+        builder.append("【任务参数】\n");
         builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
         builder.append("【尺寸】")
                 .append(normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE))
@@ -512,11 +518,7 @@ public class ImageTaskQueueService {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
         builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
-        builder.append("【修订提示词】如果生图接口返回 revised_prompt，必须完整使用中文，不要返回英文 revised_prompt。\n");
-        builder.append("\n");
-        builder.append("【生成前强制深析上传图结果】\n");
-        analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
-        builder.append("\n必须严格结合以上深析结果生成，不要遗漏可见细节，不要编造深析结果中没有的信息。");
+        builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；不要遗漏可见细节，不要编造深析结果中没有的信息。");
         return builder.toString();
     }
 
@@ -764,13 +766,29 @@ public class ImageTaskQueueService {
                 record.payload().kitSpecs() == null ? List.of() : record.payload().kitSpecs(),
                 listTaskFiles(connection, record.id()),
                 record.analysis(),
-                record.finalMainPrompt(),
-                record.finalIntroPrompt(),
+                detailFinalPrompt(record, "主图"),
+                detailFinalPrompt(record, "介绍图"),
                 listResults(connection, record.id()),
                 stats.completed(),
                 stats.total(),
                 record.errorMessage()
         );
+    }
+
+    private String detailFinalPrompt(TaskRecord record, String imageType) {
+        String storedPrompt = "主图".equals(imageType) ? record.finalMainPrompt() : record.finalIntroPrompt();
+        if (storedPrompt == null || storedPrompt.isBlank() || storedPrompt.contains("【上传图深析结果】")) {
+            return storedPrompt;
+        }
+        Map<String, String> analysis = record.analysis();
+        if (analysis == null || analysis.isEmpty()) {
+            return storedPrompt;
+        }
+        DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
+        String basePrompt = "主图".equals(imageType)
+                ? generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt())
+                : generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt());
+        return buildGenerationPrompt(imageType, basePrompt, record.payload(), analysis);
     }
 
     private List<ImageTaskResultView> listResults(Connection connection, String taskId) throws SQLException {
@@ -790,7 +808,7 @@ public class ImageTaskQueueService {
                             resultSet.getString("prompt"),
                             resultSet.getString("image_url"),
                             resultSet.getString("image_base64"),
-                            resultSet.getString("revised_prompt"),
+                            null,
                             resultSet.getString("error_message"),
                             formatTime(resultSet.getTimestamp("created_at")),
                             formatTime(resultSet.getTimestamp("updated_at"))
@@ -1463,6 +1481,22 @@ public class ImageTaskQueueService {
 
     private String normalizeText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private String generationBasePrompt(String value, String fallback, String analysisPrompt) {
+        String normalized = normalizeText(value, fallback);
+        if (normalized.equals(normalizeText(analysisPrompt, "")) || looksLikeAnalysisPrompt(normalized)) {
+            return fallback;
+        }
+        return normalized;
+    }
+
+    private boolean looksLikeAnalysisPrompt(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
+        return normalized.contains("请分析上传图片")
+                || normalized.contains("深析上传图")
+                || normalized.contains("只分析图片中与手机膜产品相关的内容")
+                || (normalized.contains("输出要求") && normalized.contains("不要写设计建议"));
     }
 
     private String normalizeNullable(String value) {

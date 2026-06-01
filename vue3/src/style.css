@@ -1266,34 +1266,6 @@ h1 {
   background: #fff;
 }
 
-.result-revised-prompt {
-  margin-top: 10px;
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.result-revised-prompt > strong {
-  display: block;
-  margin-bottom: 4px;
-  color: #334155;
-}
-
-.result-revised-prompt p {
-  max-height: 96px;
-  margin: 0;
-  overflow: hidden;
-  white-space: pre-wrap;
-}
-
-.result-revised-prompt p.clickable {
-  cursor: pointer;
-}
-
-.result-revised-prompt p.clickable:hover {
-  color: #2563eb;
-}
-
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
