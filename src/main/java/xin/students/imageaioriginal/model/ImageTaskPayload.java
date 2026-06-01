@@ -25,6 +25,8 @@ public record ImageTaskPayload(
         String language,
         String mainPrompt,
         String introPrompt,
+        Long mainTargetTemplateId,
+        Long introTargetTemplateId,
         List<ImageTaskKitSpec> kitSpecs
 ) {
 }

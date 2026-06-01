@@ -3,6 +3,8 @@ import type {
   ImageTaskDetail,
   ImageTaskPayload,
   ImageTaskSummary,
+  TargetTemplate,
+  TargetTemplateType,
   UploadImageAnalysis,
 } from '../types/quota';
 
@@ -117,6 +119,57 @@ export async function resumeImageTask(taskId: string): Promise<ImageTaskDetail> 
     throw new Error(await readError(response));
   }
   return (await response.json()) as ImageTaskDetail;
+}
+
+export async function deleteImageTask(taskId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+export async function loadTargetTemplates(): Promise<TargetTemplate[]> {
+  const response = await fetch(`${API_BASE_URL}/api/target-templates`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as TargetTemplate[];
+}
+
+export async function createTargetTemplate(
+  templateType: TargetTemplateType,
+  file: File,
+  name?: string,
+): Promise<TargetTemplate> {
+  const formData = new FormData();
+  formData.append('templateType', templateType);
+  formData.append('file', file);
+  if (name?.trim()) {
+    formData.append('name', name.trim());
+  }
+  const response = await fetch(`${API_BASE_URL}/api/target-templates`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as TargetTemplate;
+}
+
+export async function deleteTargetTemplate(templateId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/target-templates/${templateId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
 }
 
 export async function createImageTask(

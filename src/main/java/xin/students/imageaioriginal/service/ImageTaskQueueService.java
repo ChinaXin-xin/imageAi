@@ -70,6 +70,7 @@ public class ImageTaskQueueService {
     private final DefaultPromptSettingsService defaultPromptSettingsService;
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final ImageGenerationService imageGenerationService;
+    private final TargetTemplateService targetTemplateService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "image-task-worker");
         thread.setDaemon(true);
@@ -81,13 +82,15 @@ public class ImageTaskQueueService {
             ObjectMapper objectMapper,
             DefaultPromptSettingsService defaultPromptSettingsService,
             UploadImageAnalysisService uploadImageAnalysisService,
-            ImageGenerationService imageGenerationService
+            ImageGenerationService imageGenerationService,
+            TargetTemplateService targetTemplateService
     ) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.defaultPromptSettingsService = defaultPromptSettingsService;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
         this.imageGenerationService = imageGenerationService;
+        this.targetTemplateService = targetTemplateService;
     }
 
     @PostConstruct
@@ -229,6 +232,20 @@ public class ImageTaskQueueService {
         return getTask(taskId);
     }
 
+    public void deleteTask(String taskId) {
+        ensureTables();
+        imageGenerationService.cancelTask(taskId);
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("delete from image_tasks where id = ?")) {
+            statement.setString(1, taskId);
+            if (statement.executeUpdate() == 0) {
+                throw new IllegalArgumentException("任务不存在：" + taskId);
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("删除任务失败：" + taskId, ex);
+        }
+    }
+
     private void startProcessing(String taskId) {
         CompletableFuture.runAsync(() -> processTask(taskId), executorService);
     }
@@ -361,22 +378,41 @@ public class ImageTaskQueueService {
             ensureTaskNotPaused(taskId);
 
             DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
+            TargetTemplateService.TargetTemplateRecord mainTargetTemplate = resolveTargetTemplate(
+                    record.payload().mainTargetTemplateId(),
+                    "MAIN",
+                    "主图"
+            );
+            TargetTemplateService.TargetTemplateRecord introTargetTemplate = resolveTargetTemplate(
+                    record.payload().introTargetTemplateId(),
+                    "INTRO",
+                    "介绍图"
+            );
             String finalMainPrompt = buildGenerationPrompt(
                     "主图",
                     generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
                     record.payload(),
-                    analysis
+                    analysis,
+                    mainTargetTemplate
             );
             String finalIntroPrompt = buildGenerationPrompt(
                     "介绍图",
                     generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
                     record.payload(),
-                    analysis
+                    analysis,
+                    introTargetTemplate
             );
             saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
             ensureTaskNotPaused(taskId);
             clearResults(taskId);
-            List<GenerationJob> jobs = createGenerationJobs(taskId, finalMainPrompt, finalIntroPrompt, record.payload());
+            List<GenerationJob> jobs = createGenerationJobs(
+                    taskId,
+                    finalMainPrompt,
+                    finalIntroPrompt,
+                    record.payload(),
+                    mainTargetTemplate,
+                    introTargetTemplate
+            );
             updateTaskState(taskId, "GENERATING", null, false, false);
 
             List<StoredUploadImage> referenceImages = readAllStoredImages(taskId);
@@ -399,7 +435,9 @@ public class ImageTaskQueueService {
             String taskId,
             String finalMainPrompt,
             String finalIntroPrompt,
-            ImageTaskPayload payload
+            ImageTaskPayload payload,
+            TargetTemplateService.TargetTemplateRecord mainTargetTemplate,
+            TargetTemplateService.TargetTemplateRecord introTargetTemplate
     ) {
         List<GenerationJob> jobs = new ArrayList<>();
         int mainCount = positive(payload.mainImageCount());
@@ -407,12 +445,12 @@ public class ImageTaskQueueService {
         for (int index = 1; index <= mainCount; index++) {
             String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount);
             long resultId = insertResult(taskId, "主图", index, prompt, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "主图", index, prompt));
+            jobs.add(new GenerationJob(resultId, "主图", index, prompt, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount);
             long resultId = insertResult(taskId, "介绍图", index, prompt, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "介绍图", index, prompt));
+            jobs.add(new GenerationJob(resultId, "介绍图", index, prompt, introTargetTemplate));
         }
         return jobs;
     }
@@ -436,7 +474,7 @@ public class ImageTaskQueueService {
                     job.prompt(),
                     normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
                     normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
-                    referenceImages
+                    generationReferenceImages(referenceImages, job.targetTemplate())
             );
             if (!completeResult(job.resultId(), generatedImage)) {
                 throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
@@ -452,6 +490,30 @@ public class ImageTaskQueueService {
         if (record != null && "PAUSED".equals(record.status())) {
             throw new IllegalStateException(MANUAL_PAUSE_MESSAGE);
         }
+    }
+
+    private TargetTemplateService.TargetTemplateRecord resolveTargetTemplate(Long templateId, String expectedType, String label) {
+        TargetTemplateService.TargetTemplateRecord template = targetTemplateService.findRecord(templateId);
+        if (template == null) {
+            return null;
+        }
+        if (!expectedType.equals(template.templateType())) {
+            throw new IllegalArgumentException(label + "只能选择" + label + "目标模板：" + template.name());
+        }
+        return template;
+    }
+
+    private List<StoredUploadImage> generationReferenceImages(
+            List<StoredUploadImage> uploadImages,
+            TargetTemplateService.TargetTemplateRecord targetTemplate
+    ) {
+        List<StoredUploadImage> referenceImages = new ArrayList<>(
+                uploadImages == null ? List.of() : uploadImages
+        );
+        if (targetTemplate != null) {
+            referenceImages.add(targetTemplateService.toStoredImage(targetTemplate));
+        }
+        return referenceImages;
     }
 
     private Map<String, String> analyzeUploadedFiles(String taskId) {
@@ -485,7 +547,8 @@ public class ImageTaskQueueService {
             String imageType,
             String basePrompt,
             ImageTaskPayload payload,
-            Map<String, String> analysis
+            Map<String, String> analysis,
+            TargetTemplateService.TargetTemplateRecord targetTemplate
     ) {
         StringBuilder builder = new StringBuilder();
         builder.append("【上传图深析结果】\n");
@@ -517,9 +580,27 @@ public class ImageTaskQueueService {
         if (!"未选择".equals(productTypeText)) {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
+        appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
         builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；不要遗漏可见细节，不要编造深析结果中没有的信息。");
         return builder.toString();
+    }
+
+    private void appendTargetTemplateContext(
+            StringBuilder builder,
+            String imageType,
+            TargetTemplateService.TargetTemplateRecord targetTemplate
+    ) {
+        if (targetTemplate == null) {
+            return;
+        }
+        builder.append("【").append(imageType).append("目标模板】")
+                .append(targetTemplate.name())
+                .append("（已作为参考图传入生图模型）\n");
+        builder.append("【").append(imageType).append("目标模板风格】")
+                .append(targetTemplate.styleAnalysis())
+                .append("\n");
+        builder.append("【").append(imageType).append("目标模板约束】只参考该模板的构图、光影、背景、质感和排版风格，不要把模板中的商品替换到当前商品里。\n");
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {
@@ -560,6 +641,8 @@ public class ImageTaskQueueService {
                 normalizeText(payload.language(), "英文"),
                 normalizeNullable(payload.mainPrompt()),
                 normalizeNullable(payload.introPrompt()),
+                positiveId(payload.mainTargetTemplateId()),
+                positiveId(payload.introTargetTemplateId()),
                 payload.kitSpecs() == null ? List.of() : payload.kitSpecs()
         );
     }
@@ -788,7 +871,10 @@ public class ImageTaskQueueService {
         String basePrompt = "主图".equals(imageType)
                 ? generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt())
                 : generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt());
-        return buildGenerationPrompt(imageType, basePrompt, record.payload(), analysis);
+        TargetTemplateService.TargetTemplateRecord targetTemplate = "主图".equals(imageType)
+                ? resolveTargetTemplate(record.payload().mainTargetTemplateId(), "MAIN", "主图")
+                : resolveTargetTemplate(record.payload().introTargetTemplateId(), "INTRO", "介绍图");
+        return buildGenerationPrompt(imageType, basePrompt, record.payload(), analysis, targetTemplate);
     }
 
     private List<ImageTaskResultView> listResults(Connection connection, String taskId) throws SQLException {
@@ -1491,6 +1577,10 @@ public class ImageTaskQueueService {
         return normalized;
     }
 
+    private Long positiveId(Long value) {
+        return value == null || value <= 0 ? null : value;
+    }
+
     private boolean looksLikeAnalysisPrompt(String value) {
         String normalized = value == null ? "" : value.replaceAll("\\s+", "");
         return normalized.contains("请分析上传图片")
@@ -1543,7 +1633,8 @@ public class ImageTaskQueueService {
             long resultId,
             String resultType,
             int index,
-            String prompt
+            String prompt,
+            TargetTemplateService.TargetTemplateRecord targetTemplate
     ) {
     }
 

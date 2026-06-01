@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   CircleCheck,
   Close,
+  Delete,
   Document,
   Download,
   Expand,
@@ -24,9 +25,13 @@ import { loadSystemOverview } from './services/systemApi';
 import {
   analyzeUploadedImages,
   createImageTask,
+  createTargetTemplate,
+  deleteImageTask,
+  deleteTargetTemplate,
   loadImageTask,
   loadImageTasks,
   loadDefaultPromptSettings,
+  loadTargetTemplates,
   pauseImageTask,
   retryImageTask,
   resumeImageTask,
@@ -40,6 +45,8 @@ import type {
   ImageTaskPayload,
   ImageTaskSummary,
   SystemOverview,
+  TargetTemplate,
+  TargetTemplateType,
   UploadImageAnalysis,
 } from './types/quota';
 
@@ -56,7 +63,7 @@ const IMAGE_SIZE_STEP = 16;
 
 type UploadGroup = '实拍图' | '包装图' | '模板图' | 'Logo图' | '壁纸图';
 type AnalysisUploadGroup = '实拍图' | '包装图';
-type ActivePage = 'quota' | 'task' | 'queue' | 'settings';
+type ActivePage = 'quota' | 'task' | 'queue' | 'templates' | 'settings';
 
 type ViewerImage = {
   src: string;
@@ -108,6 +115,19 @@ const newDefaultSellingPoint = ref('');
 const taskQueue = ref<ImageTaskSummary[]>([]);
 const selectedQueueTask = ref<ImageTaskDetail | null>(null);
 const queueDetailVisible = ref(false);
+const targetTemplates = ref<TargetTemplate[]>([]);
+const targetTemplatesLoading = ref(false);
+const targetTemplateErrorMessage = ref('');
+const targetTemplateUploading = ref<Record<TargetTemplateType, boolean>>({
+  MAIN: false,
+  INTRO: false,
+});
+const mainTargetTemplateFiles = ref<UploadUserFile[]>([]);
+const introTargetTemplateFiles = ref<UploadUserFile[]>([]);
+const targetTemplateNames = ref<Record<TargetTemplateType, string>>({
+  MAIN: '',
+  INTRO: '',
+});
 const fullTextDialogVisible = ref(false);
 const fullTextDialogTitle = ref('');
 const fullTextDialogContent = ref('');
@@ -128,6 +148,7 @@ const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
 const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图', 'Logo图', '壁纸图'];
+const targetTemplateTypes: TargetTemplateType[] = ['MAIN', 'INTRO'];
 
 const imageViewerIsSideways = computed(() => imageViewerRotation.value % 180 !== 0);
 const imageViewerImageStyle = computed(() => {
@@ -179,6 +200,8 @@ const taskForm = ref({
   language: '英文',
   mainPrompt: '',
   introPrompt: '',
+  mainTargetTemplateId: null as number | null,
+  introTargetTemplateId: null as number | null,
 });
 
 const kitSpecs = ref([
@@ -312,6 +335,7 @@ onMounted(() => {
   refreshQuota();
   loadPromptSettings();
   loadTaskQueue(false);
+  loadTargetTemplateList(false);
   window.addEventListener('keydown', handleImageViewerKeydown, true);
   window.addEventListener('resize', updateImageViewerViewport);
   queueRefreshTimer = window.setInterval(() => {
@@ -693,6 +717,8 @@ function snapshotTaskForm(): ImageTaskPayload {
     language: taskForm.value.language,
     mainPrompt: taskForm.value.mainPrompt,
     introPrompt: taskForm.value.introPrompt,
+    mainTargetTemplateId: taskForm.value.mainTargetTemplateId,
+    introTargetTemplateId: taskForm.value.introTargetTemplateId,
     kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
   };
 }
@@ -717,6 +743,119 @@ async function loadTaskQueue(showLoading = true) {
     if (showLoading) {
       queueLoading.value = false;
     }
+  }
+}
+
+async function loadTargetTemplateList(showLoading = true) {
+  if (showLoading) {
+    targetTemplatesLoading.value = true;
+  }
+  targetTemplateErrorMessage.value = '';
+  try {
+    targetTemplates.value = await loadTargetTemplates();
+  } catch (error) {
+    targetTemplateErrorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (showLoading) {
+      targetTemplatesLoading.value = false;
+    }
+  }
+}
+
+function targetTemplatesByType(type: TargetTemplateType): TargetTemplate[] {
+  return targetTemplates.value.filter((template) => template.templateType === type);
+}
+
+function handleTargetTemplateSelectVisible(visible: boolean) {
+  if (visible) {
+    loadTargetTemplateList(false);
+  }
+}
+
+function targetTemplateUploadFiles(type: TargetTemplateType) {
+  return type === 'MAIN' ? mainTargetTemplateFiles : introTargetTemplateFiles;
+}
+
+function clearTargetTemplateUpload(type: TargetTemplateType) {
+  const files = targetTemplateUploadFiles(type);
+  files.value.forEach(handleUploadRemove);
+  files.value = [];
+}
+
+async function addTargetTemplate(type: TargetTemplateType) {
+  const files = targetTemplateUploadFiles(type).value;
+  const rawFile = files.find((file) => file.raw)?.raw as File | undefined;
+  if (!rawFile) {
+    ElMessage.warning(`请先上传${type === 'MAIN' ? '主图' : '介绍图'}目标模板图片。`);
+    return;
+  }
+  targetTemplateUploading.value[type] = true;
+  try {
+    const created = await createTargetTemplate(type, rawFile, targetTemplateNames.value[type] || rawFile.name);
+    await loadTargetTemplateList(false);
+    if (type === 'MAIN') {
+      taskForm.value.mainTargetTemplateId = created.id;
+      clearTargetTemplateUpload('MAIN');
+    } else {
+      taskForm.value.introTargetTemplateId = created.id;
+      clearTargetTemplateUpload('INTRO');
+    }
+    targetTemplateNames.value[type] = '';
+    ElMessage.success(`${created.templateTypeText}目标模板已分析并保存。`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    targetTemplateUploading.value[type] = false;
+  }
+}
+
+async function removeTargetTemplate(template: TargetTemplate) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除目标模板「${template.name}」吗？已经创建的历史任务不会被删除。`,
+      '删除目标模板',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+    await deleteTargetTemplate(template.id);
+    if (taskForm.value.mainTargetTemplateId === template.id) {
+      taskForm.value.mainTargetTemplateId = null;
+    }
+    if (taskForm.value.introTargetTemplateId === template.id) {
+      taskForm.value.introTargetTemplateId = null;
+    }
+    await loadTargetTemplateList(false);
+    ElMessage.success('目标模板已删除。');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function deleteQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除任务「${task.productName}」吗？任务记录、上传图和生成结果都会删除。`,
+      '删除任务',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+    await deleteImageTask(task.id);
+    if (selectedQueueTask.value?.id === task.id) {
+      selectedQueueTask.value = null;
+      queueDetailVisible.value = false;
+    }
+    await loadTaskQueue(false);
+    ElMessage.success('任务已删除。');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -953,6 +1092,8 @@ function resetTaskForm() {
     language: '英文',
     mainPrompt: '',
     introPrompt: '',
+    mainTargetTemplateId: null,
+    introTargetTemplateId: null,
   };
   if (defaultSettings.value.mainPrompt) {
     taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
@@ -969,6 +1110,7 @@ function resetTaskForm() {
 function pageTitle(): string {
   if (activePage.value === 'quota') return 'ImageAI 额度监控';
   if (activePage.value === 'queue') return '任务队列';
+  if (activePage.value === 'templates') return '目标模板';
   if (activePage.value === 'settings') return '默认设置';
   return '创建新任务';
 }
@@ -976,6 +1118,7 @@ function pageTitle(): string {
 function pageEyebrow(): string {
   if (activePage.value === 'quota') return 'CLI Proxy API Management';
   if (activePage.value === 'queue') return 'ImageAI Queue';
+  if (activePage.value === 'templates') return 'ImageAI Target Templates';
   if (activePage.value === 'settings') return 'ImageAI Defaults';
   return 'ImageAI Task Center';
 }
@@ -983,6 +1126,7 @@ function pageEyebrow(): string {
 function pageSubtitle(): string {
   if (activePage.value === 'quota') return '集中查看账号额度、图片生成余量与服务器资源状态。';
   if (activePage.value === 'queue') return '按任务查看待生成图片的参数、素材缩略图和生图详情。';
+  if (activePage.value === 'templates') return '维护主图和介绍图的目标模板，上传后自动深析视觉风格。';
   if (activePage.value === 'settings') return '维护主图和介绍图默认提示词，添加任务时自动带入。';
   return '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。';
 }
@@ -1052,6 +1196,15 @@ function pageSubtitle(): string {
           </button>
           <button
             class="nav-item"
+            :class="{ active: activePage === 'templates' }"
+            type="button"
+            @click="activePage = 'templates'; loadTargetTemplateList(false)"
+          >
+            <el-icon><CircleCheck /></el-icon>
+            <span v-if="!isCollapsed">目标模板</span>
+          </button>
+          <button
+            class="nav-item"
             :class="{ active: activePage === 'settings' }"
             type="button"
             @click="activePage = 'settings'"
@@ -1088,6 +1241,12 @@ function pageSubtitle(): string {
               @click="addToTaskQueue"
             >
               添加到任务队列
+            </el-button>
+          </div>
+          <div v-else-if="activePage === 'templates'" class="topbar-actions">
+            <span class="refresh-time">{{ targetTemplates.length }} 个模板</span>
+            <el-button :icon="Refresh" :loading="targetTemplatesLoading" @click="loadTargetTemplateList()">
+              刷新
             </el-button>
           </div>
           <div v-else-if="activePage === 'settings'" class="topbar-actions">
@@ -1622,6 +1781,43 @@ function pageSubtitle(): string {
                   </div>
                 </div>
 
+                <div class="target-template-selectors">
+                  <div class="form-row no-margin">
+                    <label>主图目标模板</label>
+                    <el-select
+                      v-model="taskForm.mainTargetTemplateId"
+                      clearable
+                      filterable
+                      placeholder="选择主图目标模板"
+                      @visible-change="handleTargetTemplateSelectVisible"
+                    >
+                      <el-option
+                        v-for="template in targetTemplatesByType('MAIN')"
+                        :key="template.id"
+                        :label="template.name"
+                        :value="template.id"
+                      />
+                    </el-select>
+                  </div>
+                  <div class="form-row no-margin">
+                    <label>介绍图目标模板</label>
+                    <el-select
+                      v-model="taskForm.introTargetTemplateId"
+                      clearable
+                      filterable
+                      placeholder="选择介绍图目标模板"
+                      @visible-change="handleTargetTemplateSelectVisible"
+                    >
+                      <el-option
+                        v-for="template in targetTemplatesByType('INTRO')"
+                        :key="template.id"
+                        :label="template.name"
+                        :value="template.id"
+                      />
+                    </el-select>
+                  </div>
+                </div>
+
                 <div class="prompt-grid">
                   <div class="form-row">
                     <label>主图提示词</label>
@@ -1749,10 +1945,115 @@ function pageSubtitle(): string {
                         继续
                       </el-button>
                       <el-button v-else-if="task.status === 'FAILED'" text type="warning" @click="retryQueuedTask(task)">重试</el-button>
+                      <el-button text type="danger" :icon="Delete" @click="deleteQueuedTask(task)">删除</el-button>
                     </div>
                   </div>
                 </article>
               </div>
+            </section>
+          </section>
+
+          <section v-else-if="activePage === 'templates'" class="templates-page" v-loading="targetTemplatesLoading">
+            <el-alert
+              v-if="targetTemplateErrorMessage"
+              class="queue-error"
+              type="error"
+              :title="targetTemplateErrorMessage"
+              show-icon
+              :closable="false"
+            />
+
+            <section class="template-columns">
+              <article v-for="type in targetTemplateTypes" :key="type" class="template-panel">
+                <div class="task-card-head">
+                  <div>
+                    <h2>{{ type === 'MAIN' ? '主图目标模板' : '介绍图目标模板' }}</h2>
+                    <p>上传目标风格图后，后端会自动调用 GPT 5.5 分析并保存风格。</p>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <label>模板名称</label>
+                  <el-input
+                    v-model="targetTemplateNames[type]"
+                    :placeholder="type === 'MAIN' ? '例如：深色科技主图' : '例如：模块化介绍图'"
+                  />
+                </div>
+
+                <el-upload
+                  v-model:file-list="targetTemplateUploadFiles(type).value"
+                  class="compact-upload"
+                  action="#"
+                  drag
+                  :limit="1"
+                  :auto-upload="false"
+                  :show-file-list="false"
+                >
+                  <el-icon><Upload /></el-icon>
+                  <div>拖拽或点击上传目标模板图</div>
+                </el-upload>
+
+                <div v-if="targetTemplateUploadFiles(type).value.length" class="preview-grid compact-preview-grid">
+                  <div
+                    v-for="file in targetTemplateUploadFiles(type).value"
+                    :key="uploadKey(file)"
+                    class="preview-tile"
+                  >
+                    <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
+                      <img :src="filePreviewUrl(file)" :alt="file.name" />
+                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
+                        <el-icon><Download /></el-icon>
+                      </button>
+                    </div>
+                    <span>{{ file.name }}</span>
+                    <button class="remove-upload-button" type="button" @click="clearTargetTemplateUpload(type)">移除</button>
+                  </div>
+                </div>
+
+                <el-button
+                  class="template-add-button"
+                  type="primary"
+                  :icon="Plus"
+                  :loading="targetTemplateUploading[type]"
+                  @click="addTargetTemplate(type)"
+                >
+                  添加并深析模板
+                </el-button>
+
+                <div v-if="targetTemplatesByType(type).length" class="target-template-list">
+                  <article v-for="template in targetTemplatesByType(type)" :key="template.id" class="target-template-card">
+                    <div
+                      class="target-template-preview image-action-wrap"
+                      role="button"
+                      tabindex="0"
+                      @click="openImageViewer(template.preview, template.fileName)"
+                      @keydown.enter="openImageViewer(template.preview, template.fileName)"
+                    >
+                      <img :src="template.preview" :alt="template.name" />
+                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(template.preview, template.fileName)">
+                        <el-icon><Download /></el-icon>
+                      </button>
+                    </div>
+                    <div class="target-template-body">
+                      <div class="target-template-head">
+                        <strong>{{ template.name }}</strong>
+                        <el-button text type="danger" :icon="Delete" @click="removeTargetTemplate(template)">删除</el-button>
+                      </div>
+                      <small>{{ template.model }} / {{ template.createdAt }}</small>
+                      <p>{{ analysisPreview(template.styleAnalysis) }}</p>
+                      <el-button
+                        v-if="isLongText(template.styleAnalysis)"
+                        text
+                        type="primary"
+                        @click="openFullTextDialog(`${template.templateTypeText}目标模板风格`, template.styleAnalysis)"
+                      >
+                        查看全文
+                      </el-button>
+                    </div>
+                  </article>
+                </div>
+                <el-empty v-else description="暂无目标模板" />
+              </article>
             </section>
           </section>
 

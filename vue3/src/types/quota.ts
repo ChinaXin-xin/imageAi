@@ -55,6 +55,23 @@ export interface UploadImageAnalysis {
   result: string;
 }
 
+export type TargetTemplateType = 'MAIN' | 'INTRO';
+
+export interface TargetTemplate {
+  id: number;
+  templateType: TargetTemplateType;
+  templateTypeText: string;
+  name: string;
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+  preview: string;
+  styleAnalysis: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ImageTaskKitSpec {
   name: string;
   quantity: number;
@@ -83,6 +100,8 @@ export interface ImageTaskPayload {
   language: string;
   mainPrompt: string;
   introPrompt: string;
+  mainTargetTemplateId?: number | null;
+  introTargetTemplateId?: number | null;
   kitSpecs: ImageTaskKitSpec[];
 }
 
