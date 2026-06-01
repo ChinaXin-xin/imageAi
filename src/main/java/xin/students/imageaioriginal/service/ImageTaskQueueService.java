@@ -57,8 +57,8 @@ public class ImageTaskQueueService {
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final int STALE_GENERATION_SECONDS = 6 * 60;
-    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 6 分钟未返回，已自动标记失败，请稍后重试。";
+    private static final int STALE_GENERATION_SECONDS = 10 * 60;
+    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 10 分钟未返回，已自动标记失败，请稍后重试。";
     private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
     private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
     private static final int THUMB_MAX_EDGE = 320;

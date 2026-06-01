@@ -2452,25 +2452,25 @@ function pageSubtitle(): string {
                   />
                 </div>
               </div>
-
+              <div style="height: 20px;"></div>
               <div class="form-row">
                 <label>深析上传图的提示词</label>
                 <el-input
                   v-model="defaultSettings.analysisPrompt"
                   type="textarea"
-                  :rows="5"
+                  :rows="10"
                   maxlength="2000"
                   show-word-limit
                   placeholder="请输入深析上传图时发送给 GPT 的默认分析要求"
                 />
               </div>
-
+              <div style="height: 20px;"></div>
               <div class="form-row">
                 <label>目标模板图片分析提示词</label>
                 <el-input
                   v-model="defaultSettings.targetTemplatePrompt"
                   type="textarea"
-                  :rows="7"
+                  :rows="15"
                   maxlength="3000"
                   show-word-limit
                   placeholder="请输入分析目标模板图风格时发送给 GPT 的提示词"
