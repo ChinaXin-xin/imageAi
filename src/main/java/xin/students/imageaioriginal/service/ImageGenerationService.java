@@ -2,6 +2,7 @@ package xin.students.imageaioriginal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,8 +30,10 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -235,8 +238,7 @@ public class ImageGenerationService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + uploadImageAnalysisService.resolveApiKey())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
-                .retrieve()
-                .body(JsonNode.class);
+                .exchange((httpRequest, response) -> readImageResponse(response.getStatusCode().value(), response.getHeaders().getContentType(), response.getBody().readAllBytes()));
     }
 
     private JsonNode generateWithReferences(List<StoredUploadImage> referenceImages, String model, String prompt, String size) {
@@ -259,8 +261,49 @@ public class ImageGenerationService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + uploadImageAnalysisService.resolveApiKey())
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(body)
-                .retrieve()
-                .body(JsonNode.class);
+                .exchange((httpRequest, response) -> readImageResponse(response.getStatusCode().value(), response.getHeaders().getContentType(), response.getBody().readAllBytes()));
+    }
+
+    private JsonNode readImageResponse(int statusCode, MediaType contentType, byte[] body) throws IOException {
+        byte[] payload = body == null ? new byte[0] : body;
+        if (statusCode >= 400) {
+            throw new IllegalStateException("生图接口返回 HTTP " + statusCode + "：" + responseSnippet(payload));
+        }
+        if (payload.length == 0) {
+            throw new IllegalStateException("生图接口返回空响应");
+        }
+        try {
+            return objectMapper.readTree(payload);
+        } catch (Exception parseError) {
+            if (isImageContentType(contentType) || isOctetStream(contentType)) {
+                LOG.info("gpt.image.binary-response contentType={} bytes={}", contentType, payload.length);
+                return binaryImageResponse(payload);
+            }
+            throw new IllegalStateException("生图接口返回内容不是 JSON：" + responseSnippet(payload), parseError);
+        }
+    }
+
+    private boolean isImageContentType(MediaType contentType) {
+        return contentType != null && "image".equalsIgnoreCase(contentType.getType());
+    }
+
+    private boolean isOctetStream(MediaType contentType) {
+        return contentType != null && MediaType.APPLICATION_OCTET_STREAM.includes(contentType);
+    }
+
+    private JsonNode binaryImageResponse(byte[] imageBytes) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode first = root.putArray("data").addObject();
+        first.put("b64_json", Base64.getEncoder().encodeToString(imageBytes));
+        return root;
+    }
+
+    private String responseSnippet(byte[] body) {
+        if (body == null || body.length == 0) {
+            return "";
+        }
+        String text = new String(body, StandardCharsets.UTF_8).trim();
+        return abbreviate(text, 1000);
     }
 
     private List<StoredUploadImage> prepareReferenceImages(List<StoredUploadImage> referenceImages) {
