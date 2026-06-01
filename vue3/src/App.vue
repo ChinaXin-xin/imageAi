@@ -63,6 +63,16 @@ type ViewerImage = {
   name: string;
 };
 
+type ViewerNaturalSize = {
+  width: number;
+  height: number;
+};
+
+type ViewerViewport = {
+  width: number;
+  height: number;
+};
+
 const accounts = ref<CodexQuotaAccount[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
@@ -107,6 +117,8 @@ const addingTask = ref(false);
 const imageViewerVisible = ref(false);
 const imageViewerImage = ref<ViewerImage | null>(null);
 const imageViewerRotation = ref(0);
+const imageViewerNaturalSize = ref<ViewerNaturalSize>({ width: 1, height: 1 });
+const imageViewerViewport = ref<ViewerViewport>({ width: window.innerWidth, height: window.innerHeight });
 let queueRefreshTimer: number | undefined;
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
@@ -116,6 +128,32 @@ const styleOptions = ['自动', '科技感', '极简风', '苹果风', '3D立体
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
 const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图', 'Logo图', '壁纸图'];
+
+const imageViewerIsSideways = computed(() => imageViewerRotation.value % 180 !== 0);
+const imageViewerImageStyle = computed(() => {
+  const naturalWidth = Math.max(1, imageViewerNaturalSize.value.width);
+  const naturalHeight = Math.max(1, imageViewerNaturalSize.value.height);
+  const sourceAspect = naturalWidth / naturalHeight;
+  const visualAspect = imageViewerIsSideways.value ? 1 / sourceAspect : sourceAspect;
+  const maxWidth = Math.min(imageViewerViewport.value.width * 0.88, 1320);
+  const maxHeight = Math.min(imageViewerViewport.value.height * 0.82, 820);
+  let visualWidth = maxWidth;
+  let visualHeight = visualWidth / visualAspect;
+
+  if (visualHeight > maxHeight) {
+    visualHeight = maxHeight;
+    visualWidth = visualHeight * visualAspect;
+  }
+
+  const elementWidth = imageViewerIsSideways.value ? visualHeight : visualWidth;
+  const elementHeight = imageViewerIsSideways.value ? visualWidth : visualHeight;
+
+  return {
+    width: `${Math.max(1, Math.round(elementWidth))}px`,
+    height: `${Math.max(1, Math.round(elementHeight))}px`,
+    transform: `rotate(${imageViewerRotation.value}deg)`,
+  };
+});
 
 const taskForm = ref({
   productName: '',
@@ -275,6 +313,7 @@ onMounted(() => {
   loadPromptSettings();
   loadTaskQueue(false);
   window.addEventListener('keydown', handleImageViewerKeydown, true);
+  window.addEventListener('resize', updateImageViewerViewport);
   queueRefreshTimer = window.setInterval(() => {
     if (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status))) {
       loadTaskQueue(false);
@@ -287,6 +326,7 @@ onUnmounted(() => {
     window.clearInterval(queueRefreshTimer);
   }
   window.removeEventListener('keydown', handleImageViewerKeydown, true);
+  window.removeEventListener('resize', updateImageViewerViewport);
 });
 
 watch(
@@ -781,13 +821,40 @@ function openFullTextDialog(title: string, content: string | null | undefined) {
   fullTextDialogVisible.value = true;
 }
 
+function updateImageViewerViewport() {
+  imageViewerViewport.value = {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+}
+
+function loadImageViewerNaturalSize(src: string) {
+  imageViewerNaturalSize.value = { width: 1, height: 1 };
+  const probe = new Image();
+  probe.onload = () => {
+    if (imageViewerImage.value?.src !== src) return;
+    imageViewerNaturalSize.value = {
+      width: probe.naturalWidth || 1,
+      height: probe.naturalHeight || 1,
+    };
+  };
+  probe.onerror = () => {
+    if (imageViewerImage.value?.src === src) {
+      imageViewerNaturalSize.value = { width: 1, height: 1 };
+    }
+  };
+  probe.src = src;
+}
+
 function openImageViewer(src: string | null | undefined, name: string | null | undefined) {
   if (!src) return;
+  updateImageViewerViewport();
   imageViewerImage.value = {
     src,
     name: name?.trim() || 'image.png',
   };
   imageViewerRotation.value = 0;
+  loadImageViewerNaturalSize(src);
   imageViewerVisible.value = true;
 }
 
@@ -795,6 +862,7 @@ function closeImageViewer() {
   imageViewerVisible.value = false;
   imageViewerImage.value = null;
   imageViewerRotation.value = 0;
+  imageViewerNaturalSize.value = { width: 1, height: 1 };
 }
 
 function rotateImageViewer() {
@@ -2075,11 +2143,12 @@ function pageSubtitle(): string {
         <button class="image-viewer-rotate" type="button" title="旋转" @click.stop="rotateImageViewer">
           <el-icon><RefreshRight /></el-icon>
         </button>
-        <div class="image-viewer-stage" @click.stop>
+        <div class="image-viewer-stage" :class="{ 'is-sideways': imageViewerIsSideways }">
           <img
             :src="imageViewerImage.src"
             :alt="imageViewerImage.name"
-            :style="{ transform: `rotate(${imageViewerRotation}deg)` }"
+            :style="imageViewerImageStyle"
+            @click.stop
           />
         </div>
         <button

@@ -1301,23 +1301,28 @@ h1 {
   place-items: center;
   box-sizing: border-box;
   padding: 64px 40px;
-  background: rgba(15, 23, 42, 0.84);
+  background: rgba(25, 25, 25, 0.88);
 }
 
 .image-viewer-stage {
   display: grid;
-  width: min(86vw, 1480px);
-  height: min(78vh, 940px);
+  width: min(88vw, 1320px);
+  height: min(82vh, 820px);
   place-items: center;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .image-viewer-stage img {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: min(88vw, 1320px);
+  max-height: min(82vh, 820px);
   object-fit: contain;
   transition: transform 0.18s ease;
+}
+
+.image-viewer-stage.is-sideways img {
+  max-width: min(82vh, 820px);
+  max-height: min(88vw, 1320px);
 }
 
 .image-viewer-close,
