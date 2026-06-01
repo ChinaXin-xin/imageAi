@@ -17,7 +17,21 @@ import xin.students.imageaioriginal.config.GptProperties;
 import xin.students.imageaioriginal.config.ImageGenerationProperties;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -37,8 +51,10 @@ public class ImageGenerationService {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
-    private static final Duration READ_TIMEOUT = Duration.ofMinutes(5);
-    private static final Duration HARD_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration READ_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration HARD_TIMEOUT = Duration.ofMinutes(10);
+    private static final int REFERENCE_MAX_EDGE = 1280;
+    private static final float REFERENCE_JPEG_QUALITY = 0.86f;
     private static final AtomicInteger REQUEST_THREAD_INDEX = new AtomicInteger();
 
     private final GptProperties gptProperties;
@@ -90,7 +106,8 @@ public class ImageGenerationService {
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         String model = imageGenerationProperties.resolvedModel();
         String size = Math.max(1, width) + "x" + Math.max(1, height);
-        int referenceCount = referenceImages == null ? 0 : referenceImages.size();
+        List<StoredUploadImage> preparedReferenceImages = prepareReferenceImages(referenceImages);
+        int referenceCount = preparedReferenceImages.size();
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
@@ -112,7 +129,7 @@ public class ImageGenerationService {
 
         JsonNode response = requestWithHardTimeout(
                 () -> referenceCount > 0
-                        ? generateWithReferences(referenceImages, model, prompt, size)
+                        ? generateWithReferences(preparedReferenceImages, model, prompt, size)
                         : generateFromText(request),
                 requestId,
                 taskId,
@@ -244,6 +261,86 @@ public class ImageGenerationService {
                 .body(body)
                 .retrieve()
                 .body(JsonNode.class);
+    }
+
+    private List<StoredUploadImage> prepareReferenceImages(List<StoredUploadImage> referenceImages) {
+        if (referenceImages == null || referenceImages.isEmpty()) {
+            return List.of();
+        }
+        List<StoredUploadImage> prepared = new ArrayList<>(referenceImages.size());
+        for (StoredUploadImage image : referenceImages) {
+            if (image == null || image.bytes() == null || image.bytes().length == 0) {
+                continue;
+            }
+            prepared.add(compressReferenceImage(image));
+        }
+        return prepared;
+    }
+
+    private StoredUploadImage compressReferenceImage(StoredUploadImage image) {
+        try {
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(image.bytes()));
+            if (source == null) {
+                return image;
+            }
+            int width = source.getWidth();
+            int height = source.getHeight();
+            double scale = Math.min(1.0, REFERENCE_MAX_EDGE / (double) Math.max(width, height));
+            int targetWidth = Math.max(1, (int) Math.round(width * scale));
+            int targetHeight = Math.max(1, (int) Math.round(height * scale));
+            BufferedImage rgbImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = rgbImage.createGraphics();
+            try {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, targetWidth, targetHeight);
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                graphics.drawImage(source, 0, 0, targetWidth, targetHeight, null);
+            } finally {
+                graphics.dispose();
+            }
+            byte[] compressed = writeJpeg(rgbImage);
+            if (compressed.length >= image.bytes().length && width <= REFERENCE_MAX_EDGE && height <= REFERENCE_MAX_EDGE) {
+                return image;
+            }
+            return new StoredUploadImage(jpegFileName(image.fileName()), MediaType.IMAGE_JPEG_VALUE, compressed);
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("gpt.image.reference.compress.failed fileName={} bytes={} message={}",
+                    image.fileName(),
+                    image.bytes().length,
+                    ex.getMessage()
+            );
+            return image;
+        }
+    }
+
+    private byte[] writeJpeg(BufferedImage image) throws IOException {
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+        if (!writers.hasNext()) {
+            ByteArrayOutputStream fallback = new ByteArrayOutputStream();
+            ImageIO.write(image, "jpg", fallback);
+            return fallback.toByteArray();
+        }
+        ImageWriter writer = writers.next();
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+             ImageOutputStream imageOutput = ImageIO.createImageOutputStream(output)) {
+            writer.setOutput(imageOutput);
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            if (param.canWriteCompressed()) {
+                param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                param.setCompressionQuality(REFERENCE_JPEG_QUALITY);
+            }
+            writer.write(null, new IIOImage(image, null, null), param);
+            return output.toByteArray();
+        } finally {
+            writer.dispose();
+        }
+    }
+
+    private String jpegFileName(String fileName) {
+        String normalized = fileName == null || fileName.isBlank() ? "reference-image" : fileName.trim();
+        return normalized.replaceFirst("(?i)\\.(png|jpe?g|webp|bmp|gif|heic|heif)$", "") + ".jpg";
     }
 
     private ByteArrayResource imageResource(StoredUploadImage image) {

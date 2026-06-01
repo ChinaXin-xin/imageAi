@@ -610,13 +610,14 @@ h1 {
 
 .preview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 160px));
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
 }
 
 .compact-preview-grid {
-  grid-template-columns: repeat(auto-fill, minmax(96px, 112px));
+  grid-template-columns: repeat(auto-fill, minmax(112px, 132px));
 }
 
 .preview-tile {
@@ -639,9 +640,9 @@ h1 {
 .preview-tile span {
   display: block;
   overflow: hidden;
-  padding: 5px 6px;
+  padding: 6px 8px;
   color: #64748b;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
