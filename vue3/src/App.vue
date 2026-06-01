@@ -38,6 +38,7 @@ import type {
   DefaultPromptSettings,
   ImageTaskDetail,
   ImageTaskPayload,
+  ImageTaskResult,
   ImageTaskSummary,
   SystemOverview,
   UploadImageAnalysis,
@@ -772,6 +773,17 @@ function analysisPreview(value: string | null | undefined): string {
 
 function isLongText(value: string | null | undefined): boolean {
   return Boolean(value && value.length > 300);
+}
+
+function containsChinese(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /[\u4e00-\u9fff]/u.test(value);
+}
+
+function displayRevisedPrompt(result: ImageTaskResult): string | null {
+  const revisedPrompt = result.revisedPrompt?.trim();
+  if (revisedPrompt && containsChinese(revisedPrompt)) return revisedPrompt;
+  return result.prompt?.trim() || revisedPrompt || null;
 }
 
 function openFullTextDialog(title: string, content: string | null | undefined) {
@@ -2018,19 +2030,19 @@ function pageSubtitle(): string {
                 </div>
                 <p v-else class="empty-inline result-empty-image">暂无图片</p>
                 <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
-                <div v-if="result.revisedPrompt" class="result-revised-prompt">
+                <div v-if="displayRevisedPrompt(result)" class="result-revised-prompt">
                   <strong>修订提示词：</strong>
                   <p
-                    :class="{ clickable: isLongText(result.revisedPrompt) }"
-                    @click="isLongText(result.revisedPrompt) && openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, result.revisedPrompt)"
+                    :class="{ clickable: isLongText(displayRevisedPrompt(result)) }"
+                    @click="isLongText(displayRevisedPrompt(result)) && openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, displayRevisedPrompt(result))"
                   >
-                    {{ analysisPreview(result.revisedPrompt) }}
+                    {{ analysisPreview(displayRevisedPrompt(result)) }}
                   </p>
                   <el-button
-                    v-if="isLongText(result.revisedPrompt)"
+                    v-if="isLongText(displayRevisedPrompt(result))"
                     text
                     type="primary"
-                    @click="openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, result.revisedPrompt)"
+                    @click="openFullTextDialog(`${result.resultType} #${result.itemIndex} 修订提示词`, displayRevisedPrompt(result))"
                   >
                     查看全文
                   </el-button>

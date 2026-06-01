@@ -123,7 +123,7 @@ public class ImageGenerationService {
         JsonNode first = response == null ? null : response.path("data").path(0);
         String imageUrl = text(first, "url");
         String b64Json = text(first, "b64_json", "b64Json");
-        String revisedPrompt = text(first, "revised_prompt", "revisedPrompt");
+        String revisedPrompt = normalizeRevisedPrompt(text(first, "revised_prompt", "revisedPrompt"), prompt);
         String rawResponse = toJson(response);
         if ((imageUrl == null || imageUrl.isBlank()) && (b64Json == null || b64Json.isBlank())) {
             throw new IllegalStateException("生图接口未返回图片地址或图片 base64：" + abbreviate(rawResponse, 1000));
@@ -141,6 +141,19 @@ public class ImageGenerationService {
                 revisedPrompt == null ? "-" : revisedPrompt
         );
         return new GeneratedImage(imageUrl, b64Json, revisedPrompt, rawResponse);
+    }
+
+    private String normalizeRevisedPrompt(String revisedPrompt, String fallbackPrompt) {
+        if (revisedPrompt == null || revisedPrompt.isBlank()) {
+            return fallbackPrompt;
+        }
+        return containsChinese(revisedPrompt) ? revisedPrompt : fallbackPrompt;
+    }
+
+    private boolean containsChinese(String value) {
+        return value != null && value.codePoints().anyMatch(codePoint ->
+                Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN
+        );
     }
 
     private JsonNode requestWithHardTimeout(

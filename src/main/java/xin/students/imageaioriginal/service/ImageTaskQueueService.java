@@ -512,7 +512,7 @@ public class ImageTaskQueueService {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
         builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
-        builder.append("【修订提示词】如果生图接口返回 revised_prompt，必须使用中文。\n");
+        builder.append("【修订提示词】如果生图接口返回 revised_prompt，必须完整使用中文，不要返回英文 revised_prompt。\n");
         builder.append("\n");
         builder.append("【生成前强制深析上传图结果】\n");
         analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
