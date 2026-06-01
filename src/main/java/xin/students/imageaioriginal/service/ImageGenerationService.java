@@ -54,10 +54,10 @@ public class ImageGenerationService {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
-    private static final Duration READ_TIMEOUT = Duration.ofMinutes(10);
-    private static final Duration HARD_TIMEOUT = Duration.ofMinutes(10);
-    private static final int REFERENCE_MAX_EDGE = 1280;
-    private static final float REFERENCE_JPEG_QUALITY = 0.86f;
+    private static final Duration READ_TIMEOUT = Duration.ofMinutes(15);
+    private static final Duration HARD_TIMEOUT = Duration.ofMinutes(15);
+    private static final int REFERENCE_MAX_EDGE = 1024;
+    private static final float REFERENCE_JPEG_QUALITY = 0.78f;
     private static final AtomicInteger REQUEST_THREAD_INDEX = new AtomicInteger();
 
     private final GptProperties gptProperties;
@@ -119,7 +119,7 @@ public class ImageGenerationService {
         request.put("size", size);
 
         LOG.info(
-                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} prompt={}",
+                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} referenceBytes={} promptChars={} prompt={}",
                 requestId,
                 taskId,
                 resultType,
@@ -127,6 +127,8 @@ public class ImageGenerationService {
                 model,
                 size,
                 referenceCount,
+                preparedReferenceImages.stream().mapToLong(image -> image.bytes() == null ? 0 : image.bytes().length).sum(),
+                prompt == null ? 0 : prompt.length(),
                 prompt
         );
 

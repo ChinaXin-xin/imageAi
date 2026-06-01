@@ -57,13 +57,14 @@ public class ImageTaskQueueService {
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final int STALE_GENERATION_SECONDS = 10 * 60;
-    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 10 分钟未返回，已自动标记失败，请稍后重试。";
+    private static final int STALE_GENERATION_SECONDS = 15 * 60;
+    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 15 分钟未返回，已自动标记失败，请稍后重试。";
     private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
     private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
     private static final int THUMB_MAX_EDGE = 320;
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
+    private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -581,19 +582,18 @@ public class ImageTaskQueueService {
             TargetTemplateService.TargetTemplateRecord targetTemplate
     ) {
         StringBuilder builder = new StringBuilder();
-        builder.append("【最高优先级：真实产品结构锁定】\n");
-        builder.append("必须以已上传的实拍图、包装图和配件参考图为准，先还原真实产品结构，再应用电商构图和风格。\n");
-        builder.append("如果上传图结构、深析结果、机型常识、目标模板风格或用户风格词发生冲突，优先级为：上传参考图 > 上传图深析结果 > 套装规格数量 > 任务参数 > 目标模板风格 > 通用风格词。\n");
-        builder.append("不要把产品改成模型记忆中的通用款、标准款或常见款；不得统一本来大小不一致的孔位；不得增加、删除、移动或遮挡孔位、缺口、边缘轮廓和配件。\n\n");
+        builder.append("【最高优先级：结构锁定】\n");
+        builder.append("上传参考图 > 深析结果 > 套装数量 > 任务参数 > 模板风格。先还原真实产品结构，再做电商美化。\n");
+        builder.append("不得改成通用款；不得统一大小不同的孔位；不得增加、删除、移动或遮挡孔位、缺口、外轮廓和配件。\n\n");
 
-        builder.append("【上传图深析结果（结构依据）】\n");
-        analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n").append(result).append("\n"));
+        builder.append("【上传图深析结果】\n");
+        analysis.forEach((label, result) -> builder.append("[").append(label).append("]\n")
+                .append(abbreviate(normalizeNullable(result), MAX_ANALYSIS_PROMPT_CHARS))
+                .append("\n"));
         builder.append("\n");
 
-        builder.append("【手机膜/镜头膜结构生成规则】\n");
-        builder.append("镜头膜、屏幕膜、保护壳等精密配件必须按上传图的外轮廓、开孔数量、开孔位置和开孔大小生成。\n");
-        builder.append("如果深析结果提到多个小孔大小不同、位置不对称或外形异形，必须保留这些差异；禁止为了整齐美观把孔位做成一样大、等距、标准圆环或分离镜圈。\n");
-        builder.append("镜头膜孔洞应是真实贯穿开孔或真实透明孔位，不要在孔内添加不存在的摄像头镜片、金属装饰圈、螺丝、图标或文字。\n\n");
+        builder.append("【手机膜结构规则】\n");
+        builder.append("镜头膜/屏幕膜按上传图的外轮廓、孔位数量、孔位位置、孔位大小生成。若小孔大小不同或结构非对称，必须保留差异；禁止做成等大、等距、分离镜圈或标准圆环。孔洞内不要添加不存在的镜片、金属圈、螺丝、图标或文字。\n\n");
 
         appendKitLock(builder, payload);
 
@@ -620,12 +620,12 @@ public class ImageTaskQueueService {
         }
         builder.append("\n【").append(imageType).append("画面要求】\n");
         builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
-        builder.append("上述画面要求只用于构图、光影和商业质感，不得覆盖或改写上传图中的真实产品结构。\n");
+        builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
         appendTargetTemplateContext(builder, imageType, targetTemplate);
-        builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
+        builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
-        builder.append("不要生成通用手机膜套装；不要把异形镜头膜改成标准三星镜头膜；不要把不同大小的小孔做成相同大小；不要把一体式镜头膜改成分离圆环；不要添加未选择配件；不要添加不存在的孔、镜片、包装、文字、Logo、水印或装饰元素；不要让风格光效遮挡产品细节。\n");
-        builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；画面必须包含与机型一致的手机或手机模型；套装规格里每一种配件都要严格按数量出现，数量为 1 就出现 1 个，数量为 2 就出现 2 个，未选择的配件不要出现；不要遗漏可见细节，不要编造深析结果中没有的信息。");
+        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、Logo、水印或装饰文字。\n");
+        builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
         return builder.toString();
     }
 
@@ -660,9 +660,9 @@ public class ImageTaskQueueService {
             return;
         }
         builder.append("【").append(imageType).append("目标模板风格】")
-                .append(targetTemplate.styleAnalysis())
+                .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("目标模板约束】目标模板只作为低优先级视觉风格参考，只参考构图、光影、背景、质感和排版风格；不要把模板中的商品替换到当前商品里，不要因为模板风格改变上传实拍图中的孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("目标模板约束】模板只作低优先级风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {
