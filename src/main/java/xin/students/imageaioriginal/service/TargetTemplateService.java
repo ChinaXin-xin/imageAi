@@ -39,25 +39,19 @@ public class TargetTemplateService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int THUMB_MAX_EDGE = 360;
-    private static final String STYLE_ANALYSIS_PROMPT = """
-            请作为跨境电商图片视觉风格分析师，只分析这张目标模板图的视觉风格，不要照抄产品内容。
-
-            请输出适合后续生图使用的中文风格说明，重点包含：
-            1. 画面构图和主体摆放方式
-            2. 背景材质、颜色氛围和空间层次
-            3. 光影、高光、反射、阴影、3D质感
-            4. 文字/图标/信息模块的排版风格，如果没有就说明无明显文案
-            5. 生成时需要保持的风格约束
-
-            只描述风格和画面语言，不要要求生成模板里的具体商品，不要编造品牌。
-            """;
 
     private final DataSource dataSource;
     private final UploadImageAnalysisService uploadImageAnalysisService;
+    private final DefaultPromptSettingsService defaultPromptSettingsService;
 
-    public TargetTemplateService(DataSource dataSource, UploadImageAnalysisService uploadImageAnalysisService) {
+    public TargetTemplateService(
+            DataSource dataSource,
+            UploadImageAnalysisService uploadImageAnalysisService,
+            DefaultPromptSettingsService defaultPromptSettingsService
+    ) {
         this.dataSource = dataSource;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
+        this.defaultPromptSettingsService = defaultPromptSettingsService;
     }
 
     @PostConstruct
@@ -95,7 +89,7 @@ public class TargetTemplateService {
             StoredUploadImage storedImage = new StoredUploadImage(fileName, contentType, content);
             UploadImageAnalysis analysis = uploadImageAnalysisService.analyzeStored(
                     templateTypeText(normalizedType) + "目标模板",
-                    STYLE_ANALYSIS_PROMPT,
+                    defaultPromptSettingsService.getSettings().targetTemplatePrompt(),
                     List.of(storedImage)
             );
             Thumbnail thumbnail = createThumbnail(storedImage);

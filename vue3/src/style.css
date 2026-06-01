@@ -425,6 +425,91 @@ h1 {
   margin: 14px 0;
 }
 
+.field-hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.template-option {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.el-select-dropdown__item:has(.template-option) {
+  height: auto;
+  padding: 7px 12px;
+  line-height: 1.3;
+}
+
+.template-option img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #f8fafc;
+}
+
+.template-option strong,
+.template-option small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-option strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.template-option small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.selected-template-card {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.selected-template-image img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+}
+
+.selected-template-card strong {
+  display: block;
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-template-card p {
+  max-height: 58px;
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .upload-section {
   margin-top: 14px;
 }

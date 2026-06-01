@@ -25,6 +25,18 @@ public class DefaultPromptSettingsService {
             "生成产品介绍图：围绕高清、防指纹、抗摔、防窥、易安装、镜头保护等卖点进行模块化展示，信息层级清晰，适合详情页。";
     private static final String DEFAULT_ANALYSIS_PROMPT =
             "请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。";
+    private static final String DEFAULT_TARGET_TEMPLATE_PROMPT = """
+            请作为跨境电商图片视觉风格分析师，只分析这张目标模板图的视觉风格，不要照抄产品内容。
+
+            请输出适合后续生图使用的中文风格说明，重点包含：
+            1. 画面构图和主体摆放方式
+            2. 背景材质、颜色氛围和空间层次
+            3. 光影、高光、反射、阴影、3D质感
+            4. 文字/图标/信息模块的排版风格，如果没有就说明无明显文案
+            5. 生成时需要保持的风格约束
+
+            只描述风格和画面语言，不要要求生成模板里的具体商品，不要编造品牌。
+            """;
     private static final List<String> DEFAULT_CUSTOM_SELLING_POINTS =
             List.of("高清透亮", "9H硬度", "防指纹", "全屏覆盖", "易安装", "镜头保护");
 
@@ -45,7 +57,7 @@ public class DefaultPromptSettingsService {
         ensureTable();
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "select main_prompt, intro_prompt, analysis_prompt, custom_selling_points from default_prompt_settings where id = 1"
+                     "select main_prompt, intro_prompt, analysis_prompt, target_template_prompt, custom_selling_points from default_prompt_settings where id = 1"
              );
              ResultSet resultSet = statement.executeQuery()) {
             if (resultSet.next()) {
@@ -54,6 +66,7 @@ public class DefaultPromptSettingsService {
                         normalizeGenerationPrompt(resultSet.getString("main_prompt"), DEFAULT_MAIN_PROMPT, analysisPrompt),
                         normalizeGenerationPrompt(resultSet.getString("intro_prompt"), DEFAULT_INTRO_PROMPT, analysisPrompt),
                         analysisPrompt,
+                        normalize(resultSet.getString("target_template_prompt"), DEFAULT_TARGET_TEMPLATE_PROMPT),
                         parseSellingPoints(resultSet.getString("custom_selling_points"))
                 );
             }
@@ -64,6 +77,7 @@ public class DefaultPromptSettingsService {
                 DEFAULT_MAIN_PROMPT,
                 DEFAULT_INTRO_PROMPT,
                 DEFAULT_ANALYSIS_PROMPT,
+                DEFAULT_TARGET_TEMPLATE_PROMPT,
                 DEFAULT_CUSTOM_SELLING_POINTS
         ));
     }
@@ -71,27 +85,30 @@ public class DefaultPromptSettingsService {
     public DefaultPromptSettings saveSettings(DefaultPromptSettings settings) {
         ensureTable();
         String analysisPrompt = normalize(settings.analysisPrompt(), DEFAULT_ANALYSIS_PROMPT);
+        String targetTemplatePrompt = normalize(settings.targetTemplatePrompt(), DEFAULT_TARGET_TEMPLATE_PROMPT);
         String mainPrompt = normalizeGenerationPrompt(settings.mainPrompt(), DEFAULT_MAIN_PROMPT, analysisPrompt);
         String introPrompt = normalizeGenerationPrompt(settings.introPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt);
         List<String> customSellingPoints = normalizeSellingPoints(settings.customSellingPoints());
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     insert into default_prompt_settings (id, main_prompt, intro_prompt, analysis_prompt, custom_selling_points)
-                     values (1, ?, ?, ?, ?)
+                     insert into default_prompt_settings (id, main_prompt, intro_prompt, analysis_prompt, target_template_prompt, custom_selling_points)
+                     values (1, ?, ?, ?, ?, ?)
                      on duplicate key update
                        main_prompt = values(main_prompt),
                        intro_prompt = values(intro_prompt),
                        analysis_prompt = values(analysis_prompt),
+                       target_template_prompt = values(target_template_prompt),
                        custom_selling_points = values(custom_selling_points),
                        updated_at = current_timestamp
                      """)) {
             statement.setString(1, mainPrompt);
             statement.setString(2, introPrompt);
             statement.setString(3, analysisPrompt);
-            statement.setString(4, toJson(customSellingPoints));
+            statement.setString(4, targetTemplatePrompt);
+            statement.setString(5, toJson(customSellingPoints));
             statement.executeUpdate();
-            return new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, customSellingPoints);
+            return new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
         } catch (SQLException ex) {
             throw new IllegalStateException("保存默认提示词失败", ex);
         }
@@ -106,11 +123,13 @@ public class DefaultPromptSettingsService {
                       main_prompt text not null,
                       intro_prompt text not null,
                       analysis_prompt text not null,
+                      target_template_prompt text null,
                       custom_selling_points text not null,
                       updated_at timestamp not null default current_timestamp on update current_timestamp
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
             addColumnIfMissing(connection, "analysis_prompt", "text null");
+            addColumnIfMissing(connection, "target_template_prompt", "text null");
             addColumnIfMissing(connection, "custom_selling_points", "text null");
         } catch (SQLException ex) {
             throw new IllegalStateException("初始化默认提示词表失败", ex);

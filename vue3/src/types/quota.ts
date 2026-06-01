@@ -46,6 +46,7 @@ export interface DefaultPromptSettings {
   mainPrompt: string;
   introPrompt: string;
   analysisPrompt: string;
+  targetTemplatePrompt: string;
   customSellingPoints: string[];
 }
 

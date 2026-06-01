@@ -56,6 +56,16 @@ const DEFAULT_INTRO_PROMPT =
   '生成产品介绍图：围绕高清、防指纹、抗摔、防窥、易安装、镜头保护等卖点进行模块化展示，信息层级清晰，适合详情页。';
 const DEFAULT_ANALYSIS_PROMPT =
   '请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。';
+const DEFAULT_TARGET_TEMPLATE_PROMPT = `请作为跨境电商图片视觉风格分析师，只分析这张目标模板图的视觉风格，不要照抄产品内容。
+
+请输出适合后续生图使用的中文风格说明，重点包含：
+1. 画面构图和主体摆放方式
+2. 背景材质、颜色氛围和空间层次
+3. 光影、高光、反射、阴影、3D质感
+4. 文字/图标/信息模块的排版风格，如果没有就说明无明显文案
+5. 生成时需要保持的风格约束
+
+只描述风格和画面语言，不要要求生成模板里的具体商品，不要编造品牌。`;
 const DEFAULT_SELLING_POINTS = ['高清透亮', '9H硬度', '防指纹', '全屏覆盖', '易安装', '镜头保护'];
 const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
 const DEFAULT_IMAGE_SIZE = 1536;
@@ -92,6 +102,7 @@ const defaultSettings = ref<DefaultPromptSettings>({
   mainPrompt: DEFAULT_MAIN_PROMPT,
   introPrompt: DEFAULT_INTRO_PROMPT,
   analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
+  targetTemplatePrompt: DEFAULT_TARGET_TEMPLATE_PROMPT,
   customSellingPoints: DEFAULT_SELLING_POINTS,
 });
 const settingsLoading = ref(false);
@@ -361,6 +372,24 @@ watch(
   { deep: true },
 );
 
+watch(
+  () => taskForm.value.mainImageCount,
+  (count) => {
+    if (count <= 0) {
+      taskForm.value.mainTargetTemplateId = null;
+    }
+  },
+);
+
+watch(
+  () => taskForm.value.introImageCount,
+  (count) => {
+    if (count <= 0) {
+      taskForm.value.introTargetTemplateId = null;
+    }
+  },
+);
+
 function restoreTaskDraft() {
   try {
     const rawDraft = window.localStorage.getItem(TASK_DRAFT_CACHE_KEY);
@@ -484,6 +513,7 @@ async function loadPromptSettings() {
       mainPrompt: settings.mainPrompt?.trim() || DEFAULT_MAIN_PROMPT,
       introPrompt: settings.introPrompt?.trim() || DEFAULT_INTRO_PROMPT,
       analysisPrompt: settings.analysisPrompt?.trim() || DEFAULT_ANALYSIS_PROMPT,
+      targetTemplatePrompt: settings.targetTemplatePrompt?.trim() || DEFAULT_TARGET_TEMPLATE_PROMPT,
       customSellingPoints: settings.customSellingPoints?.length ? settings.customSellingPoints : DEFAULT_SELLING_POINTS,
     };
     defaultSettings.value = normalizedSettings;
@@ -512,6 +542,7 @@ async function savePromptSettings() {
       mainPrompt: settings.mainPrompt?.trim() || DEFAULT_MAIN_PROMPT,
       introPrompt: settings.introPrompt?.trim() || DEFAULT_INTRO_PROMPT,
       analysisPrompt: settings.analysisPrompt?.trim() || DEFAULT_ANALYSIS_PROMPT,
+      targetTemplatePrompt: settings.targetTemplatePrompt?.trim() || DEFAULT_TARGET_TEMPLATE_PROMPT,
       customSellingPoints: settings.customSellingPoints?.length ? settings.customSellingPoints : DEFAULT_SELLING_POINTS,
     };
     taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
@@ -764,6 +795,21 @@ async function loadTargetTemplateList(showLoading = true) {
 
 function targetTemplatesByType(type: TargetTemplateType): TargetTemplate[] {
   return targetTemplates.value.filter((template) => template.templateType === type);
+}
+
+function selectedTargetTemplate(type: TargetTemplateType): TargetTemplate | null {
+  const id = type === 'MAIN' ? taskForm.value.mainTargetTemplateId : taskForm.value.introTargetTemplateId;
+  return targetTemplates.value.find((template) => template.id === id && template.templateType === type) ?? null;
+}
+
+function targetTemplateDisabledReason(type: TargetTemplateType): string {
+  if (type === 'MAIN' && taskForm.value.mainImageCount <= 0) {
+    return '主图数量大于 0 后才能选择主图目标模板';
+  }
+  if (type === 'INTRO' && taskForm.value.introImageCount <= 0) {
+    return '介绍图数量大于 0 后才能选择介绍图目标模板';
+  }
+  return '';
 }
 
 function handleTargetTemplateSelectVisible(visible: boolean) {
@@ -1788,7 +1834,8 @@ function pageSubtitle(): string {
                       v-model="taskForm.mainTargetTemplateId"
                       clearable
                       filterable
-                      placeholder="选择主图目标模板"
+                      :disabled="taskForm.mainImageCount <= 0"
+                      :placeholder="targetTemplateDisabledReason('MAIN') || '选择主图目标模板'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >
                       <el-option
@@ -1796,8 +1843,29 @@ function pageSubtitle(): string {
                         :key="template.id"
                         :label="template.name"
                         :value="template.id"
-                      />
+                      >
+                        <div class="template-option">
+                          <img :src="template.preview" :alt="template.name" />
+                          <div>
+                            <strong>{{ template.name }}</strong>
+                            <small>{{ analysisPreview(template.styleAnalysis) }}</small>
+                          </div>
+                        </div>
+                      </el-option>
                     </el-select>
+                    <p v-if="targetTemplateDisabledReason('MAIN')" class="field-hint">{{ targetTemplateDisabledReason('MAIN') }}</p>
+                    <div v-if="selectedTargetTemplate('MAIN')" class="selected-template-card">
+                      <div class="selected-template-image image-action-wrap" role="button" tabindex="0" @click="openImageViewer(selectedTargetTemplate('MAIN')?.preview, selectedTargetTemplate('MAIN')?.fileName)" @keydown.enter="openImageViewer(selectedTargetTemplate('MAIN')?.preview, selectedTargetTemplate('MAIN')?.fileName)">
+                        <img :src="selectedTargetTemplate('MAIN')?.preview" :alt="selectedTargetTemplate('MAIN')?.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(selectedTargetTemplate('MAIN')?.preview, selectedTargetTemplate('MAIN')?.fileName)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
+                      <div>
+                        <strong>{{ selectedTargetTemplate('MAIN')?.name }}</strong>
+                        <p>{{ analysisPreview(selectedTargetTemplate('MAIN')?.styleAnalysis) }}</p>
+                      </div>
+                    </div>
                   </div>
                   <div class="form-row no-margin">
                     <label>介绍图目标模板</label>
@@ -1805,7 +1873,8 @@ function pageSubtitle(): string {
                       v-model="taskForm.introTargetTemplateId"
                       clearable
                       filterable
-                      placeholder="选择介绍图目标模板"
+                      :disabled="taskForm.introImageCount <= 0"
+                      :placeholder="targetTemplateDisabledReason('INTRO') || '选择介绍图目标模板'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >
                       <el-option
@@ -1813,8 +1882,29 @@ function pageSubtitle(): string {
                         :key="template.id"
                         :label="template.name"
                         :value="template.id"
-                      />
+                      >
+                        <div class="template-option">
+                          <img :src="template.preview" :alt="template.name" />
+                          <div>
+                            <strong>{{ template.name }}</strong>
+                            <small>{{ analysisPreview(template.styleAnalysis) }}</small>
+                          </div>
+                        </div>
+                      </el-option>
                     </el-select>
+                    <p v-if="targetTemplateDisabledReason('INTRO')" class="field-hint">{{ targetTemplateDisabledReason('INTRO') }}</p>
+                    <div v-if="selectedTargetTemplate('INTRO')" class="selected-template-card">
+                      <div class="selected-template-image image-action-wrap" role="button" tabindex="0" @click="openImageViewer(selectedTargetTemplate('INTRO')?.preview, selectedTargetTemplate('INTRO')?.fileName)" @keydown.enter="openImageViewer(selectedTargetTemplate('INTRO')?.preview, selectedTargetTemplate('INTRO')?.fileName)">
+                        <img :src="selectedTargetTemplate('INTRO')?.preview" :alt="selectedTargetTemplate('INTRO')?.name" />
+                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(selectedTargetTemplate('INTRO')?.preview, selectedTargetTemplate('INTRO')?.fileName)">
+                          <el-icon><Download /></el-icon>
+                        </button>
+                      </div>
+                      <div>
+                        <strong>{{ selectedTargetTemplate('INTRO')?.name }}</strong>
+                        <p>{{ analysisPreview(selectedTargetTemplate('INTRO')?.styleAnalysis) }}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2101,6 +2191,18 @@ function pageSubtitle(): string {
                   maxlength="2000"
                   show-word-limit
                   placeholder="请输入深析上传图时发送给 GPT 的默认分析要求"
+                />
+              </div>
+
+              <div class="form-row">
+                <label>目标模板图片分析提示词</label>
+                <el-input
+                  v-model="defaultSettings.targetTemplatePrompt"
+                  type="textarea"
+                  :rows="7"
+                  maxlength="3000"
+                  show-word-limit
+                  placeholder="请输入分析目标模板图风格时发送给 GPT 的提示词"
                 />
               </div>
 
