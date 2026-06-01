@@ -516,6 +516,11 @@ public class ImageTaskQueueService {
         accessoryRecords(payload.kitSpecs()).forEach(accessory ->
                 referenceImages.add(extraAccessoryService.toStoredImage(accessory))
         );
+        LOG.info(
+                "image.task.references total={} names={}",
+                referenceImages.size(),
+                referenceImages.stream().map(StoredUploadImage::fileName).toList()
+        );
         return referenceImages;
     }
 
@@ -631,9 +636,6 @@ public class ImageTaskQueueService {
         if (targetTemplate == null) {
             return;
         }
-        builder.append("【").append(imageType).append("目标模板】")
-                .append(targetTemplate.name())
-                .append("（仅使用下方风格分析文字，不把目标模板图片传入生图模型）\n");
         builder.append("【").append(imageType).append("目标模板风格】")
                 .append(targetTemplate.styleAnalysis())
                 .append("\n");
