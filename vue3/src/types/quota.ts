@@ -85,6 +85,7 @@ export interface ExtraAccessory {
 }
 
 export interface ImageTaskKitSpec {
+  accessoryId?: number | null;
   name: string;
   quantity: number;
 }

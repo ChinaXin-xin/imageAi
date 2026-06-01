@@ -71,6 +71,7 @@ public class ImageTaskQueueService {
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final ImageGenerationService imageGenerationService;
     private final TargetTemplateService targetTemplateService;
+    private final ExtraAccessoryService extraAccessoryService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "image-task-worker");
         thread.setDaemon(true);
@@ -83,7 +84,8 @@ public class ImageTaskQueueService {
             DefaultPromptSettingsService defaultPromptSettingsService,
             UploadImageAnalysisService uploadImageAnalysisService,
             ImageGenerationService imageGenerationService,
-            TargetTemplateService targetTemplateService
+            TargetTemplateService targetTemplateService,
+            ExtraAccessoryService extraAccessoryService
     ) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
@@ -91,6 +93,7 @@ public class ImageTaskQueueService {
         this.uploadImageAnalysisService = uploadImageAnalysisService;
         this.imageGenerationService = imageGenerationService;
         this.targetTemplateService = targetTemplateService;
+        this.extraAccessoryService = extraAccessoryService;
     }
 
     @PostConstruct
@@ -474,7 +477,7 @@ public class ImageTaskQueueService {
                     job.prompt(),
                     normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
                     normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
-                    generationReferenceImages(referenceImages, job.targetTemplate())
+                    generationReferenceImages(referenceImages, payload)
             );
             if (!completeResult(job.resultId(), generatedImage)) {
                 throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
@@ -505,15 +508,37 @@ public class ImageTaskQueueService {
 
     private List<StoredUploadImage> generationReferenceImages(
             List<StoredUploadImage> uploadImages,
-            TargetTemplateService.TargetTemplateRecord targetTemplate
+            ImageTaskPayload payload
     ) {
         List<StoredUploadImage> referenceImages = new ArrayList<>(
                 uploadImages == null ? List.of() : uploadImages
         );
-        if (targetTemplate != null) {
-            referenceImages.add(targetTemplateService.toStoredImage(targetTemplate));
-        }
+        accessoryRecords(payload.kitSpecs()).forEach(accessory ->
+                referenceImages.add(extraAccessoryService.toStoredImage(accessory))
+        );
         return referenceImages;
+    }
+
+    private List<ExtraAccessoryService.ExtraAccessoryRecord> accessoryRecords(List<ImageTaskKitSpec> specs) {
+        if (specs == null || specs.isEmpty()) {
+            return List.of();
+        }
+        return specs.stream()
+                .filter(spec -> spec != null && positive(spec.quantity()) > 0)
+                .map(this::accessoryRecord)
+                .filter(accessory -> accessory != null)
+                .toList();
+    }
+
+    private ExtraAccessoryService.ExtraAccessoryRecord accessoryRecord(ImageTaskKitSpec spec) {
+        if (spec == null) {
+            return null;
+        }
+        ExtraAccessoryService.ExtraAccessoryRecord accessory = extraAccessoryService.findRecord(positiveId(spec.accessoryId()));
+        if (accessory != null) {
+            return accessory;
+        }
+        return extraAccessoryService.findRecordByName(spec.name());
     }
 
     private Map<String, String> analyzeUploadedFiles(String taskId) {
@@ -575,6 +600,7 @@ public class ImageTaskQueueService {
         String kitSpecText = joinKitSpecs(payload.kitSpecs());
         if (!"未选择".equals(kitSpecText)) {
             builder.append("【套装规格】").append(kitSpecText).append("\n");
+            appendAccessoryReferenceContext(builder, payload.kitSpecs());
         }
         String productTypeText = productTypeText(payload);
         if (!"未选择".equals(productTypeText)) {
@@ -582,8 +608,19 @@ public class ImageTaskQueueService {
         }
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】在不遮挡、不改变产品真实结构的前提下，加强玻璃高光、材质反射、柔和阴影、轻微3D纵深和高级电商光效，整体保持真实跨境电商质感。\n");
-        builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；不要遗漏可见细节，不要编造深析结果中没有的信息。");
+        builder.append("\n【生成要求】必须严格结合最上方的上传图深析结果、用户提示词和规格参数生成电商平台图片；画面必须包含与机型一致的手机或手机模型；套装规格里每一种配件都要严格按数量出现，数量为 1 就出现 1 个，数量为 2 就出现 2 个，未选择的配件不要出现；不要遗漏可见细节，不要编造深析结果中没有的信息。");
         return builder.toString();
+    }
+
+    private void appendAccessoryReferenceContext(StringBuilder builder, List<ImageTaskKitSpec> specs) {
+        List<ExtraAccessoryService.ExtraAccessoryRecord> accessories = accessoryRecords(specs);
+        if (accessories.isEmpty()) {
+            builder.append("【配件参考图】未找到已保存的配件图片，请仅按套装规格文字生成。\n");
+            return;
+        }
+        builder.append("【配件参考图】已将以下配件图片作为生图参考图传入：")
+                .append(String.join("、", accessories.stream().map(ExtraAccessoryService.ExtraAccessoryRecord::name).toList()))
+                .append("。生成时必须参考对应配件图片的形状、颜色、材质，并按套装规格数量准确摆放。\n");
     }
 
     private void appendTargetTemplateContext(
@@ -596,7 +633,7 @@ public class ImageTaskQueueService {
         }
         builder.append("【").append(imageType).append("目标模板】")
                 .append(targetTemplate.name())
-                .append("（已作为参考图传入生图模型）\n");
+                .append("（仅使用下方风格分析文字，不把目标模板图片传入生图模型）\n");
         builder.append("【").append(imageType).append("目标模板风格】")
                 .append(targetTemplate.styleAnalysis())
                 .append("\n");
@@ -643,8 +680,30 @@ public class ImageTaskQueueService {
                 normalizeNullable(payload.introPrompt()),
                 positiveId(payload.mainTargetTemplateId()),
                 positiveId(payload.introTargetTemplateId()),
-                payload.kitSpecs() == null ? List.of() : payload.kitSpecs()
+                normalizeKitSpecs(payload.kitSpecs())
         );
+    }
+
+    private List<ImageTaskKitSpec> normalizeKitSpecs(List<ImageTaskKitSpec> specs) {
+        if (specs == null || specs.isEmpty()) {
+            return List.of();
+        }
+        return specs.stream()
+                .filter(spec -> spec != null && positive(spec.quantity()) > 0)
+                .map(spec -> {
+                    ExtraAccessoryService.ExtraAccessoryRecord accessory = accessoryRecord(spec);
+                    String name = accessory == null ? normalizeNullable(spec.name()) : accessory.name();
+                    if (name.isBlank()) {
+                        return null;
+                    }
+                    return new ImageTaskKitSpec(
+                            accessory == null ? positiveId(spec.accessoryId()) : accessory.id(),
+                            name,
+                            Math.max(1, positive(spec.quantity()))
+                    );
+                })
+                .filter(spec -> spec != null)
+                .toList();
     }
 
     private void insertTask(

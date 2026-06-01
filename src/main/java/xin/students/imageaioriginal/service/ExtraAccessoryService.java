@@ -126,7 +126,10 @@ public class ExtraAccessoryService {
         }
     }
 
-    private ExtraAccessoryRecord findRecord(long id) {
+    public ExtraAccessoryRecord findRecord(Long id) {
+        if (id == null || id <= 0) {
+            return null;
+        }
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("select * from extra_accessories where id = ?")) {
             statement.setLong(1, id);
@@ -139,6 +142,28 @@ public class ExtraAccessoryService {
             throw new IllegalStateException("读取额外配件失败：" + id, ex);
         }
         return null;
+    }
+
+    public ExtraAccessoryRecord findRecordByName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("select * from extra_accessories where name = ? order by id desc limit 1")) {
+            statement.setString(1, name.trim());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return readRecord(resultSet);
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("读取额外配件失败：" + name, ex);
+        }
+        return null;
+    }
+
+    public StoredUploadImage toStoredImage(ExtraAccessoryRecord record) {
+        return new StoredUploadImage(record.fileName(), record.contentType(), record.content());
     }
 
     private ExtraAccessoryView toView(ExtraAccessoryRecord record) {
@@ -257,7 +282,7 @@ public class ExtraAccessoryService {
                 .format(TIME_FORMATTER);
     }
 
-    private record ExtraAccessoryRecord(
+    public record ExtraAccessoryRecord(
             Long id,
             String name,
             String fileName,

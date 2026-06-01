@@ -20,6 +20,8 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { UploadUserFile } from 'element-plus';
 import appIcon from './assets/imageai-icon.png';
+import AccessoryKitPicker from './components/AccessoryKitPicker.vue';
+import UploadPreviewGrid from './components/UploadPreviewGrid.vue';
 import { loadCodexQuotaAccounts } from './services/codexQuotaApi';
 import { loadSystemOverview } from './services/systemApi';
 import {
@@ -46,6 +48,7 @@ import type {
   DefaultPromptSettings,
   ExtraAccessory,
   ImageTaskDetail,
+  ImageTaskKitSpec,
   ImageTaskPayload,
   ImageTaskSummary,
   SystemOverview,
@@ -138,8 +141,6 @@ const extraAccessoriesLoading = ref(false);
 const extraAccessoryName = ref('');
 const extraAccessoryFiles = ref<UploadUserFile[]>([]);
 const extraAccessoryUploading = ref(false);
-const selectedAccessoryId = ref<number | null>(null);
-const selectedAccessoryQuantity = ref(1);
 const targetTemplateUploading = ref<Record<TargetTemplateType, boolean>>({
   MAIN: false,
   INTRO: false,
@@ -226,11 +227,11 @@ const taskForm = ref({
   introTargetTemplateId: null as number | null,
 });
 
-const kitSpecs = ref<Array<{ name: string; quantity: number }>>([]);
+const kitSpecs = ref<ImageTaskKitSpec[]>([]);
 
 type TaskDraftCache = {
   taskForm?: Partial<typeof taskForm.value>;
-  kitSpecs?: Array<{ name: string; quantity: number }>;
+  kitSpecs?: ImageTaskKitSpec[];
   activePage?: ActivePage;
   isCollapsed?: boolean;
   savedAt?: string;
@@ -241,11 +242,6 @@ const sellingPointOptions = computed(() => {
     .filter((point) => point && point.trim())
     .map((point) => point.trim());
   return Array.from(new Set(merged));
-});
-
-const availableAccessories = computed(() => {
-  const selected = new Set(kitSpecs.value.map((item) => item.name));
-  return extraAccessories.value.filter((item) => !selected.has(item.name));
 });
 
 const stats = computed<DashboardStats>(() => {
@@ -416,6 +412,7 @@ function restoreTaskDraft() {
       kitSpecs.value = draft.kitSpecs
         .filter((item) => item.name && Number(item.quantity) > 0)
         .map((item) => ({
+          accessoryId: typeof item.accessoryId === 'number' && item.accessoryId > 0 ? item.accessoryId : null,
           name: item.name,
           quantity: Math.max(1, Number(item.quantity)),
         }));
@@ -449,7 +446,7 @@ function saveTaskDraft() {
 }
 
 function isActivePage(value: string): value is ActivePage {
-  return ['quota', 'task', 'queue', 'settings'].includes(value);
+  return ['quota', 'task', 'queue', 'templates', 'settings'].includes(value);
 }
 
 function normalizeImageDimension(value: number | null | undefined, fallback = DEFAULT_IMAGE_SIZE): number {
@@ -509,14 +506,6 @@ function selectRatio(ratio: string) {
     taskForm.value.customWidth = width;
     taskForm.value.customHeight = height;
   }
-}
-
-function updateQuantity(index: number, delta: number) {
-  kitSpecs.value[index].quantity = Math.max(1, kitSpecs.value[index].quantity + delta);
-}
-
-function removeKitSpec(index: number) {
-  kitSpecs.value.splice(index, 1);
 }
 
 async function loadPromptSettings() {
@@ -705,6 +694,7 @@ function autoRecognizeKitSpecs() {
     return;
   }
   kitSpecs.value = extraAccessories.value.map((item) => ({
+    accessoryId: item.id,
     name: item.name,
     quantity: 1,
   }));
@@ -951,35 +941,13 @@ async function removeExtraAccessory(accessory: ExtraAccessory) {
       },
     );
     await deleteExtraAccessory(accessory.id);
-    kitSpecs.value = kitSpecs.value.filter((item) => item.name !== accessory.name);
+    kitSpecs.value = kitSpecs.value.filter((item) => item.accessoryId !== accessory.id && item.name !== accessory.name);
     await loadExtraAccessoryList(false);
     ElMessage.success('额外配件已删除。');
   } catch (error) {
     if (error === 'cancel' || error === 'close') return;
     ElMessage.error(error instanceof Error ? error.message : String(error));
   }
-}
-
-function selectedAccessory(): ExtraAccessory | null {
-  return extraAccessories.value.find((item) => item.id === selectedAccessoryId.value) ?? null;
-}
-
-function addSelectedAccessoryToKit() {
-  const accessory = selectedAccessory();
-  if (!accessory) {
-    ElMessage.warning('请先选择配件。');
-    return;
-  }
-  if (kitSpecs.value.some((item) => item.name === accessory.name)) {
-    ElMessage.warning('该配件已经添加到套餐规格。');
-    return;
-  }
-  kitSpecs.value.push({
-    name: accessory.name,
-    quantity: Math.max(1, selectedAccessoryQuantity.value),
-  });
-  selectedAccessoryId.value = null;
-  selectedAccessoryQuantity.value = 1;
 }
 
 async function deleteQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
@@ -1588,18 +1556,14 @@ function pageSubtitle(): string {
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传实拍图</div>
                   </el-upload>
-                  <div v-if="realPhotoFiles.length" class="preview-grid">
-                    <div v-for="file in realPhotoFiles" :key="uploadKey(file)" class="preview-tile">
-                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                        <img :src="filePreviewUrl(file)" :alt="file.name" />
-                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                          <el-icon><Download /></el-icon>
-                        </button>
-                      </div>
-                      <span>{{ file.name }}</span>
-                      <button class="remove-upload-button" type="button" @click="removeUploadFile('实拍图', file)">移除</button>
-                    </div>
-                  </div>
+                  <UploadPreviewGrid
+                    :files="realPhotoFiles"
+                    :file-preview-url="filePreviewUrl"
+                    :upload-key="uploadKey"
+                    @preview="openImageViewer"
+                    @download="downloadImage"
+                    @remove="(file) => removeUploadFile('实拍图', file)"
+                  />
                   <p
                     class="analysis-result-line"
                     :class="{ ready: uploadAnalysis['实拍图'] }"
@@ -1648,18 +1612,14 @@ function pageSubtitle(): string {
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传包装图</div>
                   </el-upload>
-                  <div v-if="packageImageFiles.length" class="preview-grid">
-                    <div v-for="file in packageImageFiles" :key="uploadKey(file)" class="preview-tile">
-                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                        <img :src="filePreviewUrl(file)" :alt="file.name" />
-                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                          <el-icon><Download /></el-icon>
-                        </button>
-                      </div>
-                      <span>{{ file.name }}</span>
-                      <button class="remove-upload-button" type="button" @click="removeUploadFile('包装图', file)">移除</button>
-                    </div>
-                  </div>
+                  <UploadPreviewGrid
+                    :files="packageImageFiles"
+                    :file-preview-url="filePreviewUrl"
+                    :upload-key="uploadKey"
+                    @preview="openImageViewer"
+                    @download="downloadImage"
+                    @remove="(file) => removeUploadFile('包装图', file)"
+                  />
                   <p
                     class="analysis-result-line"
                     :class="{ ready: uploadAnalysis['包装图'] }"
@@ -1686,18 +1646,14 @@ function pageSubtitle(): string {
                     <el-icon><Upload /></el-icon>
                     <div>上传模板图</div>
                   </el-upload>
-                  <div v-if="templateFiles.length" class="preview-grid">
-                    <div v-for="file in templateFiles" :key="uploadKey(file)" class="preview-tile">
-                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                        <img :src="filePreviewUrl(file)" :alt="file.name" />
-                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                          <el-icon><Download /></el-icon>
-                        </button>
-                      </div>
-                      <span>{{ file.name }}</span>
-                      <button class="remove-upload-button" type="button" @click="removeUploadFile('模板图', file)">移除</button>
-                    </div>
-                  </div>
+                  <UploadPreviewGrid
+                    :files="templateFiles"
+                    :file-preview-url="filePreviewUrl"
+                    :upload-key="uploadKey"
+                    @preview="openImageViewer"
+                    @download="downloadImage"
+                    @remove="(file) => removeUploadFile('模板图', file)"
+                  />
                 </div>
               </section>
 
@@ -1722,18 +1678,15 @@ function pageSubtitle(): string {
                     >
                       <el-button :icon="Upload">上传 Logo</el-button>
                     </el-upload>
-                    <div v-if="logoFiles.length" class="preview-grid compact-preview-grid">
-                      <div v-for="file in logoFiles" :key="uploadKey(file)" class="preview-tile">
-                        <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                          <img :src="filePreviewUrl(file)" :alt="file.name" />
-                          <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                            <el-icon><Download /></el-icon>
-                          </button>
-                        </div>
-                        <span>{{ file.name }}</span>
-                        <button class="remove-upload-button" type="button" @click="removeUploadFile('Logo图', file)">移除</button>
-                      </div>
-                    </div>
+                    <UploadPreviewGrid
+                      :files="logoFiles"
+                      compact
+                      :file-preview-url="filePreviewUrl"
+                      :upload-key="uploadKey"
+                      @preview="openImageViewer"
+                      @download="downloadImage"
+                      @remove="(file) => removeUploadFile('Logo图', file)"
+                    />
                   </div>
                   <div class="form-row">
                     <label>Logo 名称</label>
@@ -1758,18 +1711,15 @@ function pageSubtitle(): string {
                     <el-icon><Upload /></el-icon>
                     <div>上传壁纸，可选</div>
                   </el-upload>
-                  <div v-if="wallpaperFiles.length" class="preview-grid compact-preview-grid">
-                    <div v-for="file in wallpaperFiles" :key="uploadKey(file)" class="preview-tile">
-                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                        <img :src="filePreviewUrl(file)" :alt="file.name" />
-                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                          <el-icon><Download /></el-icon>
-                        </button>
-                      </div>
-                      <span>{{ file.name }}</span>
-                      <button class="remove-upload-button" type="button" @click="removeUploadFile('壁纸图', file)">移除</button>
-                    </div>
-                  </div>
+                  <UploadPreviewGrid
+                    :files="wallpaperFiles"
+                    compact
+                    :file-preview-url="filePreviewUrl"
+                    :upload-key="uploadKey"
+                    @preview="openImageViewer"
+                    @download="downloadImage"
+                    @remove="(file) => removeUploadFile('壁纸图', file)"
+                  />
                 </div>
               </section>
             </div>
@@ -1914,46 +1864,13 @@ function pageSubtitle(): string {
                   <el-button size="small" text type="primary" @click="autoRecognizeKitSpecs">从配件库带入</el-button>
                 </div>
 
-                <div class="accessory-picker">
-                  <el-select
-                    v-model="selectedAccessoryId"
-                    filterable
-                    clearable
-                    placeholder="选择额外配件"
-                    @visible-change="handleExtraAccessorySelectVisible"
-                  >
-                    <el-option
-                      v-for="accessory in availableAccessories"
-                      :key="accessory.id"
-                      :label="accessory.name"
-                      :value="accessory.id"
-                    >
-                      <div class="template-option">
-                        <img :src="accessory.preview" :alt="accessory.name" />
-                        <div>
-                          <strong>{{ accessory.name }}</strong>
-                          <small>{{ accessory.fileName }}</small>
-                        </div>
-                      </div>
-                    </el-option>
-                  </el-select>
-                  <el-input-number v-model="selectedAccessoryQuantity" :min="1" :max="99" />
-                  <el-button type="primary" :icon="Plus" @click="addSelectedAccessoryToKit">添加配件</el-button>
-                </div>
-                <p v-if="!extraAccessories.length" class="field-hint">暂无额外配件，请先到“目标模板”页下方添加。</p>
-
-                <div v-if="kitSpecs.length" class="kit-grid">
-                  <div v-for="(item, index) in kitSpecs" :key="item.name" class="kit-item">
-                    <span>{{ item.name }}</span>
-                    <div class="stepper">
-                      <button type="button" @click="updateQuantity(index, -1)">-</button>
-                      <strong>{{ item.quantity }}</strong>
-                      <button type="button" @click="updateQuantity(index, 1)">+</button>
-                    </div>
-                    <button class="kit-remove-button" type="button" @click="removeKitSpec(index)">删除</button>
-                  </div>
-                </div>
-                <el-empty v-else class="compact-empty" description="未选择配件" />
+                <AccessoryKitPicker
+                  v-model="kitSpecs"
+                  :accessories="extraAccessories"
+                  @open-accessories="handleExtraAccessorySelectVisible"
+                  @preview="openImageViewer"
+                  @download="downloadImage"
+                />
 
                 <div class="form-row no-margin">
                   <label>卖点多选</label>
@@ -2271,22 +2188,15 @@ function pageSubtitle(): string {
                   <div>拖拽或点击上传目标模板图</div>
                 </el-upload>
 
-                <div v-if="targetTemplateUploadFiles(type).value.length" class="preview-grid compact-preview-grid">
-                  <div
-                    v-for="file in targetTemplateUploadFiles(type).value"
-                    :key="uploadKey(file)"
-                    class="preview-tile"
-                  >
-                    <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                      <img :src="filePreviewUrl(file)" :alt="file.name" />
-                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                        <el-icon><Download /></el-icon>
-                      </button>
-                    </div>
-                    <span>{{ file.name }}</span>
-                    <button class="remove-upload-button" type="button" @click="clearTargetTemplateUpload(type)">移除</button>
-                  </div>
-                </div>
+                <UploadPreviewGrid
+                  :files="targetTemplateUploadFiles(type).value"
+                  compact
+                  :file-preview-url="filePreviewUrl"
+                  :upload-key="uploadKey"
+                  @preview="openImageViewer"
+                  @download="downloadImage"
+                  @remove="() => clearTargetTemplateUpload(type)"
+                />
 
                 <el-button
                   class="template-add-button"
@@ -2365,22 +2275,15 @@ function pageSubtitle(): string {
                     <el-icon><Upload /></el-icon>
                     <div>拖拽或点击上传配件图</div>
                   </el-upload>
-                  <div v-if="extraAccessoryFiles.length" class="preview-grid compact-preview-grid">
-                    <div
-                      v-for="file in extraAccessoryFiles"
-                      :key="uploadKey(file)"
-                      class="preview-tile"
-                    >
-                      <div class="image-action-wrap" role="button" tabindex="0" @click="openImageViewer(filePreviewUrl(file), file.name)" @keydown.enter="openImageViewer(filePreviewUrl(file), file.name)">
-                        <img :src="filePreviewUrl(file)" :alt="file.name" />
-                        <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(filePreviewUrl(file), file.name)">
-                          <el-icon><Download /></el-icon>
-                        </button>
-                      </div>
-                      <span>{{ file.name }}</span>
-                      <button class="remove-upload-button" type="button" @click="clearExtraAccessoryUpload">移除</button>
-                    </div>
-                  </div>
+                  <UploadPreviewGrid
+                    :files="extraAccessoryFiles"
+                    compact
+                    :file-preview-url="filePreviewUrl"
+                    :upload-key="uploadKey"
+                    @preview="openImageViewer"
+                    @download="downloadImage"
+                    @remove="() => clearExtraAccessoryUpload()"
+                  />
                 </div>
                 <el-button
                   class="template-add-button"
