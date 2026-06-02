@@ -82,7 +82,7 @@ public class ImageTaskQueueService {
     private static final int IMAGE_GENERATION_RETRY_DELAY_MILLIS = 2_000;
     private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "手机、钢化膜、高清膜、防窥膜、镜头膜";
     private static final String CUSTOMER_ALLOWED_ACCESSORIES = "任务已上传或已选择的手机膜相关清洁/安装辅助配件";
-    private static final String ACCESSORY_REFERENCE_RULE = "所有手机膜相关配件都只能按已上传或已选择的参考图生成：必须保留参考图的真实外形、颜色、材质、尺寸比例和可见文字；如果参考图有字，只复现参考图上可见的字，不要凭空加字、改字或生成无字替代品；不要套用其他配件的形状。";
+    private static final String ACCESSORY_REFERENCE_RULE = "所有手机膜相关配件都只能按已上传或已选择的参考图生成：配件参考图是图像结构约束，不是自由创作对象；必须保留参考图的真实外形、颜色、材质、尺寸比例、封边/标签区域、图案和可见文字。可见文字属于配件外观的一部分，如果参考图有字，只复现参考图上可见的字；如果字很小或略模糊，也要保留文字块的位置、颜色对比和行列排版，不要变成光滑空白块、无字小包或泛化替代品；不要凭空加字、改字或套用其他配件的形状。";
     private static final String USAGE_MAIN = "MAIN";
     private static final String USAGE_INTRO = "INTRO";
 
@@ -569,7 +569,12 @@ public class ImageTaskQueueService {
             );
             updateTaskState(taskId, "GENERATING", null, false, false);
 
-            GenerationReferences referenceImages = generationReferenceImages(taskId, record.payload());
+            GenerationReferences referenceImages = generationReferenceImages(
+                    taskId,
+                    record.payload(),
+                    mainTargetTemplate,
+                    introTargetTemplate
+            );
             generateJobsConcurrently(taskId, jobs, record.payload(), referenceImages);
 
             if (jobs.isEmpty()) {
@@ -858,18 +863,32 @@ public class ImageTaskQueueService {
         return template;
     }
 
-    private GenerationReferences generationReferenceImages(String taskId, ImageTaskPayload payload) {
+    private GenerationReferences generationReferenceImages(
+            String taskId,
+            ImageTaskPayload payload,
+            TargetTemplateService.TargetTemplateRecord mainTargetTemplate,
+            TargetTemplateService.TargetTemplateRecord introTargetTemplate
+    ) {
         try (Connection connection = dataSource.getConnection()) {
             List<StoredUploadImage> realPhotoImages = readStoredImages(connection, taskId, "realPhoto");
+            List<StoredUploadImage> templateImages = readStoredImages(connection, taskId, "template");
             List<StoredUploadImage> logoImages = readStoredImages(connection, taskId, "logo");
             List<StoredUploadImage> wallpaperImages = readStoredImages(connection, taskId, "wallpaper");
             List<StoredUploadImage> accessoryImages = accessoryRecords(payload.kitSpecs()).stream()
                     .map(extraAccessoryService::toStoredImage)
                     .toList();
+            StoredUploadImage mainTargetTemplateImage = mainTargetTemplate == null
+                    ? null
+                    : targetTemplateService.toStoredImage(mainTargetTemplate);
+            StoredUploadImage introTargetTemplateImage = introTargetTemplate == null
+                    ? null
+                    : targetTemplateService.toStoredImage(introTargetTemplate);
             List<StoredUploadImage> mainReferences = generationReferenceImagesForType(
                     "主图",
                     payload,
                     realPhotoImages,
+                    templateImages,
+                    mainTargetTemplateImage,
                     logoImages,
                     wallpaperImages,
                     accessoryImages
@@ -878,6 +897,8 @@ public class ImageTaskQueueService {
                     "介绍图",
                     payload,
                     realPhotoImages,
+                    templateImages,
+                    introTargetTemplateImage,
                     logoImages,
                     wallpaperImages,
                     accessoryImages
@@ -900,12 +921,20 @@ public class ImageTaskQueueService {
             String imageType,
             ImageTaskPayload payload,
             List<StoredUploadImage> realPhotoImages,
+            List<StoredUploadImage> templateImages,
+            StoredUploadImage targetTemplateImage,
             List<StoredUploadImage> logoImages,
             List<StoredUploadImage> wallpaperImages,
             List<StoredUploadImage> accessoryImages
     ) {
         List<StoredUploadImage> referenceImages = new ArrayList<>();
         referenceImages.addAll(realPhotoImages == null ? List.of() : realPhotoImages);
+        if (usesUploadAsset(payload.templateUsages(), imageType)) {
+            referenceImages.addAll(templateImages == null ? List.of() : templateImages);
+        }
+        if (targetTemplateImage != null) {
+            referenceImages.add(targetTemplateImage);
+        }
         if (usesUploadAsset(payload.logoUsages(), imageType)) {
             referenceImages.addAll(logoImages == null ? List.of() : logoImages);
         }
@@ -1228,7 +1257,7 @@ public class ImageTaskQueueService {
         }
         builder.append("【配件参考图】已将以下配件图片作为生图参考图传入：")
                 .append(String.join("、", accessories.stream().map(ExtraAccessoryService.ExtraAccessoryRecord::name).toList()))
-                .append("。生成时必须参考对应配件图片的形状、颜色、材质，并按套装规格数量准确摆放。\n");
+                .append("。生成时必须参考对应配件图片的形状、颜色、材质、封边/标签区域、图案和可见文字，并按套装规格数量准确摆放；可见文字不要省略、改字或替换成空白块。\n");
     }
 
     private void appendUploadedTemplateContext(
@@ -1250,7 +1279,7 @@ public class ImageTaskQueueService {
         builder.append("【").append(imageType).append("上传排版图风格】")
                 .append(abbreviate(styleAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("上传排版图约束】只应用构图、背景、光影、空间层次和排版风格；不要照抄模板中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
+        builder.append("【").append(imageType).append("上传排版图约束】上传排版图已作为低优先级布局参考图传入；只应用构图、背景、光影、空间层次和排版风格；不要照抄模板中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
     }
 
     private void appendTargetTemplateContext(
@@ -1264,7 +1293,7 @@ public class ImageTaskQueueService {
         builder.append("【").append(imageType).append("排版模板风格】")
                 .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("排版模板约束】模板只作低优先级风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("排版模板约束】排版模板图已作为低优先级布局参考图传入；模板只作构图、背景、光影、空间层次和排版风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {
