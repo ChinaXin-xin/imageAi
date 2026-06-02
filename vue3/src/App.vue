@@ -49,6 +49,7 @@ import type {
   DashboardStats,
   DefaultPromptSettings,
   ExtraAccessory,
+  ImageAssetUsage,
   ImageTaskDetail,
   ImageTaskKitSpec,
   ImageTaskPayload,
@@ -192,7 +193,12 @@ const styleOptions = ['自动', '科技感', '极简风', '简洁品牌风', '3D
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
 const uploadGroups: UploadGroup[] = ['实拍图', '排版图', 'Logo图', '壁纸图'];
+const backendAnalysisGroups: UploadGroup[] = ['实拍图', '排版图'];
 const targetTemplateTypes: TargetTemplateType[] = ['MAIN', 'INTRO'];
+
+function defaultAssetUsages(): ImageAssetUsage[] {
+  return ['MAIN', 'INTRO'];
+}
 
 const imageViewerIsSideways = computed(() => imageViewerRotation.value % 180 !== 0);
 const imageViewerImageStyle = computed(() => {
@@ -246,6 +252,9 @@ const taskForm = ref({
   introPrompt: '',
   mainTargetTemplateId: null as number | null,
   introTargetTemplateId: null as number | null,
+  templateUsages: defaultAssetUsages(),
+  logoUsages: defaultAssetUsages(),
+  wallpaperUsages: defaultAssetUsages(),
 });
 
 const kitSpecs = ref<ImageTaskKitSpec[]>([]);
@@ -413,6 +422,33 @@ watch(
   (count) => {
     if (count <= 0) {
       taskForm.value.introTargetTemplateId = null;
+    }
+  },
+);
+
+watch(
+  () => templateFiles.value.length,
+  (count, previousCount) => {
+    if (count > 0 && previousCount === 0) {
+      taskForm.value.templateUsages = defaultAssetUsages();
+    }
+  },
+);
+
+watch(
+  () => logoFiles.value.length,
+  (count, previousCount) => {
+    if (count > 0 && previousCount === 0) {
+      taskForm.value.logoUsages = defaultAssetUsages();
+    }
+  },
+);
+
+watch(
+  () => wallpaperFiles.value.length,
+  (count, previousCount) => {
+    if (count > 0 && previousCount === 0) {
+      taskForm.value.wallpaperUsages = defaultAssetUsages();
     }
   },
 );
@@ -693,13 +729,6 @@ function autoRecognizeModel() {
   ElMessage.success('已启用机型自动识别。');
 }
 
-function autoRecognizeLogo() {
-  if (!taskForm.value.logoName.trim()) {
-    taskForm.value.logoName = '自动识别品牌';
-  }
-  ElMessage.success('已启用 Logo 自动识别。');
-}
-
 function autoRecognizeKitSpecs() {
   if (!extraAccessories.value.length) {
     ElMessage.warning('请先在排版模板页下方添加额外配件。');
@@ -762,6 +791,9 @@ function snapshotTaskForm(): ImageTaskPayload {
     introPrompt: taskForm.value.introPrompt,
     mainTargetTemplateId: taskForm.value.mainTargetTemplateId,
     introTargetTemplateId: taskForm.value.introTargetTemplateId,
+    templateUsages: [...taskForm.value.templateUsages],
+    logoUsages: [...taskForm.value.logoUsages],
+    wallpaperUsages: [...taskForm.value.wallpaperUsages],
     kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
   };
 }
@@ -1365,6 +1397,9 @@ function resetTaskForm() {
     introPrompt: '',
     mainTargetTemplateId: null,
     introTargetTemplateId: null,
+    templateUsages: defaultAssetUsages(),
+    logoUsages: defaultAssetUsages(),
+    wallpaperUsages: defaultAssetUsages(),
   };
   if (defaultSettings.value.mainPrompt) {
     taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
@@ -1697,6 +1732,13 @@ function pageSubtitle(): string {
                     @download="downloadImage"
                     @remove="(file) => removeUploadFile('排版图', file)"
                   />
+                  <div v-if="templateFiles.length" class="asset-usage-options">
+                    <span>用于</span>
+                    <el-checkbox-group v-model="taskForm.templateUsages" size="small">
+                      <el-checkbox-button label="MAIN">主图</el-checkbox-button>
+                      <el-checkbox-button label="INTRO">介绍图</el-checkbox-button>
+                    </el-checkbox-group>
+                  </div>
                 </div>
               </section>
 
@@ -1704,7 +1746,7 @@ function pageSubtitle(): string {
                 <div class="task-card-head">
                   <div>
                     <h2>品牌与素材</h2>
-                    <p>Logo、壁纸和品牌名称会进入提示词上下文。</p>
+                    <p>Logo、壁纸按上传图直接用于生成。</p>
                   </div>
                 </div>
                 <div class="two-fields">
@@ -1730,13 +1772,17 @@ function pageSubtitle(): string {
                       @download="downloadImage"
                       @remove="(file) => removeUploadFile('Logo图', file)"
                     />
+                    <div v-if="logoFiles.length" class="asset-usage-options">
+                      <span>用于</span>
+                      <el-checkbox-group v-model="taskForm.logoUsages" size="small">
+                        <el-checkbox-button label="MAIN">主图</el-checkbox-button>
+                        <el-checkbox-button label="INTRO">介绍图</el-checkbox-button>
+                      </el-checkbox-group>
+                    </div>
                   </div>
                   <div class="form-row">
                     <label>Logo 名称</label>
-                    <div class="inline-fields">
-                      <el-input v-model="taskForm.logoName" placeholder="输入品牌名，留空可自动识别" />
-                      <el-button @click="autoRecognizeLogo">自动识别</el-button>
-                    </div>
+                    <el-input v-model="taskForm.logoName" placeholder="输入品牌名，可选" />
                   </div>
                 </div>
                 <div class="form-row">
@@ -1763,6 +1809,13 @@ function pageSubtitle(): string {
                     @download="downloadImage"
                     @remove="(file) => removeUploadFile('壁纸图', file)"
                   />
+                  <div v-if="wallpaperFiles.length" class="asset-usage-options">
+                    <span>用于</span>
+                    <el-checkbox-group v-model="taskForm.wallpaperUsages" size="small">
+                      <el-checkbox-button label="MAIN">主图</el-checkbox-button>
+                      <el-checkbox-button label="INTRO">介绍图</el-checkbox-button>
+                    </el-checkbox-group>
+                  </div>
                 </div>
               </section>
             </div>
@@ -2094,7 +2147,7 @@ function pageSubtitle(): string {
               <div class="panel-head">
                 <div>
                   <h2>任务队列</h2>
-                  <p>后端会先深析上传图，再把深析结果拼接到最终生图提示词中。</p>
+                  <p>后端会深析实拍图和排版图，再提交最终生图提示词。</p>
                 </div>
                 <div class="queue-head-actions">
                   <span>{{ taskQueue.length }} 个任务</span>
@@ -2686,7 +2739,7 @@ function pageSubtitle(): string {
           <section class="detail-block detail-wide">
             <h3>后端深析结果</h3>
             <div class="analysis-grid">
-              <article v-for="type in uploadGroups" :key="type" class="analysis-card">
+              <article v-for="type in backendAnalysisGroups" :key="type" class="analysis-card">
                 <strong>{{ type }}</strong>
                 <p
                   :class="{ clickable: isLongText(selectedQueueTask.analysis?.[type]) }"

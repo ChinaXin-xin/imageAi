@@ -27,6 +27,9 @@ public record ImageTaskPayload(
         String introPrompt,
         Long mainTargetTemplateId,
         Long introTargetTemplateId,
+        List<String> templateUsages,
+        List<String> logoUsages,
+        List<String> wallpaperUsages,
         List<ImageTaskKitSpec> kitSpecs
 ) {
 }

@@ -57,6 +57,7 @@ export interface UploadImageAnalysis {
 }
 
 export type TargetTemplateType = 'MAIN' | 'INTRO';
+export type ImageAssetUsage = 'MAIN' | 'INTRO';
 
 export interface TargetTemplate {
   id: number;
@@ -115,6 +116,9 @@ export interface ImageTaskPayload {
   introPrompt: string;
   mainTargetTemplateId?: number | null;
   introTargetTemplateId?: number | null;
+  templateUsages: ImageAssetUsage[];
+  logoUsages: ImageAssetUsage[];
+  wallpaperUsages: ImageAssetUsage[];
   kitSpecs: ImageTaskKitSpec[];
 }
 

@@ -100,6 +100,14 @@ public class UploadImageAnalysisService {
     }
 
     public UploadImageAnalysis analyzeStored(String type, String prompt, List<StoredUploadImage> files) {
+        return analyzeStored(type, prompt, files, true);
+    }
+
+    public UploadImageAnalysis analyzeStyleStored(String type, String prompt, List<StoredUploadImage> files) {
+        return analyzeStored(type, prompt, files, false);
+    }
+
+    private UploadImageAnalysis analyzeStored(String type, String prompt, List<StoredUploadImage> files, boolean appendStructureRequirements) {
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         List<StoredUploadImage> uploadedFiles = files == null ? List.of() : files.stream()
                 .filter(file -> file != null && file.bytes() != null && file.bytes().length > 0)
@@ -118,7 +126,7 @@ public class UploadImageAnalysisService {
                 .limit(MAX_ANALYSIS_IMAGES)
                 .toList();
 
-        String finalPrompt = buildPrompt(prompt);
+        String finalPrompt = buildPrompt(prompt, appendStructureRequirements);
         LOG.info(
                 "gpt.analysis.start id={} type={} model={} uploadedCount={} analyzedCount={} prompt={}",
                 requestId,
@@ -231,9 +239,9 @@ public class UploadImageAnalysisService {
         return baseUrl.endsWith(MANAGEMENT_SUFFIX) ? baseUrl : baseUrl + MANAGEMENT_SUFFIX;
     }
 
-    private String buildPrompt(String prompt) {
+    private String buildPrompt(String prompt, boolean appendStructureRequirements) {
         String normalized = prompt == null || prompt.isBlank() ? DEFAULT_ANALYSIS_PROMPT : prompt.trim();
-        if (normalized.contains("【精密孔位强制要求】")) {
+        if (!appendStructureRequirements || normalized.contains("【精密孔位强制要求】")) {
             return normalized;
         }
         return normalized + STRUCTURE_ANALYSIS_REQUIREMENTS;

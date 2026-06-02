@@ -681,6 +681,27 @@ h1 {
   background: #f8fafc;
 }
 
+.asset-usage-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.asset-usage-options > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asset-usage-options .el-checkbox-button__inner {
+  min-width: 56px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
 .image-action-wrap:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;

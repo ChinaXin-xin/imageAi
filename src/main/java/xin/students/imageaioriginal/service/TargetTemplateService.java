@@ -87,7 +87,7 @@ public class TargetTemplateService {
             String fileName = normalizeText(file.getOriginalFilename(), "target-template.jpg");
             String contentType = normalizeText(file.getContentType(), "image/jpeg");
             StoredUploadImage storedImage = new StoredUploadImage(fileName, contentType, content);
-            UploadImageAnalysis analysis = uploadImageAnalysisService.analyzeStored(
+            UploadImageAnalysis analysis = uploadImageAnalysisService.analyzeStyleStored(
                     templateTypeText(normalizedType) + "排版模板",
                     defaultPromptSettingsService.getSettings().targetTemplatePrompt(),
                     List.of(storedImage)
