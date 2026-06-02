@@ -114,6 +114,9 @@ image-ai:
     model: ${IMAGE_AI_GPT_MODEL:gpt-5.5}
   image-generation:
     model: ${IMAGE_AI_IMAGE_MODEL:gpt-image-2}
+    max-task-concurrency: ${IMAGE_AI_MAX_TASK_CONCURRENCY:4}
+    max-images-per-task: ${IMAGE_AI_MAX_IMAGES_PER_TASK:3}
+    max-global-image-concurrency: ${IMAGE_AI_MAX_GLOBAL_IMAGE_CONCURRENCY:6}
 ```
 
 安全约定：
@@ -226,6 +229,14 @@ DELETE /api/extra-accessories/{id}  删除额外配件
 ## 多参考图和超时处理
 
 生图任务携带上传原图和配件参考图时，后端会先压缩参考图，减少请求体积。当前生图请求设置了硬超时，避免接口长时间不返回导致任务卡死。
+
+生图支持并发执行：
+
+- `IMAGE_AI_MAX_TASK_CONCURRENCY`：最多同时处理几个任务，默认 `4`。
+- `IMAGE_AI_MAX_IMAGES_PER_TASK`：单个任务内最多同时生成几张图片，默认 `3`。
+- `IMAGE_AI_MAX_GLOBAL_IMAGE_CONCURRENCY`：全局最多同时发起几个生图请求，默认 `6`。
+
+暂停或删除任务时，后端会取消该任务正在进行的本地生图请求；如果远端接口后续才返回，已暂停或已删除的任务也不会再写入成功结果。
 
 如果任务超时，可以优先排查：
 

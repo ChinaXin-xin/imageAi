@@ -66,7 +66,7 @@ public class ImageGenerationService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final ExecutorService requestExecutor = Executors.newCachedThreadPool(imageRequestThreadFactory());
-    private final Map<String, Future<?>> runningRequests = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Future<?>>> runningRequests = new ConcurrentHashMap<>();
 
     public ImageGenerationService(
             GptProperties gptProperties,
@@ -91,9 +91,16 @@ public class ImageGenerationService {
     }
 
     public void cancelTask(String taskId) {
-        Future<?> future = runningRequests.remove(taskId);
-        if (future != null) {
-            future.cancel(true);
+        Map<String, Future<?>> taskRequests = runningRequests.remove(taskId);
+        if (taskRequests == null || taskRequests.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Future<?>> entry : taskRequests.entrySet()) {
+            Future<?> future = entry.getValue();
+            if (future != null) {
+                LOG.info("gpt.image.cancel taskId={} requestKey={}", taskId, entry.getKey());
+                future.cancel(true);
+            }
         }
     }
 
@@ -173,7 +180,8 @@ public class ImageGenerationService {
             int itemIndex
     ) {
         Future<JsonNode> future = requestExecutor.submit(request::execute);
-        runningRequests.put(taskId, future);
+        String requestKey = resultType + "#" + itemIndex + "/" + requestId;
+        runningRequests.computeIfAbsent(taskId, ignored -> new ConcurrentHashMap<>()).put(requestKey, future);
         try {
             return future.get(HARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException ex) {
@@ -198,7 +206,13 @@ public class ImageGenerationService {
             }
             throw new IllegalStateException("生图请求失败：" + cause.getMessage(), cause);
         } finally {
-            runningRequests.remove(taskId, future);
+            Map<String, Future<?>> taskRequests = runningRequests.get(taskId);
+            if (taskRequests != null) {
+                taskRequests.remove(requestKey, future);
+                if (taskRequests.isEmpty()) {
+                    runningRequests.remove(taskId, taskRequests);
+                }
+            }
         }
     }
 

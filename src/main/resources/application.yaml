@@ -21,3 +21,6 @@ image-ai:
     model: ${IMAGE_AI_GPT_MODEL:gpt-5.5}
   image-generation:
     model: ${IMAGE_AI_IMAGE_MODEL:gpt-image-2}
+    max-task-concurrency: ${IMAGE_AI_MAX_TASK_CONCURRENCY:4}
+    max-images-per-task: ${IMAGE_AI_MAX_IMAGES_PER_TASK:3}
+    max-global-image-concurrency: ${IMAGE_AI_MAX_GLOBAL_IMAGE_CONCURRENCY:6}

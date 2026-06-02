@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import xin.students.imageaioriginal.config.ImageGenerationProperties;
 import xin.students.imageaioriginal.model.DefaultPromptSettings;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskFileView;
@@ -47,9 +48,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ImageTaskQueueService {
@@ -73,11 +79,9 @@ public class ImageTaskQueueService {
     private final ImageGenerationService imageGenerationService;
     private final TargetTemplateService targetTemplateService;
     private final ExtraAccessoryService extraAccessoryService;
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "image-task-worker");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ImageGenerationProperties imageGenerationProperties;
+    private final ExecutorService taskExecutor;
+    private final ExecutorService imageJobExecutor;
 
     public ImageTaskQueueService(
             DataSource dataSource,
@@ -86,7 +90,8 @@ public class ImageTaskQueueService {
             UploadImageAnalysisService uploadImageAnalysisService,
             ImageGenerationService imageGenerationService,
             TargetTemplateService targetTemplateService,
-            ExtraAccessoryService extraAccessoryService
+            ExtraAccessoryService extraAccessoryService,
+            ImageGenerationProperties imageGenerationProperties
     ) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
@@ -95,10 +100,25 @@ public class ImageTaskQueueService {
         this.imageGenerationService = imageGenerationService;
         this.targetTemplateService = targetTemplateService;
         this.extraAccessoryService = extraAccessoryService;
+        this.imageGenerationProperties = imageGenerationProperties;
+        this.taskExecutor = Executors.newFixedThreadPool(
+                imageGenerationProperties.resolvedMaxTaskConcurrency(),
+                daemonThreadFactory("image-task-worker")
+        );
+        this.imageJobExecutor = Executors.newFixedThreadPool(
+                imageGenerationProperties.resolvedMaxGlobalImageConcurrency(),
+                daemonThreadFactory("image-generation-job")
+        );
     }
 
     @PostConstruct
     public void initialize() {
+        LOG.info(
+                "image.task.concurrency maxTaskConcurrency={} maxImagesPerTask={} maxGlobalImageConcurrency={}",
+                imageGenerationProperties.resolvedMaxTaskConcurrency(),
+                imageGenerationProperties.resolvedMaxImagesPerTask(),
+                imageGenerationProperties.resolvedMaxGlobalImageConcurrency()
+        );
         ensureTables();
         failStaleRunningTasks();
         pauseInterruptedRunningTasks();
@@ -107,7 +127,8 @@ public class ImageTaskQueueService {
 
     @PreDestroy
     public void shutdown() {
-        executorService.shutdownNow();
+        taskExecutor.shutdownNow();
+        imageJobExecutor.shutdownNow();
     }
 
     public ImageTaskDetail createTask(
@@ -251,7 +272,16 @@ public class ImageTaskQueueService {
     }
 
     private void startProcessing(String taskId) {
-        CompletableFuture.runAsync(() -> processTask(taskId), executorService);
+        taskExecutor.submit(() -> processTask(taskId));
+    }
+
+    private ThreadFactory daemonThreadFactory(String prefix) {
+        AtomicInteger index = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable, prefix + "-" + index.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     private void resumeUnfinishedTasks() {
@@ -419,20 +449,98 @@ public class ImageTaskQueueService {
             );
             updateTaskState(taskId, "GENERATING", null, false, false);
 
-            List<StoredUploadImage> referenceImages = readAllStoredImages(taskId);
-            for (GenerationJob job : jobs) {
-                ensureTaskNotPaused(taskId);
-                generateOne(taskId, job, record.payload(), referenceImages);
-            }
+            List<StoredUploadImage> referenceImages = generationReferenceImages(readAllStoredImages(taskId), record.payload());
+            generateJobsConcurrently(taskId, jobs, record.payload(), referenceImages);
 
             if (jobs.isEmpty()) {
                 LOG.info("image.task.no-generation taskId={}", taskId);
             }
+            if (isTaskPausedOrDeleted(taskId)) {
+                LOG.info("image.task.skip-complete taskId={} reason=paused-or-deleted", taskId);
+                return;
+            }
             updateTaskState(taskId, "COMPLETED", null, false, true);
         } catch (Exception ex) {
+            if (isTaskPausedOrDeleted(taskId)) {
+                LOG.info("image.task.stopped taskId={} message={}", taskId, ex.getMessage());
+                return;
+            }
             LOG.error("image.task.failed taskId={} message={}", taskId, ex.getMessage(), ex);
             failTask(taskId, ex);
         }
+    }
+
+    private void generateJobsConcurrently(
+            String taskId,
+            List<GenerationJob> jobs,
+            ImageTaskPayload payload,
+            List<StoredUploadImage> referenceImages
+    ) {
+        if (jobs.isEmpty()) {
+            return;
+        }
+        int perTaskConcurrency = Math.min(
+                imageGenerationProperties.resolvedMaxImagesPerTask(),
+                imageGenerationProperties.resolvedMaxGlobalImageConcurrency()
+        );
+        Semaphore perTaskSemaphore = new Semaphore(perTaskConcurrency);
+        List<Future<?>> futures = new ArrayList<>(jobs.size());
+        for (GenerationJob job : jobs) {
+            try {
+                perTaskSemaphore.acquire();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                cancelFutures(futures);
+                throw new IllegalStateException("任务生成线程被中断：" + taskId, ex);
+            }
+            futures.add(imageJobExecutor.submit(() -> {
+                try {
+                    ensureTaskNotPaused(taskId);
+                    generateOne(taskId, job, payload, referenceImages);
+                } finally {
+                    perTaskSemaphore.release();
+                }
+            }));
+        }
+
+        Exception firstFailure = null;
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                cancelFutures(futures);
+                throw new IllegalStateException("任务生成线程被中断：" + taskId, ex);
+            } catch (CancellationException ex) {
+                if (!isTaskPausedOrDeleted(taskId) && firstFailure == null) {
+                    firstFailure = ex;
+                }
+            } catch (ExecutionException ex) {
+                if (!isTaskPausedOrDeleted(taskId) && firstFailure == null) {
+                    firstFailure = unwrapExecutionException(ex);
+                    cancelFutures(futures);
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw new IllegalStateException(firstFailure.getMessage(), firstFailure);
+        }
+    }
+
+    private void cancelFutures(List<Future<?>> futures) {
+        for (Future<?> future : futures) {
+            if (!future.isDone()) {
+                future.cancel(true);
+            }
+        }
+    }
+
+    private Exception unwrapExecutionException(ExecutionException ex) {
+        Throwable cause = ex.getCause();
+        if (cause instanceof Exception exception) {
+            return exception;
+        }
+        return new IllegalStateException(cause == null ? ex.getMessage() : cause.getMessage(), cause);
     }
 
     private List<GenerationJob> createGenerationJobs(
@@ -478,7 +586,7 @@ public class ImageTaskQueueService {
                     job.prompt(),
                     normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
                     normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
-                    generationReferenceImages(referenceImages, payload)
+                    referenceImages
             );
             if (!completeResult(job.resultId(), generatedImage)) {
                 throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
@@ -494,6 +602,14 @@ public class ImageTaskQueueService {
         if (record != null && "PAUSED".equals(record.status())) {
             throw new IllegalStateException(MANUAL_PAUSE_MESSAGE);
         }
+        if (record == null) {
+            throw new IllegalStateException("任务已删除：" + taskId);
+        }
+    }
+
+    private boolean isTaskPausedOrDeleted(String taskId) {
+        TaskRecord record = findTask(taskId);
+        return record == null || "PAUSED".equals(record.status());
     }
 
     private TargetTemplateService.TargetTemplateRecord resolveTargetTemplate(Long templateId, String expectedType, String label) {
