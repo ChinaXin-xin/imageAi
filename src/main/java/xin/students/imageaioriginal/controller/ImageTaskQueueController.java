@@ -16,6 +16,7 @@ import xin.students.imageaioriginal.model.ImageEditRequest;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.TaskDownloadRequest;
+import xin.students.imageaioriginal.service.ImageTaskDownloadFile;
 import xin.students.imageaioriginal.service.ImageTaskQueueService;
 
 import java.nio.charset.StandardCharsets;
@@ -91,7 +92,7 @@ public class ImageTaskQueueController {
         imageTaskQueueService.deleteTask(taskId);
     }
 
-    private ResponseEntity<byte[]> zipResponse(ImageTaskQueueService.DownloadFile file) {
+    private ResponseEntity<byte[]> zipResponse(ImageTaskDownloadFile file) {
         String encodedName = java.net.URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedName)

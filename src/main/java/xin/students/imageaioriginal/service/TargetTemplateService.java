@@ -1,8 +1,11 @@
 package xin.students.imageaioriginal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import xin.students.imageaioriginal.entity.TargetTemplateEntity;
+import xin.students.imageaioriginal.mapper.TargetTemplateMapper;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 import xin.students.imageaioriginal.model.TargetTemplateView;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
@@ -21,15 +24,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
@@ -43,15 +43,18 @@ public class TargetTemplateService {
     private final DataSource dataSource;
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final DefaultPromptSettingsService defaultPromptSettingsService;
+    private final TargetTemplateMapper targetTemplateMapper;
 
     public TargetTemplateService(
             DataSource dataSource,
             UploadImageAnalysisService uploadImageAnalysisService,
-            DefaultPromptSettingsService defaultPromptSettingsService
+            DefaultPromptSettingsService defaultPromptSettingsService,
+            TargetTemplateMapper targetTemplateMapper
     ) {
         this.dataSource = dataSource;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
         this.defaultPromptSettingsService = defaultPromptSettingsService;
+        this.targetTemplateMapper = targetTemplateMapper;
     }
 
     @PostConstruct
@@ -61,19 +64,14 @@ public class TargetTemplateService {
 
     public List<TargetTemplateView> listTemplates() {
         ensureTable();
-        List<TargetTemplateView> templates = new ArrayList<>();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     select * from target_templates order by template_type asc, created_at desc, id desc
-                     """);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                templates.add(toView(readRecord(resultSet)));
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取排版模板失败", ex);
-        }
-        return templates;
+        return targetTemplateMapper.selectList(new LambdaQueryWrapper<TargetTemplateEntity>()
+                        .orderByAsc(TargetTemplateEntity::getTemplateType)
+                        .orderByDesc(TargetTemplateEntity::getCreatedAt)
+                        .orderByDesc(TargetTemplateEntity::getId))
+                .stream()
+                .map(this::toRecord)
+                .map(this::toView)
+                .toList();
     }
 
     public TargetTemplateView createTemplate(String templateType, String name, MultipartFile file) {
@@ -93,54 +91,34 @@ public class TargetTemplateService {
                     List.of(storedImage)
             );
             Thumbnail thumbnail = createThumbnail(storedImage);
-            long id;
-            try (Connection connection = dataSource.getConnection();
-                 PreparedStatement statement = connection.prepareStatement("""
-                         insert into target_templates (
-                           template_type, name, file_name, content_type, file_size, content,
-                           thumbnail, thumbnail_content_type, style_analysis, model
-                         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                         """, Statement.RETURN_GENERATED_KEYS)) {
-                statement.setString(1, normalizedType);
-                statement.setString(2, normalizeText(name, fileName));
-                statement.setString(3, fileName);
-                statement.setString(4, contentType);
-                statement.setLong(5, content.length);
-                statement.setBytes(6, content);
-                statement.setBytes(7, thumbnail.bytes());
-                statement.setString(8, thumbnail.contentType());
-                statement.setString(9, analysis.result());
-                statement.setString(10, analysis.model());
-                statement.executeUpdate();
-                try (ResultSet keys = statement.getGeneratedKeys()) {
-                    if (!keys.next()) {
-                        throw new IllegalStateException("保存排版模板失败：未返回模板 ID");
-                    }
-                    id = keys.getLong(1);
-                }
-            }
-            TargetTemplateRecord record = findRecord(id);
+
+            TargetTemplateEntity entity = new TargetTemplateEntity();
+            entity.setTemplateType(normalizedType);
+            entity.setName(normalizeText(name, randomTemplateName(normalizedType)));
+            entity.setFileName(fileName);
+            entity.setContentType(contentType);
+            entity.setFileSize((long) content.length);
+            entity.setContent(content);
+            entity.setThumbnail(thumbnail.bytes());
+            entity.setThumbnailContentType(thumbnail.contentType());
+            entity.setStyleAnalysis(analysis.result());
+            entity.setModel(analysis.model());
+            targetTemplateMapper.insert(entity);
+
+            TargetTemplateRecord record = findRecord(entity.getId());
             if (record == null) {
-                throw new IllegalStateException("保存排版模板后读取失败：" + id);
+                throw new IllegalStateException("保存排版模板后读取失败：" + entity.getId());
             }
             return toView(record);
         } catch (IOException ex) {
             throw new IllegalStateException("读取排版图失败", ex);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存排版模板失败", ex);
         }
     }
 
     public void deleteTemplate(long id) {
         ensureTable();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("delete from target_templates where id = ?")) {
-            statement.setLong(1, id);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("排版模板不存在：" + id);
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("删除排版模板失败：" + id, ex);
+        if (targetTemplateMapper.deleteById(id) == 0) {
+            throw new IllegalArgumentException("排版模板不存在：" + id);
         }
     }
 
@@ -149,18 +127,8 @@ public class TargetTemplateService {
             return null;
         }
         ensureTable();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("select * from target_templates where id = ?")) {
-            statement.setLong(1, id);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return readRecord(resultSet);
-                }
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取排版模板失败：" + id, ex);
-        }
-        return null;
+        TargetTemplateEntity entity = targetTemplateMapper.selectById(id);
+        return entity == null ? null : toRecord(entity);
     }
 
     public StoredUploadImage toStoredImage(TargetTemplateRecord record) {
@@ -184,21 +152,21 @@ public class TargetTemplateService {
         );
     }
 
-    private TargetTemplateRecord readRecord(ResultSet resultSet) throws SQLException {
+    private TargetTemplateRecord toRecord(TargetTemplateEntity entity) {
         return new TargetTemplateRecord(
-                resultSet.getLong("id"),
-                resultSet.getString("template_type"),
-                resultSet.getString("name"),
-                resultSet.getString("file_name"),
-                resultSet.getString("content_type"),
-                resultSet.getLong("file_size"),
-                resultSet.getBytes("content"),
-                resultSet.getBytes("thumbnail"),
-                resultSet.getString("thumbnail_content_type"),
-                resultSet.getString("style_analysis"),
-                resultSet.getString("model"),
-                resultSet.getTimestamp("created_at"),
-                resultSet.getTimestamp("updated_at")
+                entity.getId(),
+                entity.getTemplateType(),
+                entity.getName(),
+                entity.getFileName(),
+                entity.getContentType(),
+                entity.getFileSize(),
+                entity.getContent(),
+                entity.getThumbnail(),
+                entity.getThumbnailContentType(),
+                entity.getStyleAnalysis(),
+                entity.getModel(),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt()
         );
     }
 
@@ -290,6 +258,11 @@ public class TargetTemplateService {
 
     private String templateTypeText(String value) {
         return "INTRO".equals(value) ? "介绍图" : "主图";
+    }
+
+    private String randomTemplateName(String templateType) {
+        String prefix = "INTRO".equals(templateType) ? "介绍图排版" : "主图排版";
+        return prefix + "-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
     private String normalizeText(String value, String fallback) {

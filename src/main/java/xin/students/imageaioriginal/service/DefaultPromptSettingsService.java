@@ -3,14 +3,15 @@ package xin.students.imageaioriginal.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
+import xin.students.imageaioriginal.entity.DefaultPromptSettingsEntity;
+import xin.students.imageaioriginal.mapper.DefaultPromptSettingsMapper;
 import xin.students.imageaioriginal.model.DefaultPromptSettings;
 
-import jakarta.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -18,6 +19,8 @@ import java.util.List;
 
 @Service
 public class DefaultPromptSettingsService {
+
+    private static final long SETTINGS_ID = 1L;
 
     private static final String DEFAULT_MAIN_PROMPT = """
             生成高转化电商主图。先严格还原上传实拍图中的手机膜、镜头膜和配件真实结构，再做电商视觉美化。
@@ -33,7 +36,6 @@ public class DefaultPromptSettingsService {
             "请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。";
     private static final String DEFAULT_ANALYSIS_PROMPT = """
             请客观深析上传图片，重点输出后续生图必须锁定的真实产品结构，不要编造看不见的信息。
-
             如果图片中包含手机膜、镜头膜、保护壳或电子配件，必须逐项描述：
             1. 产品类型、外轮廓、边缘形状、缺口、倒角和厚度感；
             2. 开孔/孔位数量、相对位置、排列方向、每个孔的相对大小；
@@ -45,12 +47,10 @@ public class DefaultPromptSettingsService {
             8. 如果是任意型号镜头膜，必须先识别手机品牌/型号线索，再按上传图写清所有大孔/小孔的数量、左右/上下位置、大小关系和非对称结构；不要套用其他手机型号的常见孔位。
             9. 如果出现清洁/安装辅助配件，必须识别真实外形、颜色、尺寸比例和是否有文字；若有文字，必须抄出参考图可见文字，后续生图只能复现参考图文字，不要生成无字替代品或凭空文字。
             10. 客户产品范围只有手机、钢化膜、高清膜、防窥膜、镜头膜及已上传/已选择的手机膜相关清洁安装配件；不要推断包装盒、收纳袋、卡片、托盘、支架、底座或其他赠品。
-
             输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
             """;
     private static final String DEFAULT_TARGET_TEMPLATE_PROMPT = """
             请作为跨境电商图片视觉风格分析师，只分析这张排版模板图的视觉风格，不要照抄产品内容。
-
             请输出适合后续生图使用的中文风格说明，重点包含：
             1. 画面构图和主体摆放方式
             2. 背景材质、颜色氛围和空间层次
@@ -65,10 +65,16 @@ public class DefaultPromptSettingsService {
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
+    private final DefaultPromptSettingsMapper defaultPromptSettingsMapper;
 
-    public DefaultPromptSettingsService(DataSource dataSource, ObjectMapper objectMapper) {
+    public DefaultPromptSettingsService(
+            DataSource dataSource,
+            ObjectMapper objectMapper,
+            DefaultPromptSettingsMapper defaultPromptSettingsMapper
+    ) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
+        this.defaultPromptSettingsMapper = defaultPromptSettingsMapper;
     }
 
     @PostConstruct
@@ -78,31 +84,17 @@ public class DefaultPromptSettingsService {
 
     public DefaultPromptSettings getSettings() {
         ensureTable();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "select main_prompt, intro_prompt, analysis_prompt, target_template_prompt, custom_selling_points from default_prompt_settings where id = 1"
-             );
-             ResultSet resultSet = statement.executeQuery()) {
-            if (resultSet.next()) {
-                String analysisPrompt = normalizeAnalysisPrompt(resultSet.getString("analysis_prompt"));
-                return new DefaultPromptSettings(
-                        normalizeGenerationPrompt(resultSet.getString("main_prompt"), DEFAULT_MAIN_PROMPT, analysisPrompt),
-                        normalizeGenerationPrompt(resultSet.getString("intro_prompt"), DEFAULT_INTRO_PROMPT, analysisPrompt),
-                        analysisPrompt,
-                        normalize(resultSet.getString("target_template_prompt"), DEFAULT_TARGET_TEMPLATE_PROMPT),
-                        parseSellingPoints(resultSet.getString("custom_selling_points"))
-                );
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取默认提示词失败", ex);
+        DefaultPromptSettingsEntity entity = defaultPromptSettingsMapper.selectById(SETTINGS_ID);
+        if (entity == null) {
+            return saveSettings(new DefaultPromptSettings(
+                    DEFAULT_MAIN_PROMPT,
+                    DEFAULT_INTRO_PROMPT,
+                    DEFAULT_ANALYSIS_PROMPT,
+                    DEFAULT_TARGET_TEMPLATE_PROMPT,
+                    DEFAULT_CUSTOM_SELLING_POINTS
+            ));
         }
-        return saveSettings(new DefaultPromptSettings(
-                DEFAULT_MAIN_PROMPT,
-                DEFAULT_INTRO_PROMPT,
-                DEFAULT_ANALYSIS_PROMPT,
-                DEFAULT_TARGET_TEMPLATE_PROMPT,
-                DEFAULT_CUSTOM_SELLING_POINTS
-        ));
+        return toSettings(entity);
     }
 
     public DefaultPromptSettings saveSettings(DefaultPromptSettings settings) {
@@ -113,28 +105,31 @@ public class DefaultPromptSettingsService {
         String introPrompt = normalizeGenerationPrompt(settings.introPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt);
         List<String> customSellingPoints = normalizeSellingPoints(settings.customSellingPoints());
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     insert into default_prompt_settings (id, main_prompt, intro_prompt, analysis_prompt, target_template_prompt, custom_selling_points)
-                     values (1, ?, ?, ?, ?, ?)
-                     on duplicate key update
-                       main_prompt = values(main_prompt),
-                       intro_prompt = values(intro_prompt),
-                       analysis_prompt = values(analysis_prompt),
-                       target_template_prompt = values(target_template_prompt),
-                       custom_selling_points = values(custom_selling_points),
-                       updated_at = current_timestamp
-                     """)) {
-            statement.setString(1, mainPrompt);
-            statement.setString(2, introPrompt);
-            statement.setString(3, analysisPrompt);
-            statement.setString(4, targetTemplatePrompt);
-            statement.setString(5, toJson(customSellingPoints));
-            statement.executeUpdate();
-            return new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存默认提示词失败", ex);
+        DefaultPromptSettingsEntity entity = new DefaultPromptSettingsEntity();
+        entity.setId(SETTINGS_ID);
+        entity.setMainPrompt(mainPrompt);
+        entity.setIntroPrompt(introPrompt);
+        entity.setAnalysisPrompt(analysisPrompt);
+        entity.setTargetTemplatePrompt(targetTemplatePrompt);
+        entity.setCustomSellingPoints(toJson(customSellingPoints));
+
+        if (defaultPromptSettingsMapper.selectById(SETTINGS_ID) == null) {
+            defaultPromptSettingsMapper.insert(entity);
+        } else {
+            defaultPromptSettingsMapper.updateById(entity);
         }
+        return new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
+    }
+
+    private DefaultPromptSettings toSettings(DefaultPromptSettingsEntity entity) {
+        String analysisPrompt = normalizeAnalysisPrompt(entity.getAnalysisPrompt());
+        return new DefaultPromptSettings(
+                normalizeGenerationPrompt(entity.getMainPrompt(), DEFAULT_MAIN_PROMPT, analysisPrompt),
+                normalizeGenerationPrompt(entity.getIntroPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt),
+                analysisPrompt,
+                normalize(entity.getTargetTemplatePrompt(), DEFAULT_TARGET_TEMPLATE_PROMPT),
+                parseSellingPoints(entity.getCustomSellingPoints())
+        );
     }
 
     private void ensureTable() {

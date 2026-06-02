@@ -133,7 +133,6 @@ const defaultSettings = ref<DefaultPromptSettings>({
 });
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
-const taskDraftRestored = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
 const templateFiles = ref<UploadUserFile[]>([]);
 const logoFiles = ref<UploadUserFile[]>([]);
@@ -458,29 +457,12 @@ function restoreTaskDraft() {
     const rawDraft = window.localStorage.getItem(TASK_DRAFT_CACHE_KEY);
     if (!rawDraft) return;
     const draft = JSON.parse(rawDraft) as TaskDraftCache;
-    if (draft.taskForm) {
-      taskForm.value = {
-        ...taskForm.value,
-        ...draft.taskForm,
-      };
-      normalizeTaskImageSize();
-    }
-    if (draft.kitSpecs?.length) {
-      kitSpecs.value = draft.kitSpecs
-        .filter((item) => item.name && Number(item.quantity) > 0)
-        .map((item) => ({
-          accessoryId: typeof item.accessoryId === 'number' && item.accessoryId > 0 ? item.accessoryId : null,
-          name: item.name,
-          quantity: Math.max(1, Number(item.quantity)),
-        }));
-    }
     if (draft.activePage && isActivePage(draft.activePage)) {
       activePage.value = draft.activePage;
     }
     if (typeof draft.isCollapsed === 'boolean') {
       isCollapsed.value = draft.isCollapsed;
     }
-    taskDraftRestored.value = true;
   } catch (error) {
     console.warn('恢复添加任务草稿失败', error);
     window.localStorage.removeItem(TASK_DRAFT_CACHE_KEY);
@@ -490,8 +472,6 @@ function restoreTaskDraft() {
 function saveTaskDraft() {
   try {
     const draft: TaskDraftCache = {
-      taskForm: { ...taskForm.value },
-      kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
       activePage: activePage.value,
       isCollapsed: isCollapsed.value,
       savedAt: new Date().toISOString(),
@@ -539,6 +519,10 @@ function randomProductName(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
 }
 
+function randomTargetTemplateName(type: TargetTemplateType): string {
+  return `${type === 'MAIN' ? '主图' : '介绍图'}排版-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
 function ensureProductName() {
   if (!taskForm.value.productName.trim()) {
     taskForm.value.productName = randomProductName();
@@ -578,13 +562,9 @@ async function loadPromptSettings() {
       customSellingPoints: settings.customSellingPoints?.length ? settings.customSellingPoints : DEFAULT_SELLING_POINTS,
     };
     defaultSettings.value = normalizedSettings;
-    if (!taskForm.value.mainPrompt.trim()) {
-      taskForm.value.mainPrompt = normalizedSettings.mainPrompt;
-    }
-    if (!taskForm.value.introPrompt.trim()) {
-      taskForm.value.introPrompt = normalizedSettings.introPrompt;
-    }
-    if (!taskDraftRestored.value && normalizedSettings.customSellingPoints.length > 0) {
+    taskForm.value.mainPrompt = normalizedSettings.mainPrompt;
+    taskForm.value.introPrompt = normalizedSettings.introPrompt;
+    if (normalizedSettings.customSellingPoints.length > 0) {
       taskForm.value.sellingPoints = [...normalizedSettings.customSellingPoints];
     }
   } catch (error) {
@@ -906,7 +886,7 @@ async function addTargetTemplate(type: TargetTemplateType) {
   }
   targetTemplateUploading.value[type] = true;
   try {
-    const created = await createTargetTemplate(type, rawFile, targetTemplateNames.value[type] || rawFile.name);
+    const created = await createTargetTemplate(type, rawFile, targetTemplateNames.value[type] || randomTargetTemplateName(type));
     await loadTargetTemplateList(false);
     if (type === 'MAIN') {
       taskForm.value.mainTargetTemplateId = created.id;

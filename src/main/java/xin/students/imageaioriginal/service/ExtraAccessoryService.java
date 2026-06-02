@@ -1,8 +1,11 @@
 package xin.students.imageaioriginal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import xin.students.imageaioriginal.entity.ExtraAccessoryEntity;
+import xin.students.imageaioriginal.mapper.ExtraAccessoryMapper;
 import xin.students.imageaioriginal.model.ExtraAccessoryView;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 
@@ -20,15 +23,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
@@ -40,9 +40,11 @@ public class ExtraAccessoryService {
     private static final int THUMB_MAX_EDGE = 360;
 
     private final DataSource dataSource;
+    private final ExtraAccessoryMapper extraAccessoryMapper;
 
-    public ExtraAccessoryService(DataSource dataSource) {
+    public ExtraAccessoryService(DataSource dataSource, ExtraAccessoryMapper extraAccessoryMapper) {
         this.dataSource = dataSource;
+        this.extraAccessoryMapper = extraAccessoryMapper;
     }
 
     @PostConstruct
@@ -52,19 +54,13 @@ public class ExtraAccessoryService {
 
     public List<ExtraAccessoryView> listAccessories() {
         ensureTable();
-        List<ExtraAccessoryView> accessories = new ArrayList<>();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     select * from extra_accessories order by created_at desc, id desc
-                     """);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                accessories.add(toView(readRecord(resultSet)));
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取额外配件失败", ex);
-        }
-        return accessories;
+        return extraAccessoryMapper.selectList(new LambdaQueryWrapper<ExtraAccessoryEntity>()
+                        .orderByDesc(ExtraAccessoryEntity::getCreatedAt)
+                        .orderByDesc(ExtraAccessoryEntity::getId))
+                .stream()
+                .map(this::toRecord)
+                .map(this::toView)
+                .toList();
     }
 
     public ExtraAccessoryView createAccessory(String name, MultipartFile file) {
@@ -78,51 +74,31 @@ public class ExtraAccessoryService {
             String contentType = normalizeText(file.getContentType(), "image/jpeg");
             StoredUploadImage storedImage = new StoredUploadImage(fileName, contentType, content);
             Thumbnail thumbnail = createThumbnail(storedImage);
-            long id;
-            try (Connection connection = dataSource.getConnection();
-                 PreparedStatement statement = connection.prepareStatement("""
-                         insert into extra_accessories (
-                           name, file_name, content_type, file_size, content,
-                           thumbnail, thumbnail_content_type
-                         ) values (?, ?, ?, ?, ?, ?, ?)
-                         """, Statement.RETURN_GENERATED_KEYS)) {
-                statement.setString(1, normalizeText(name, fileName));
-                statement.setString(2, fileName);
-                statement.setString(3, contentType);
-                statement.setLong(4, content.length);
-                statement.setBytes(5, content);
-                statement.setBytes(6, thumbnail.bytes());
-                statement.setString(7, thumbnail.contentType());
-                statement.executeUpdate();
-                try (ResultSet keys = statement.getGeneratedKeys()) {
-                    if (!keys.next()) {
-                        throw new IllegalStateException("保存额外配件失败：未返回配件 ID");
-                    }
-                    id = keys.getLong(1);
-                }
-            }
-            ExtraAccessoryRecord record = findRecord(id);
+
+            ExtraAccessoryEntity entity = new ExtraAccessoryEntity();
+            entity.setName(normalizeText(name, fileName));
+            entity.setFileName(fileName);
+            entity.setContentType(contentType);
+            entity.setFileSize((long) content.length);
+            entity.setContent(content);
+            entity.setThumbnail(thumbnail.bytes());
+            entity.setThumbnailContentType(thumbnail.contentType());
+            extraAccessoryMapper.insert(entity);
+
+            ExtraAccessoryRecord record = findRecord(entity.getId());
             if (record == null) {
-                throw new IllegalStateException("保存额外配件后读取失败：" + id);
+                throw new IllegalStateException("保存额外配件后读取失败：" + entity.getId());
             }
             return toView(record);
         } catch (IOException ex) {
             throw new IllegalStateException("读取配件图片失败", ex);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存额外配件失败", ex);
         }
     }
 
     public void deleteAccessory(long id) {
         ensureTable();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("delete from extra_accessories where id = ?")) {
-            statement.setLong(1, id);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("额外配件不存在：" + id);
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("删除额外配件失败：" + id, ex);
+        if (extraAccessoryMapper.deleteById(id) == 0) {
+            throw new IllegalArgumentException("额外配件不存在：" + id);
         }
     }
 
@@ -130,36 +106,21 @@ public class ExtraAccessoryService {
         if (id == null || id <= 0) {
             return null;
         }
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("select * from extra_accessories where id = ?")) {
-            statement.setLong(1, id);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return readRecord(resultSet);
-                }
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取额外配件失败：" + id, ex);
-        }
-        return null;
+        ensureTable();
+        ExtraAccessoryEntity entity = extraAccessoryMapper.selectById(id);
+        return entity == null ? null : toRecord(entity);
     }
 
     public ExtraAccessoryRecord findRecordByName(String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("select * from extra_accessories where name = ? order by id desc limit 1")) {
-            statement.setString(1, name.trim());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return readRecord(resultSet);
-                }
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取额外配件失败：" + name, ex);
-        }
-        return null;
+        ensureTable();
+        ExtraAccessoryEntity entity = extraAccessoryMapper.selectOne(new LambdaQueryWrapper<ExtraAccessoryEntity>()
+                .eq(ExtraAccessoryEntity::getName, name.trim())
+                .orderByDesc(ExtraAccessoryEntity::getId)
+                .last("limit 1"));
+        return entity == null ? null : toRecord(entity);
     }
 
     public StoredUploadImage toStoredImage(ExtraAccessoryRecord record) {
@@ -179,18 +140,18 @@ public class ExtraAccessoryService {
         );
     }
 
-    private ExtraAccessoryRecord readRecord(ResultSet resultSet) throws SQLException {
+    private ExtraAccessoryRecord toRecord(ExtraAccessoryEntity entity) {
         return new ExtraAccessoryRecord(
-                resultSet.getLong("id"),
-                resultSet.getString("name"),
-                resultSet.getString("file_name"),
-                resultSet.getString("content_type"),
-                resultSet.getLong("file_size"),
-                resultSet.getBytes("content"),
-                resultSet.getBytes("thumbnail"),
-                resultSet.getString("thumbnail_content_type"),
-                resultSet.getTimestamp("created_at"),
-                resultSet.getTimestamp("updated_at")
+                entity.getId(),
+                entity.getName(),
+                entity.getFileName(),
+                entity.getContentType(),
+                entity.getFileSize(),
+                entity.getContent(),
+                entity.getThumbnail(),
+                entity.getThumbnailContentType(),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt()
         );
     }
 

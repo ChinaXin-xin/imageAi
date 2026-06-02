@@ -11,7 +11,7 @@
 
 ## 技术栈
 
-- 后端：JDK 17、Spring Boot 3.5.14、MyBatis、MySQL 8、Redis。
+- 后端：JDK 17、Spring Boot 3.5.14、MyBatis-Plus、MySQL 8、Redis。
 - 前端：Vue 3、Vite、TypeScript、Element Plus。
 - 额度接口来源：Cli-Proxy-API-Management-Center / CLI Proxy API Management API。
 - 前端不要直接访问管理端，统一调用本项目后端 `/api/**` 接口。
@@ -55,6 +55,8 @@ npm run dev
 - 前端接口访问统一封装在 `vue3/src/services/`。
 - 页面优先使用 Element Plus 组件，保持加载态、错误态、空态完整。
 - 后端和前端改动保持小范围，不做无关业务和大规模重构。
+- 后端业务持久化代码使用 MyBatis-Plus Entity/Mapper/Wrapper；建表初始化和补列可保留轻量 DDL 兜底，但业务 CRUD 不再在 Service 中手写 JDBC。
+- `ImageTaskQueueService.java` 只保留任务编排逻辑，单文件不得超过 1000 行；提示词拼接、文件处理、下载打包、MyBatis-Plus 持久化等能力拆到独立小文件。
 - 新增配置示例使用 `.env.example`，真实 `.env.local` 只保留在本地。
 - 每次新增、修改、删除或查询项目长期约定时，都要同步维护 `AGENTS.md`。
 - 最终生图提示词按“真实产品结构锁定/参考图优先级 → 上传图深析结果 → 手机膜/镜头膜结构生成规则 → 套装规格数量锁定 → 任务参数/规格 → 主图/介绍图画面要求 → 排版模板风格 → 负面约束/生成要求”的顺序拼接；不要把深析上传图的提示词本身拼进最终生图提示词。

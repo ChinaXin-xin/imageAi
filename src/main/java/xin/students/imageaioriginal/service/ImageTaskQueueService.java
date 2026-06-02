@@ -1,7 +1,6 @@
 package xin.students.imageaioriginal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -12,44 +11,15 @@ import org.springframework.web.multipart.MultipartFile;
 import xin.students.imageaioriginal.config.ImageGenerationProperties;
 import xin.students.imageaioriginal.model.DefaultPromptSettings;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
-import xin.students.imageaioriginal.model.ImageTaskFileView;
 import xin.students.imageaioriginal.model.ImageTaskKitSpec;
 import xin.students.imageaioriginal.model.ImageTaskPayload;
-import xin.students.imageaioriginal.model.ImageTaskResultView;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
 
-import javax.imageio.IIOImage;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageWriteParam;
-import javax.imageio.ImageWriter;
-import javax.imageio.stream.ImageOutputStream;
-import javax.sql.DataSource;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
@@ -61,37 +31,31 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 @Service
 public class ImageTaskQueueService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int STALE_GENERATION_SECONDS = 15 * 60;
     private static final String STALE_GENERATION_MESSAGE = "生图接口超过 15 分钟未返回，已自动标记失败，请稍后重试。";
     private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
     private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
-    private static final int THUMB_MAX_EDGE = 320;
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
-    private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
     private static final int IMAGE_GENERATION_MAX_ATTEMPTS = 3;
     private static final int IMAGE_GENERATION_RETRY_DELAY_MILLIS = 2_000;
-    private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "手机、钢化膜、高清膜、防窥膜、镜头膜";
-    private static final String CUSTOMER_ALLOWED_ACCESSORIES = "任务已上传或已选择的手机膜相关清洁/安装辅助配件";
-    private static final String ACCESSORY_REFERENCE_RULE = "所有手机膜相关配件都只能按已上传或已选择的参考图生成：配件参考图是图像结构约束，不是自由创作对象；必须保留参考图的真实外形、颜色、材质、尺寸比例、封边/标签区域、图案和可见文字。可见文字属于配件外观的一部分，如果参考图有字，只复现参考图上可见的字；如果字很小或略模糊，也要保留文字块的位置、颜色对比和行列排版，不要变成光滑空白块、无字小包或泛化替代品；不要凭空加字、改字或套用其他配件的形状。";
     private static final String USAGE_MAIN = "MAIN";
     private static final String USAGE_INTRO = "INTRO";
 
-    private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final DefaultPromptSettingsService defaultPromptSettingsService;
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final ImageGenerationService imageGenerationService;
     private final ImageScenePromptService imageScenePromptService;
+    private final ImageTaskRepository imageTaskRepository;
+    private final ImageTaskFileService imageTaskFileService;
+    private final ImageTaskDownloadService imageTaskDownloadService;
+    private final ImageTaskPromptBuilder imageTaskPromptBuilder;
     private final TargetTemplateService targetTemplateService;
     private final ExtraAccessoryService extraAccessoryService;
     private final ImageGenerationProperties imageGenerationProperties;
@@ -99,22 +63,28 @@ public class ImageTaskQueueService {
     private final ExecutorService imageJobExecutor;
 
     public ImageTaskQueueService(
-            DataSource dataSource,
             ObjectMapper objectMapper,
             DefaultPromptSettingsService defaultPromptSettingsService,
             UploadImageAnalysisService uploadImageAnalysisService,
             ImageGenerationService imageGenerationService,
             ImageScenePromptService imageScenePromptService,
+            ImageTaskRepository imageTaskRepository,
+            ImageTaskFileService imageTaskFileService,
+            ImageTaskDownloadService imageTaskDownloadService,
+            ImageTaskPromptBuilder imageTaskPromptBuilder,
             TargetTemplateService targetTemplateService,
             ExtraAccessoryService extraAccessoryService,
             ImageGenerationProperties imageGenerationProperties
     ) {
-        this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.defaultPromptSettingsService = defaultPromptSettingsService;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
         this.imageGenerationService = imageGenerationService;
         this.imageScenePromptService = imageScenePromptService;
+        this.imageTaskRepository = imageTaskRepository;
+        this.imageTaskFileService = imageTaskFileService;
+        this.imageTaskDownloadService = imageTaskDownloadService;
+        this.imageTaskPromptBuilder = imageTaskPromptBuilder;
         this.targetTemplateService = targetTemplateService;
         this.extraAccessoryService = extraAccessoryService;
         this.imageGenerationProperties = imageGenerationProperties;
@@ -136,7 +106,7 @@ public class ImageTaskQueueService {
                 imageGenerationProperties.resolvedMaxImagesPerTask(),
                 imageGenerationProperties.resolvedMaxGlobalImageConcurrency()
         );
-        ensureTables();
+        imageTaskRepository.ensureTables();
         failStaleRunningTasks();
         pauseInterruptedRunningTasks();
         resumeUnfinishedTasks();
@@ -155,237 +125,115 @@ public class ImageTaskQueueService {
             List<MultipartFile> logoFiles,
             List<MultipartFile> wallpaperFiles
     ) {
-        ensureTables();
+        imageTaskRepository.ensureTables();
         ImageTaskPayload payload = normalizePayload(parsePayload(payloadJson));
         String taskId = UUID.randomUUID().toString();
         List<StoredTaskFile> files = new ArrayList<>();
-        files.addAll(toStoredTaskFiles("realPhoto", realPhotoFiles));
-        files.addAll(toStoredTaskFiles("template", templateFiles));
-        files.addAll(toStoredTaskFiles("logo", logoFiles));
-        files.addAll(toStoredTaskFiles("wallpaper", wallpaperFiles));
-        Thumbnail thumbnail = createThumbnail(files);
-
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                insertTask(connection, taskId, payload, files, thumbnail);
-                insertFiles(connection, taskId, files);
-                connection.commit();
-            } catch (Exception ex) {
-                connection.rollback();
-                throw ex;
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存任务队列失败", ex);
-        }
-
+        files.addAll(imageTaskFileService.toStoredTaskFiles("realPhoto", realPhotoFiles));
+        files.addAll(imageTaskFileService.toStoredTaskFiles("template", templateFiles));
+        files.addAll(imageTaskFileService.toStoredTaskFiles("logo", logoFiles));
+        files.addAll(imageTaskFileService.toStoredTaskFiles("wallpaper", wallpaperFiles));
+        imageTaskRepository.createTask(taskId, payload, files, imageTaskFileService.createThumbnail(files));
         startProcessing(taskId);
         return getTask(taskId);
     }
 
     public List<ImageTaskSummary> listTasks() {
-        ensureTables();
+        imageTaskRepository.ensureTables();
         failStaleRunningTasks();
-        List<ImageTaskSummary> tasks = new ArrayList<>();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     select * from image_tasks order by created_at desc
-                     """);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                TaskRecord record = readTaskRecord(resultSet);
-                tasks.add(toSummary(connection, record));
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务队列失败", ex);
-        }
-        return tasks;
+        return imageTaskRepository.listTasks();
     }
 
     public ImageTaskDetail getTask(String taskId) {
-        ensureTables();
+        imageTaskRepository.ensureTables();
         failStaleRunningTasks();
-        try (Connection connection = dataSource.getConnection()) {
-            TaskRecord record = findTask(connection, taskId);
-            if (record == null) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-            return toDetail(connection, record);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务详情失败", ex);
-        }
+        return imageTaskRepository.getTask(taskId);
     }
 
     public ImageTaskDetail retryTask(String taskId) {
-        ensureTables();
-        failStaleRunningTasks();
-        try (Connection connection = dataSource.getConnection()) {
-            TaskRecord record = findTask(connection, taskId);
-            if (record == null) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-            if (isRunningStatus(record.status())) {
-                throw new IllegalStateException("任务正在执行中，不需要重试：" + statusText(record.status()));
-            }
-            resetTaskForRetry(connection, taskId);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("重试任务失败", ex);
+        imageTaskRepository.ensureTables();
+        TaskRecord record = requireTask(taskId);
+        if ("ANALYZING".equals(record.status()) || "GENERATING".equals(record.status())) {
+            throw new IllegalStateException("任务正在执行中，请先暂停或等待完成后再重试。");
         }
+        imageTaskRepository.resetTaskForRetry(taskId);
         startProcessing(taskId);
         return getTask(taskId);
     }
 
     public ImageTaskDetail pauseTask(String taskId) {
-        ensureTables();
-        try (Connection connection = dataSource.getConnection()) {
-            TaskRecord record = findTask(connection, taskId);
-            if (record == null) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-            if ("COMPLETED".equals(record.status()) || "FAILED".equals(record.status())) {
-                throw new IllegalStateException("已结束任务不能暂停：" + statusText(record.status()));
-            }
-            pauseTask(connection, taskId, MANUAL_PAUSE_MESSAGE);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("暂停任务失败：" + taskId, ex);
-        }
-        imageGenerationService.cancelTask(taskId);
+        imageTaskRepository.ensureTables();
+        requireTask(taskId);
+        imageTaskRepository.pauseTask(taskId, MANUAL_PAUSE_MESSAGE);
         return getTask(taskId);
     }
 
     public ImageTaskDetail resumeTask(String taskId) {
-        ensureTables();
-        failStaleRunningTasks();
-        try (Connection connection = dataSource.getConnection()) {
-            TaskRecord record = findTask(connection, taskId);
-            if (record == null) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-            if (!"PAUSED".equals(record.status())) {
-                throw new IllegalStateException("只有暂停中的任务可以继续：" + statusText(record.status()));
-            }
-            resetTaskForRetry(connection, taskId);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("继续任务失败：" + taskId, ex);
+        imageTaskRepository.ensureTables();
+        TaskRecord record = requireTask(taskId);
+        if (!"PAUSED".equals(record.status())) {
+            return getTask(taskId);
         }
+        imageTaskRepository.resetTaskForRetry(taskId);
         startProcessing(taskId);
         return getTask(taskId);
     }
 
     public void deleteTask(String taskId) {
-        ensureTables();
-        imageGenerationService.cancelTask(taskId);
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("delete from image_tasks where id = ?")) {
-            statement.setString(1, taskId);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("删除任务失败：" + taskId, ex);
-        }
+        imageTaskRepository.ensureTables();
+        requireTask(taskId);
+        imageTaskRepository.deleteTask(taskId);
     }
 
     public ImageTaskDetail editResult(String taskId, long resultId, String suggestion) {
-        ensureTables();
-        String normalizedSuggestion = normalizeText(suggestion, "").trim();
-        if (normalizedSuggestion.isBlank()) {
-            throw new IllegalArgumentException("请先输入这张图需要修改的建议");
+        imageTaskRepository.ensureTables();
+        TaskRecord task = requireTask(taskId);
+        ResultRecord source = imageTaskRepository.findResult(taskId, resultId);
+        if (source == null || !"COMPLETED".equals(source.status())) {
+            throw new IllegalArgumentException("只能重修已完成的图片结果");
         }
-
-        TaskRecord task;
-        ResultRecord source;
-        long editResultId;
-        String editPrompt;
-        try (Connection connection = dataSource.getConnection()) {
-            task = findTask(connection, taskId);
-            if (task == null) {
-                throw new IllegalArgumentException("任务不存在：" + taskId);
-            }
-            source = findResult(connection, taskId, resultId);
-            if (source == null) {
-                throw new IllegalArgumentException("生成结果不存在：" + resultId);
-            }
-            if (!"COMPLETED".equals(source.status())) {
-                throw new IllegalStateException("只有已完成的图片可以按建议重修");
-            }
-            resultReferenceImage(source);
-            int versionIndex = nextVersionIndex(connection, taskId, source.resultType(), source.itemIndex());
-            editPrompt = buildEditPrompt(task, source, normalizedSuggestion);
-            editResultId = insertResult(
-                    connection,
-                    taskId,
-                    source.resultType(),
-                    source.itemIndex(),
-                    editPrompt,
-                    "GENERATING",
-                    source.id(),
-                    versionIndex,
-                    normalizedSuggestion
-            );
-        } catch (SQLException ex) {
-            throw new IllegalStateException("创建重修图片记录失败：" + taskId, ex);
-        }
-
-        submitEditGeneration(task, source, editResultId, editPrompt);
+        String normalizedSuggestion = normalizeText(suggestion, "按建议优化图片细节");
+        int nextVersion = imageTaskRepository.nextVersionIndex(taskId, source.resultType(), source.itemIndex());
+        long editResultId = imageTaskRepository.insertResult(
+                taskId,
+                source.resultType(),
+                source.itemIndex(),
+                buildEditPrompt(task, source, normalizedSuggestion),
+                "QUEUED",
+                source.id(),
+                nextVersion,
+                normalizedSuggestion
+        );
+        submitEditGeneration(task, source, editResultId);
         return getTask(taskId);
     }
 
-    private void submitEditGeneration(TaskRecord task, ResultRecord source, long editResultId, String editPrompt) {
+    public ImageTaskDownloadFile downloadTaskImages(List<String> taskIds) {
+        imageTaskRepository.ensureTables();
+        return imageTaskDownloadService.downloadTaskImages(taskIds);
+    }
+
+    private void submitEditGeneration(TaskRecord task, ResultRecord source, long editResultId) {
         imageJobExecutor.submit(() -> {
             try {
+                imageTaskRepository.markResultGenerating(editResultId);
                 ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
                         task.id(),
-                        source.resultType(),
+                        source.resultType() + "重修",
                         source.itemIndex(),
-                        editPrompt,
+                        buildEditPrompt(task, source, source.editSuggestion()),
                         normalizeImageDimension(task.payload().customWidth(), DEFAULT_IMAGE_SIZE),
                         normalizeImageDimension(task.payload().customHeight(), DEFAULT_IMAGE_SIZE),
-                        List.of(resultReferenceImage(source))
+                        List.of(imageTaskDownloadService.resultReferenceImage(source))
                 );
-                if (!completeResult(editResultId, generatedImage)) {
+                if (!imageTaskRepository.completeResult(editResultId, generatedImage)) {
                     throw new IllegalStateException("重修图片结果保存失败，请重试");
                 }
             } catch (Exception ex) {
                 LOG.error("image.task.edit.failed taskId={} resultId={} message={}", task.id(), editResultId, ex.getMessage(), ex);
-                failResult(editResultId, ex);
+                imageTaskRepository.failResult(editResultId, ex);
             }
         });
-    }
-
-    public DownloadFile downloadTaskImages(List<String> taskIds) {
-        ensureTables();
-        List<String> normalizedTaskIds = uniqueTaskIds(taskIds);
-        if (normalizedTaskIds.isEmpty()) {
-            throw new IllegalArgumentException("请先选择需要下载的已完成任务");
-        }
-        boolean multipleTasks = normalizedTaskIds.size() > 1;
-        try (Connection connection = dataSource.getConnection();
-             ByteArrayOutputStream output = new ByteArrayOutputStream();
-             ZipOutputStream zipOutput = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
-            Set<String> usedFolders = new HashSet<>();
-            int entryCount = 0;
-            for (String id : normalizedTaskIds) {
-                TaskRecord task = findTask(connection, id);
-                if (task == null) {
-                    throw new IllegalArgumentException("任务不存在：" + id);
-                }
-                String folder = multipleTasks ? uniqueFolderName(task.productName(), task.id(), usedFolders) + "/" : "";
-                for (ResultRecord result : completedResults(connection, id)) {
-                    entryCount += addResultToZip(zipOutput, folder, result);
-                }
-            }
-            if (entryCount == 0) {
-                throw new IllegalStateException("所选任务暂无可下载的已完成图片");
-            }
-            zipOutput.finish();
-            String zipName = multipleTasks
-                    ? "生图任务结果.zip"
-                    : sanitizeFileName(findTask(connection, normalizedTaskIds.get(0)).productName()) + ".zip";
-            return new DownloadFile(zipName, output.toByteArray());
-        } catch (IOException | SQLException ex) {
-            throw new IllegalStateException("打包下载图片失败", ex);
-        }
     }
 
     private void startProcessing(String taskId) {
@@ -402,134 +250,35 @@ public class ImageTaskQueueService {
     }
 
     private void resumeUnfinishedTasks() {
-        List<String> taskIds = new ArrayList<>();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     select id from image_tasks where status = 'QUEUED'
-                     """);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                taskIds.add(resultSet.getString("id"));
-            }
-        } catch (SQLException ex) {
-            LOG.warn("resume unfinished image tasks failed", ex);
-            return;
-        }
-        taskIds.forEach(this::startProcessing);
+        imageTaskRepository.tasksByStatus(List.of("QUEUED")).forEach(task -> startProcessing(task.id()));
     }
 
     private void pauseInterruptedRunningTasks() {
-        try (Connection connection = dataSource.getConnection()) {
-            List<String> taskIds = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement("""
-                    select id from image_tasks where status in ('ANALYZING', 'GENERATING')
-                    """);
-                 ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    taskIds.add(resultSet.getString("id"));
-                }
-            }
-            for (String taskId : taskIds) {
-                pauseTask(connection, taskId, STARTUP_PAUSE_MESSAGE);
-            }
-        } catch (SQLException ex) {
-            LOG.warn("pause interrupted image tasks failed", ex);
-        }
-    }
-
-    private void pauseTask(Connection connection, String taskId, String message) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_task_results
-                set status = 'PAUSED', error_message = ?, updated_at = current_timestamp(3)
-                where task_id = ? and status in ('QUEUED', 'ANALYZING', 'GENERATING')
-                """)) {
-            statement.setString(1, message);
-            statement.setString(2, taskId);
-            statement.executeUpdate();
-        }
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_tasks
-                set status = 'PAUSED',
-                    error_message = ?,
-                    updated_at = current_timestamp(3)
-                where id = ? and status in ('QUEUED', 'ANALYZING', 'GENERATING')
-                """)) {
-            statement.setString(1, message);
-            statement.setString(2, taskId);
-            statement.executeUpdate();
-        }
+        imageTaskRepository.tasksByStatus(List.of("ANALYZING", "GENERATING"))
+                .forEach(task -> imageTaskRepository.pauseTask(task.id(), STARTUP_PAUSE_MESSAGE));
     }
 
     private void failStaleRunningTasks() {
-        try (Connection connection = dataSource.getConnection()) {
-            failStaleRunningTasks(connection);
-        } catch (SQLException ex) {
+        try {
+            imageTaskRepository.staleGeneratingTaskIds(STALE_GENERATION_SECONDS)
+                    .forEach(taskId -> imageTaskRepository.failStaleRunningTask(taskId, STALE_GENERATION_MESSAGE));
+        } catch (Exception ex) {
             LOG.warn("mark stale image tasks failed", ex);
-        }
-    }
-
-    private void failStaleRunningTasks(Connection connection) throws SQLException {
-        List<String> taskIds = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select distinct r.task_id
-                from image_task_results r
-                join image_tasks t on t.id = r.task_id
-                where t.status = 'GENERATING'
-                  and r.status = 'GENERATING'
-                  and r.updated_at < timestampadd(second, ?, current_timestamp(3))
-                """)) {
-            statement.setInt(1, -STALE_GENERATION_SECONDS);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    taskIds.add(resultSet.getString("task_id"));
-                }
-            }
-        }
-        for (String taskId : taskIds) {
-            failStaleRunningTask(connection, taskId);
-        }
-    }
-
-    private void failStaleRunningTask(Connection connection, String taskId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_task_results
-                set status = 'FAILED', error_message = ?, updated_at = current_timestamp(3)
-                where task_id = ? and status in ('GENERATING', 'QUEUED')
-                """)) {
-            statement.setString(1, STALE_GENERATION_MESSAGE);
-            statement.setString(2, taskId);
-            statement.executeUpdate();
-        }
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_tasks
-                set status = 'FAILED',
-                    error_message = ?,
-                    completed_at = current_timestamp(3),
-                    updated_at = current_timestamp(3)
-                where id = ? and status = 'GENERATING'
-                """)) {
-            statement.setString(1, STALE_GENERATION_MESSAGE);
-            statement.setString(2, taskId);
-            statement.executeUpdate();
         }
     }
 
     private void processTask(String taskId) {
         try {
-            TaskRecord record = findTask(taskId);
+            TaskRecord record = imageTaskRepository.findTask(taskId);
             if (record == null || "COMPLETED".equals(record.status()) || "FAILED".equals(record.status()) || "PAUSED".equals(record.status())) {
                 return;
             }
-            updateTaskState(taskId, "ANALYZING", null, true, false);
-
-            Map<String, String> analysis = analyzeUploadedFiles(taskId);
-            if (requiresGeneration(record.payload()) && analysis.isEmpty()) {
-                throw new IllegalStateException("生成主图或介绍图前必须先深析上传图，请至少上传实拍图或排版图。");
+            if (!requiresGeneration(record.payload())) {
+                imageTaskRepository.updateTaskState(taskId, "COMPLETED", null, false, true);
+                return;
             }
-            ensureTaskNotPaused(taskId);
 
-            DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
-            UploadMaterialContext uploadMaterialContext = uploadMaterialContext(taskId);
+            imageTaskRepository.updateTaskState(taskId, "ANALYZING", null, true, false);
             TargetTemplateService.TargetTemplateRecord mainTargetTemplate = resolveTargetTemplate(
                     record.payload().mainTargetTemplateId(),
                     "MAIN",
@@ -540,25 +289,30 @@ public class ImageTaskQueueService {
                     "INTRO",
                     "介绍图"
             );
-            String finalMainPrompt = buildGenerationPrompt(
+            Map<String, String> analysis = analyzeUploadedFiles(taskId);
+            UploadMaterialContext uploadMaterialContext = uploadMaterialContext(taskId);
+            ensureTaskNotPaused(taskId);
+
+            DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
+            String finalMainPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
                     "主图",
-                    generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
+                    imageTaskPromptBuilder.generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
                     record.payload(),
                     analysis,
                     uploadMaterialContext,
                     mainTargetTemplate
             );
-            String finalIntroPrompt = buildGenerationPrompt(
+            String finalIntroPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
                     "介绍图",
-                    generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
+                    imageTaskPromptBuilder.generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
                     record.payload(),
                     analysis,
                     uploadMaterialContext,
                     introTargetTemplate
             );
-            saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
+            imageTaskRepository.saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
             ensureTaskNotPaused(taskId);
-            clearResults(taskId);
+            imageTaskRepository.clearResults(taskId);
             List<GenerationJob> jobs = createGenerationJobs(
                     taskId,
                     finalMainPrompt,
@@ -567,7 +321,7 @@ public class ImageTaskQueueService {
                     mainTargetTemplate,
                     introTargetTemplate
             );
-            updateTaskState(taskId, "GENERATING", null, false, false);
+            imageTaskRepository.updateTaskState(taskId, "GENERATING", null, false, false);
 
             GenerationReferences referenceImages = generationReferenceImages(
                     taskId,
@@ -584,14 +338,14 @@ public class ImageTaskQueueService {
                 LOG.info("image.task.skip-complete taskId={} reason=paused-or-deleted", taskId);
                 return;
             }
-            updateTaskState(taskId, "COMPLETED", null, false, true);
+            imageTaskRepository.updateTaskState(taskId, "COMPLETED", null, false, true);
         } catch (Exception ex) {
             if (isTaskPausedOrDeleted(taskId)) {
                 LOG.info("image.task.stopped taskId={} message={}", taskId, ex.getMessage());
                 return;
             }
             LOG.error("image.task.failed taskId={} message={}", taskId, ex.getMessage(), ex);
-            failTask(taskId, ex);
+            imageTaskRepository.failTask(taskId, ex);
         }
     }
 
@@ -684,62 +438,17 @@ public class ImageTaskQueueService {
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
-            long resultId = insertResult(taskId, "主图", index, prompt, "QUEUED");
+            String prompt = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
+            long resultId = imageTaskRepository.insertResult(taskId, "主图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "主图", index, prompt, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
-            long resultId = insertResult(taskId, "介绍图", index, prompt, "QUEUED");
+            String prompt = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
+            long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "介绍图", index, prompt, introTargetTemplate));
         }
         return jobs;
-    }
-
-    private String generationItemPrompt(
-            String basePrompt,
-            String resultType,
-            int index,
-            int total,
-            ImageScenePromptService.ScenePrompt scene,
-            ImageTaskPayload payload
-    ) {
-        StringBuilder builder = new StringBuilder(basePrompt);
-        builder.append("\n\n【当前生成】").append(resultType).append("第 ").append(index).append(" / ").append(total).append(" 张。");
-        if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
-            builder.append("\n【本张图片场景规划】\n");
-            builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
-            builder.append("场景描述：").append(scene.prompt()).append("\n");
-            builder.append("本张图必须与同任务其他图片形成不同场景；只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格。");
-        }
-        appendPerImageSelfAudit(builder, payload, basePrompt, resultType, index);
-        return builder.toString();
-    }
-
-    private void appendPerImageSelfAudit(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            String basePrompt,
-            String resultType,
-            int index
-    ) {
-        String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        builder.append("\n【本张成品自审与修正】\n");
-        builder.append("本张只允许出现：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的一体式镜头膜");
-        if (!"未选择".equals(kitSpecText)) {
-            builder.append("、已选择套装配件（").append(kitSpecText).append("）");
-        }
-        appendPromptAssetWhitelist(builder, basePrompt);
-        builder.append("。\n");
-        builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
-        builder.append("若场景规划、排版模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
-        appendAccessoryReferenceRule(builder, kitSpecText);
-        if (hasLensProtector(payload, basePrompt)) {
-            builder.append("镜头膜结构再次自检：按上传图/深析结果锁定当前机型的外轮廓、孔位数量、孔位位置、孔位大小差异，以及一体式片状或分离镜圈形态；不要套用其他手机型号镜头膜结构。\n");
-        }
-        appendPerImageFilmTypeAudit(builder, payload);
-        builder.append(resultType).append("第 ").append(index).append(" 张生成前先完成自查，结构锁定优先于场景创意和模板风格。");
     }
 
     private ImageScenePromptService.ScenePrompt sceneAt(List<ImageScenePromptService.ScenePrompt> scenes, int index) {
@@ -756,7 +465,7 @@ public class ImageTaskQueueService {
             ImageTaskPayload payload,
             List<StoredUploadImage> referenceImages
     ) {
-        markResultGenerating(job.resultId());
+        imageTaskRepository.markResultGenerating(job.resultId());
         for (int attempt = 1; attempt <= IMAGE_GENERATION_MAX_ATTEMPTS; attempt++) {
             try {
                 ensureTaskNotPaused(taskId);
@@ -769,7 +478,7 @@ public class ImageTaskQueueService {
                         normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
                         referenceImages
                 );
-                if (!completeResult(job.resultId(), generatedImage)) {
+                if (!imageTaskRepository.completeResult(job.resultId(), generatedImage)) {
                     throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
                 }
                 return;
@@ -778,7 +487,7 @@ public class ImageTaskQueueService {
                     throw ex;
                 }
                 if (attempt >= IMAGE_GENERATION_MAX_ATTEMPTS || !isRetryableImageGenerationError(ex)) {
-                    failResult(job.resultId(), ex);
+                    imageTaskRepository.failResult(job.resultId(), ex);
                     throw ex;
                 }
                 LOG.warn(
@@ -838,7 +547,7 @@ public class ImageTaskQueueService {
     }
 
     private void ensureTaskNotPaused(String taskId) {
-        TaskRecord record = findTask(taskId);
+        TaskRecord record = imageTaskRepository.findTask(taskId);
         if (record != null && "PAUSED".equals(record.status())) {
             throw new IllegalStateException(MANUAL_PAUSE_MESSAGE);
         }
@@ -848,7 +557,7 @@ public class ImageTaskQueueService {
     }
 
     private boolean isTaskPausedOrDeleted(String taskId) {
-        TaskRecord record = findTask(taskId);
+        TaskRecord record = imageTaskRepository.findTask(taskId);
         return record == null || "PAUSED".equals(record.status());
     }
 
@@ -869,52 +578,48 @@ public class ImageTaskQueueService {
             TargetTemplateService.TargetTemplateRecord mainTargetTemplate,
             TargetTemplateService.TargetTemplateRecord introTargetTemplate
     ) {
-        try (Connection connection = dataSource.getConnection()) {
-            List<StoredUploadImage> realPhotoImages = readStoredImages(connection, taskId, "realPhoto");
-            List<StoredUploadImage> templateImages = readStoredImages(connection, taskId, "template");
-            List<StoredUploadImage> logoImages = readStoredImages(connection, taskId, "logo");
-            List<StoredUploadImage> wallpaperImages = readStoredImages(connection, taskId, "wallpaper");
-            List<StoredUploadImage> accessoryImages = accessoryRecords(payload.kitSpecs()).stream()
-                    .map(extraAccessoryService::toStoredImage)
-                    .toList();
-            StoredUploadImage mainTargetTemplateImage = mainTargetTemplate == null
-                    ? null
-                    : targetTemplateService.toStoredImage(mainTargetTemplate);
-            StoredUploadImage introTargetTemplateImage = introTargetTemplate == null
-                    ? null
-                    : targetTemplateService.toStoredImage(introTargetTemplate);
-            List<StoredUploadImage> mainReferences = generationReferenceImagesForType(
-                    "主图",
-                    payload,
-                    realPhotoImages,
-                    templateImages,
-                    mainTargetTemplateImage,
-                    logoImages,
-                    wallpaperImages,
-                    accessoryImages
-            );
-            List<StoredUploadImage> introReferences = generationReferenceImagesForType(
-                    "介绍图",
-                    payload,
-                    realPhotoImages,
-                    templateImages,
-                    introTargetTemplateImage,
-                    logoImages,
-                    wallpaperImages,
-                    accessoryImages
-            );
-            LOG.info(
-                    "image.task.references taskId={} mainTotal={} mainNames={} introTotal={} introNames={}",
-                    taskId,
-                    mainReferences.size(),
-                    mainReferences.stream().map(StoredUploadImage::fileName).toList(),
-                    introReferences.size(),
-                    introReferences.stream().map(StoredUploadImage::fileName).toList()
-            );
-            return new GenerationReferences(mainReferences, introReferences);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务生图参考图失败：" + taskId, ex);
-        }
+        List<StoredUploadImage> realPhotoImages = imageTaskRepository.readStoredImages(taskId, "realPhoto");
+        List<StoredUploadImage> templateImages = imageTaskRepository.readStoredImages(taskId, "template");
+        List<StoredUploadImage> logoImages = imageTaskRepository.readStoredImages(taskId, "logo");
+        List<StoredUploadImage> wallpaperImages = imageTaskRepository.readStoredImages(taskId, "wallpaper");
+        List<StoredUploadImage> accessoryImages = accessoryRecords(payload.kitSpecs()).stream()
+                .map(extraAccessoryService::toStoredImage)
+                .toList();
+        StoredUploadImage mainTargetTemplateImage = mainTargetTemplate == null
+                ? null
+                : targetTemplateService.toStoredImage(mainTargetTemplate);
+        StoredUploadImage introTargetTemplateImage = introTargetTemplate == null
+                ? null
+                : targetTemplateService.toStoredImage(introTargetTemplate);
+        List<StoredUploadImage> mainReferences = generationReferenceImagesForType(
+                "主图",
+                payload,
+                realPhotoImages,
+                templateImages,
+                mainTargetTemplateImage,
+                logoImages,
+                wallpaperImages,
+                accessoryImages
+        );
+        List<StoredUploadImage> introReferences = generationReferenceImagesForType(
+                "介绍图",
+                payload,
+                realPhotoImages,
+                templateImages,
+                introTargetTemplateImage,
+                logoImages,
+                wallpaperImages,
+                accessoryImages
+        );
+        LOG.info(
+                "image.task.references taskId={} mainTotal={} mainNames={} introTotal={} introNames={}",
+                taskId,
+                mainReferences.size(),
+                mainReferences.stream().map(StoredUploadImage::fileName).toList(),
+                introReferences.size(),
+                introReferences.stream().map(StoredUploadImage::fileName).toList()
+        );
+        return new GenerationReferences(mainReferences, introReferences);
     }
 
     private List<StoredUploadImage> generationReferenceImagesForType(
@@ -957,14 +662,13 @@ public class ImageTaskQueueService {
             return List.of();
         }
         return specs.stream()
-                .filter(spec -> spec != null && positive(spec.quantity()) > 0)
                 .map(this::accessoryRecord)
-                .filter(accessory -> accessory != null)
+                .filter(record -> record != null && record.content() != null && record.content().length > 0)
                 .toList();
     }
 
     private ExtraAccessoryService.ExtraAccessoryRecord accessoryRecord(ImageTaskKitSpec spec) {
-        if (spec == null) {
+        if (spec == null || spec.accessoryId() == null || spec.accessoryId() <= 0 || positive(spec.quantity()) <= 0) {
             return null;
         }
         ExtraAccessoryService.ExtraAccessoryRecord accessory = extraAccessoryService.findRecord(positiveId(spec.accessoryId()));
@@ -990,7 +694,7 @@ public class ImageTaskQueueService {
             boolean styleOnly,
             Map<String, String> analysis
     ) {
-        List<StoredUploadImage> files = readStoredImages(taskId, fileGroup);
+        List<StoredUploadImage> files = imageTaskRepository.readStoredImages(taskId, fileGroup);
         if (files.isEmpty()) {
             return;
         }
@@ -998,302 +702,15 @@ public class ImageTaskQueueService {
                 ? uploadImageAnalysisService.analyzeStyleStored(label, prompt, files)
                 : uploadImageAnalysisService.analyzeStored(label, prompt, files);
         analysis.put(label, result.result());
-        savePartialAnalysis(taskId, analysis);
+        imageTaskRepository.savePartialAnalysis(taskId, analysis);
     }
 
     private UploadMaterialContext uploadMaterialContext(String taskId) {
-        try (Connection connection = dataSource.getConnection()) {
-            return new UploadMaterialContext(
-                    countStoredImages(connection, taskId, "template") > 0,
-                    countStoredImages(connection, taskId, "logo") > 0,
-                    countStoredImages(connection, taskId, "wallpaper") > 0
-            );
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务上传素材状态失败：" + taskId, ex);
-        }
-    }
-
-    private Map<String, String> structureAnalysis(Map<String, String> analysis) {
-        Map<String, String> values = new LinkedHashMap<>();
-        if (analysis == null || analysis.isEmpty()) {
-            return values;
-        }
-        analysis.forEach((label, result) -> {
-            if (!"排版图".equals(label) && result != null && !result.isBlank()) {
-                values.put(label, result);
-            }
-        });
-        return values;
-    }
-
-    private String buildGenerationPrompt(
-            String imageType,
-            String basePrompt,
-            ImageTaskPayload payload,
-            Map<String, String> analysis,
-            UploadMaterialContext uploadMaterialContext,
-            TargetTemplateService.TargetTemplateRecord targetTemplate
-    ) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("【最高优先级：结构锁定】\n");
-        builder.append("上传参考图 > 深析结果 > 套装数量 > 任务参数 > 模板风格。先还原真实产品结构，再做电商美化。\n");
-        builder.append("不得改成通用款；不得统一大小不同的孔位；不得增加、删除、移动或遮挡孔位、缺口、外轮廓和配件。\n\n");
-
-        builder.append("【上传图深析结果】\n");
-        Map<String, String> structureAnalysis = structureAnalysis(analysis);
-        structureAnalysis.forEach((label, result) -> builder.append("[").append(label).append("]\n")
-                .append(abbreviate(normalizeNullable(result), MAX_ANALYSIS_PROMPT_CHARS))
-                .append("\n"));
-        if (structureAnalysis.isEmpty()) {
-            builder.append("未提供实拍图结构深析；若已上传实拍图，以上传参考图的真实产品结构为最高优先级。\n");
-        }
-        builder.append("\n");
-
-        builder.append("【手机膜结构规则】\n");
-        builder.append("镜头膜/屏幕膜按上传图的外轮廓、孔位数量、孔位位置、孔位大小生成。若小孔大小不同或结构非对称，必须保留差异；禁止做成等大、等距、分离镜圈或标准圆环。孔洞内不要添加不存在的镜片、金属圈、螺丝、图标或文字。\n\n");
-        appendCameraProtectorCriticalRules(builder, payload, analysis);
-        appendAllowedObjectsContext(builder, payload, uploadMaterialContext, imageType);
-
-        appendKitLock(builder, payload);
-
-        builder.append("【任务参数】\n");
-        builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
-        builder.append("【尺寸】")
-                .append(normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE))
-                .append("x")
-                .append(normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE))
-                .append("\n");
-        builder.append("【语言】").append(normalizeText(payload.language(), "英文")).append("\n");
-        builder.append("【机型】").append(normalizeText(payload.model(), "根据上传图自动识别")).append("\n");
-        builder.append("【手机颜色】").append(normalizeText(payload.phoneColor(), "自动")).append("\n");
-        builder.append("【设计风格】").append(normalizeText(payload.style(), "自动")).append("\n");
-        builder.append("【布局模式】").append(normalizeText(payload.layout(), "自动")).append("\n");
-        appendLogoContext(builder, payload, uploadMaterialContext, imageType);
-        appendWallpaperContext(builder, payload, uploadMaterialContext, imageType);
-        builder.append("【卖点】").append(joinList(payload.sellingPoints())).append("\n");
-        String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        builder.append("【套装规格】").append(kitSpecText).append("\n");
-        String productTypeText = productTypeText(payload);
-        if (!"未选择".equals(productTypeText)) {
-            builder.append("【产品类型】").append(productTypeText).append("\n");
-        }
-        appendFilmTypeLock(builder, payload);
-        builder.append("\n【").append(imageType).append("画面要求】\n");
-        builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
-        builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
-        appendUploadedTemplateContext(builder, imageType, payload, analysis, uploadMaterialContext);
-        appendTargetTemplateContext(builder, imageType, targetTemplate);
-        builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
-        builder.append("\n【负面约束】\n");
-        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、未上传或未选择用于当前类型的Logo、水印或装饰文字（参考图配件自身文字除外）。\n");
-        builder.append("\n【生成前自检清单】\n");
-        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图和深析结果一致；2. 是否没有套用其他手机型号镜头膜结构；3. 是否只出现允许物品；4. 是否没有额外黑/白小袋、包装盒、支架、底座、展示道具；5. 若出现清洁/安装辅助配件，是否与参考图形状、颜色、尺寸比例和可见文字一致；6. 套装配件数量是否严格正确；7. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
-        builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
-        return builder.toString();
-    }
-
-    private void appendCameraProtectorCriticalRules(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            Map<String, String> analysis
-    ) {
-        String allAnalysis = analysis == null
-                ? ""
-                : String.join("\n", analysis.values().stream().filter(value -> value != null && !value.isBlank()).toList());
-        if (!hasLensProtector(payload, allAnalysis)) {
-            return;
-        }
-        builder.append("【镜头膜关键结构智能锁定】\n");
-        builder.append("镜头膜必须按上传图和深析结果识别当前手机型号，不要套用任意其他品牌或型号的通用镜头膜结构。\n");
-        builder.append("必须锁定：一体式片状或分离镜圈形态、外轮廓、异形边缘、缺口/台阶、孔位数量、孔位相对位置、每个孔位大小差异。\n");
-        builder.append("如果深析结果写明某些孔位大小不同、排列不对称或外轮廓有特殊凹凸，必须保留这些差异；不能把不同大小孔做成等大，也不能增加/删除/移动孔位。\n");
-        builder.append("如果画面较小导致看不清，必须放大镜头膜或用近景展示孔位差异；孔洞保持真实贯穿开孔，不填入额外镜片、黑色圆点或装饰圈。\n\n");
-    }
-
-    private void appendAllowedObjectsContext(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            UploadMaterialContext uploadMaterialContext,
-            String imageType
-    ) {
-        builder.append("【允许出现物品白名单】\n");
-        builder.append("只允许出现：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的一体式镜头膜");
-        String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        if (!"未选择".equals(kitSpecText)) {
-            builder.append("、套装配件（").append(kitSpecText).append("）");
-        }
-        if (hasUsableLogoImage(payload, uploadMaterialContext, imageType)) {
-            builder.append("、已上传且选择当前类型使用的Logo图");
-        }
-        if (hasUsableWallpaperImage(payload, uploadMaterialContext, imageType)) {
-            builder.append("、已上传且选择当前类型使用的壁纸图");
-        }
-        builder.append("。\n");
-        builder.append("客户明确可用产品范围：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件范围：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。Logo/壁纸仅在上方白名单列出时允许出现；未选择、未上传或不在这个范围内的物品都不要出现。\n");
-        builder.append("除上述白名单外，不要生成任何额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
-        appendAccessoryReferenceRule(builder, kitSpecText);
-        builder.append("\n");
-    }
-
-    private void appendPromptAssetWhitelist(StringBuilder builder, String basePrompt) {
-        String normalizedPrompt = normalizeNullable(basePrompt);
-        if (normalizedPrompt.contains("【Logo】已上传Logo参考图")
-                || normalizedPrompt.contains("已上传Logo参考图")) {
-            builder.append("、已上传且当前类型启用的Logo图");
-        }
-        if (normalizedPrompt.contains("【壁纸】已上传壁纸参考图")
-                || normalizedPrompt.contains("已上传壁纸参考图")) {
-            builder.append("、已上传且当前类型启用的壁纸图");
-        }
-    }
-
-    private void appendAccessoryReferenceRule(StringBuilder builder, String kitSpecText) {
-        if (hasSelectedAccessory(kitSpecText)) {
-            builder.append(ACCESSORY_REFERENCE_RULE).append("\n");
-        } else {
-            builder.append("未选择或上传清洁/安装辅助配件时，不要生成任何小袋、清洁包、湿巾包、除尘贴、无尘布、定位器、刮板、辅助贴或防滑垫。\n");
-        }
-    }
-
-    private boolean hasSelectedAccessory(String kitSpecText) {
-        String normalized = normalizeNullable(kitSpecText).toLowerCase();
-        return !"未选择".equals(normalized)
-                && (normalized.contains("酒精")
-                || normalized.contains("清洁")
-                || normalized.contains("湿巾")
-                || normalized.contains("除尘")
-                || normalized.contains("无尘")
-                || normalized.contains("定位")
-                || normalized.contains("刮板")
-                || normalized.contains("辅助贴")
-                || normalized.contains("防滑")
-                || normalized.contains("wet wipes")
-                || normalized.contains("wipe"));
-    }
-
-    private void appendFilmTypeLock(StringBuilder builder, ImageTaskPayload payload) {
-        boolean hasHdFilm = hasHdFilm(payload);
-        boolean hasPrivacyFilm = hasPrivacyFilm(payload);
-        if (!hasHdFilm && !hasPrivacyFilm) {
-            return;
-        }
-        builder.append("【膜类型锁定】\n");
-        if (hasHdFilm) {
-            builder.append("高清/钢化膜必须表现为透明、清亮、高透玻璃质感，可以有浅蓝边缘高光；不要生成成褐色、灰黑色、暗色防窥膜。\n");
-        }
-        if (hasPrivacyFilm) {
-            builder.append("防窥膜必须表现为深色、灰黑或轻微褐色防窥质感，从斜角可见暗色防窥效果；不要生成成完全透明的高清膜。\n");
-        }
-        if (hasHdFilm && hasPrivacyFilm) {
-            builder.append("同一套装同时包含高清/钢化膜和防窥膜时，两类膜要按数量分开摆放并用材质颜色区分，不能互相替换或合并。\n");
-        }
-        builder.append("\n");
-    }
-
-    private void appendPerImageFilmTypeAudit(StringBuilder builder, ImageTaskPayload payload) {
-        boolean hasHdFilm = hasHdFilm(payload);
-        boolean hasPrivacyFilm = hasPrivacyFilm(payload);
-        if (!hasHdFilm && !hasPrivacyFilm) {
-            return;
-        }
-        builder.append("膜类型自检：");
-        if (hasHdFilm) {
-            builder.append("高清/钢化膜保持透明清亮，不要变成褐色或暗色防窥膜；");
-        }
-        if (hasPrivacyFilm) {
-            builder.append("防窥膜保持深色/灰黑/轻微褐色防窥质感，不要变成普通透明膜；");
-        }
-        builder.append("\n");
-    }
-
-    private boolean hasHdFilm(ImageTaskPayload payload) {
-        if (Boolean.TRUE.equals(payload.hdEnabled()) && positive(payload.hdQuantity()) > 0) {
-            return true;
-        }
-        return hasKitSpecName(payload, "高清") || hasKitSpecName(payload, "钢化膜");
-    }
-
-    private boolean hasPrivacyFilm(ImageTaskPayload payload) {
-        if (Boolean.TRUE.equals(payload.privacyEnabled()) && positive(payload.privacyQuantity()) > 0) {
-            return true;
-        }
-        return hasKitSpecName(payload, "防窥");
-    }
-
-    private boolean hasKitSpecName(ImageTaskPayload payload, String keyword) {
-        if (payload.kitSpecs() == null || payload.kitSpecs().isEmpty()) {
-            return false;
-        }
-        return payload.kitSpecs().stream()
-                .filter(spec -> spec != null && positive(spec.quantity()) > 0)
-                .map(ImageTaskKitSpec::name)
-                .filter(name -> name != null && !name.isBlank())
-                .anyMatch(name -> name.contains(keyword));
-    }
-
-    private boolean hasLensProtector(ImageTaskPayload payload, String analysisText) {
-        String normalizedAnalysis = normalizeNullable(analysisText);
-        return normalizedAnalysis.contains("镜头膜")
-                || normalizedAnalysis.contains("镜头保护")
-                || joinList(payload.sellingPoints()).contains("镜头保护");
-    }
-
-    private void appendKitLock(StringBuilder builder, ImageTaskPayload payload) {
-        String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        if ("未选择".equals(kitSpecText)) {
-            return;
-        }
-        builder.append("【套装规格数量锁定】").append(kitSpecText).append("\n");
-        builder.append("套装规格里的每一种配件都必须按数量准确出现：数量为 1 只出现 1 个，数量为 2 只出现 2 个；未选择的配件不要出现。\n");
-        appendAccessoryReferenceContext(builder, payload.kitSpecs());
-        builder.append("\n");
-    }
-
-    private void appendAccessoryReferenceContext(StringBuilder builder, List<ImageTaskKitSpec> specs) {
-        List<ExtraAccessoryService.ExtraAccessoryRecord> accessories = accessoryRecords(specs);
-        if (accessories.isEmpty()) {
-            builder.append("【配件参考图】未找到已保存的配件图片，请仅按套装规格文字生成。\n");
-            return;
-        }
-        builder.append("【配件参考图】已将以下配件图片作为生图参考图传入：")
-                .append(String.join("、", accessories.stream().map(ExtraAccessoryService.ExtraAccessoryRecord::name).toList()))
-                .append("。生成时必须参考对应配件图片的形状、颜色、材质、封边/标签区域、图案和可见文字，并按套装规格数量准确摆放；可见文字不要省略、改字或替换成空白块。\n");
-    }
-
-    private void appendUploadedTemplateContext(
-            StringBuilder builder,
-            String imageType,
-            ImageTaskPayload payload,
-            Map<String, String> analysis,
-            UploadMaterialContext uploadMaterialContext
-    ) {
-        if (uploadMaterialContext == null
-                || !uploadMaterialContext.hasTemplateImage()
-                || !usesUploadAsset(payload.templateUsages(), imageType)) {
-            return;
-        }
-        String styleAnalysis = normalizeNullable(analysis == null ? null : analysis.get("排版图"));
-        if (styleAnalysis.isBlank()) {
-            return;
-        }
-        builder.append("【").append(imageType).append("上传排版图风格】")
-                .append(abbreviate(styleAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
-                .append("\n");
-        builder.append("【").append(imageType).append("上传排版图约束】上传排版图已作为低优先级布局参考图传入；只应用构图、背景、光影、空间层次和排版风格；不要照抄模板中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
-    }
-
-    private void appendTargetTemplateContext(
-            StringBuilder builder,
-            String imageType,
-            TargetTemplateService.TargetTemplateRecord targetTemplate
-    ) {
-        if (targetTemplate == null) {
-            return;
-        }
-        builder.append("【").append(imageType).append("排版模板风格】")
-                .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
-                .append("\n");
-        builder.append("【").append(imageType).append("排版模板约束】排版模板图已作为低优先级布局参考图传入；模板只作构图、背景、光影、空间层次和排版风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        return new UploadMaterialContext(
+                imageTaskRepository.countStoredImages(taskId, "template") > 0,
+                imageTaskRepository.countStoredImages(taskId, "logo") > 0,
+                imageTaskRepository.countStoredImages(taskId, "wallpaper") > 0
+        );
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {
@@ -1301,7 +718,11 @@ public class ImageTaskQueueService {
             throw new IllegalArgumentException("任务参数不能为空");
         }
         try {
-            return objectMapper.readValue(payloadJson, ImageTaskPayload.class);
+            ImageTaskPayload payload = objectMapper.readValue(payloadJson, ImageTaskPayload.class);
+            if (payload == null) {
+                throw new IllegalArgumentException("任务参数不能为空");
+            }
+            return payload;
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("任务参数格式错误", ex);
         }
@@ -1365,852 +786,6 @@ public class ImageTaskQueueService {
                 .toList();
     }
 
-    private void insertTask(
-            Connection connection,
-            String taskId,
-            ImageTaskPayload payload,
-            List<StoredTaskFile> files,
-            Thumbnail thumbnail
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                insert into image_tasks (
-                  id, product_name, status, payload_json,
-                  thumbnail, thumbnail_content_type, thumbnail_file_name,
-                  real_photo_count, package_image_count, template_count
-                ) values (?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?)
-                """)) {
-            statement.setString(1, taskId);
-            statement.setString(2, payload.productName());
-            statement.setString(3, toJson(payload));
-            statement.setBytes(4, thumbnail.bytes());
-            statement.setString(5, thumbnail.contentType());
-            statement.setString(6, thumbnail.fileName());
-            statement.setInt(7, countGroup(files, "realPhoto"));
-            statement.setInt(8, 0);
-            statement.setInt(9, countGroup(files, "template"));
-            statement.executeUpdate();
-        }
-    }
-
-    private void insertFiles(Connection connection, String taskId, List<StoredTaskFile> files) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                insert into image_task_files (
-                  task_id, file_group, file_name, content_type, file_size, content, sort_order
-                ) values (?, ?, ?, ?, ?, ?, ?)
-                """)) {
-            for (StoredTaskFile file : files) {
-                statement.setString(1, taskId);
-                statement.setString(2, file.fileGroup());
-                statement.setString(3, file.fileName());
-                statement.setString(4, file.contentType());
-                statement.setLong(5, file.bytes().length);
-                statement.setBytes(6, file.bytes());
-                statement.setInt(7, file.sortOrder());
-                statement.addBatch();
-            }
-            statement.executeBatch();
-        }
-    }
-
-    private List<StoredTaskFile> toStoredTaskFiles(String fileGroup, List<MultipartFile> files) {
-        if (files == null || files.isEmpty()) {
-            return List.of();
-        }
-        List<StoredTaskFile> storedFiles = new ArrayList<>();
-        int index = 0;
-        for (MultipartFile file : files) {
-            if (file == null || file.isEmpty()) {
-                continue;
-            }
-            try {
-                storedFiles.add(new StoredTaskFile(
-                        fileGroup,
-                        normalizeText(file.getOriginalFilename(), "upload-" + index),
-                        normalizeText(file.getContentType(), "application/octet-stream"),
-                        file.getBytes(),
-                        index++
-                ));
-            } catch (IOException ex) {
-                throw new IllegalStateException("读取上传图片失败：" + file.getOriginalFilename(), ex);
-            }
-        }
-        return storedFiles;
-    }
-
-    private Thumbnail createThumbnail(List<StoredTaskFile> files) {
-        if (files.isEmpty()) {
-            return new Thumbnail(null, null, null);
-        }
-        StoredTaskFile source = files.get(0);
-        try {
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(source.bytes()));
-            if (image == null) {
-                return new Thumbnail(source.bytes(), source.contentType(), source.fileName());
-            }
-            BufferedImage resized = resizeToRgb(image);
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
-            try (ImageOutputStream imageOutput = ImageIO.createImageOutputStream(output)) {
-                writer.setOutput(imageOutput);
-                ImageWriteParam params = writer.getDefaultWriteParam();
-                if (params.canWriteCompressed()) {
-                    params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-                    params.setCompressionQuality(0.76f);
-                }
-                writer.write(null, new IIOImage(resized, null, null), params);
-            } finally {
-                writer.dispose();
-            }
-            return new Thumbnail(output.toByteArray(), "image/jpeg", source.fileName());
-        } catch (IOException ex) {
-            return new Thumbnail(source.bytes(), source.contentType(), source.fileName());
-        }
-    }
-
-    private BufferedImage resizeToRgb(BufferedImage source) {
-        double scale = Math.min(1D, (double) THUMB_MAX_EDGE / Math.max(source.getWidth(), source.getHeight()));
-        int targetWidth = Math.max(1, (int) Math.round(source.getWidth() * scale));
-        int targetHeight = Math.max(1, (int) Math.round(source.getHeight() * scale));
-        BufferedImage target = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = target.createGraphics();
-        try {
-            graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, targetWidth, targetHeight);
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            graphics.drawImage(source, 0, 0, targetWidth, targetHeight, null);
-        } finally {
-            graphics.dispose();
-        }
-        return target;
-    }
-
-    private TaskRecord findTask(Connection connection, String taskId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("select * from image_tasks where id = ?")) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return readTaskRecord(resultSet);
-                }
-            }
-        }
-        return null;
-    }
-
-    private TaskRecord findTask(String taskId) {
-        try (Connection connection = dataSource.getConnection()) {
-            return findTask(connection, taskId);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务失败：" + taskId, ex);
-        }
-    }
-
-    private ResultRecord findResult(Connection connection, String taskId, long resultId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select * from image_task_results where task_id = ? and id = ?
-                """)) {
-            statement.setString(1, taskId);
-            statement.setLong(2, resultId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return readResultRecord(resultSet);
-                }
-            }
-        }
-        return null;
-    }
-
-    private List<ResultRecord> completedResults(Connection connection, String taskId) throws SQLException {
-        List<ResultRecord> results = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select * from image_task_results
-                where task_id = ? and status = 'COMPLETED'
-                order by
-                  case result_type when '主图' then 1 when '介绍图' then 2 else 9 end,
-                  item_index asc,
-                  version_index asc,
-                  id asc
-                """)) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    results.add(readResultRecord(resultSet));
-                }
-            }
-        }
-        return results;
-    }
-
-    private ResultRecord readResultRecord(ResultSet resultSet) throws SQLException {
-        return new ResultRecord(
-                resultSet.getLong("id"),
-                resultSet.getString("task_id"),
-                resultSet.getString("result_type"),
-                resultSet.getInt("item_index"),
-                nullableLong(resultSet, "parent_result_id"),
-                Math.max(1, resultSet.getInt("version_index")),
-                resultSet.getString("status"),
-                resultSet.getString("prompt"),
-                resultSet.getString("image_url"),
-                resultSet.getString("image_base64"),
-                resultSet.getString("edit_suggestion"),
-                resultSet.getString("error_message")
-        );
-    }
-
-    private int nextVersionIndex(Connection connection, String taskId, String resultType, int itemIndex) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select coalesce(max(version_index), 1) + 1 as next_version
-                from image_task_results
-                where task_id = ? and result_type = ? and item_index = ?
-                """)) {
-            statement.setString(1, taskId);
-            statement.setString(2, resultType);
-            statement.setInt(3, itemIndex);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return Math.max(2, resultSet.getInt("next_version"));
-                }
-            }
-        }
-        return 2;
-    }
-
-    private TaskRecord readTaskRecord(ResultSet resultSet) throws SQLException {
-        ImageTaskPayload payload = parsePayload(resultSet.getString("payload_json"));
-        return new TaskRecord(
-                resultSet.getString("id"),
-                resultSet.getString("product_name"),
-                resultSet.getString("status"),
-                resultSet.getString("payload_json"),
-                payload,
-                parseAnalysis(resultSet.getString("analysis_json")),
-                resultSet.getString("final_main_prompt"),
-                resultSet.getString("final_intro_prompt"),
-                resultSet.getBytes("thumbnail"),
-                resultSet.getString("thumbnail_content_type"),
-                resultSet.getString("thumbnail_file_name"),
-                resultSet.getInt("real_photo_count"),
-                resultSet.getInt("package_image_count"),
-                resultSet.getInt("template_count"),
-                resultSet.getString("error_message"),
-                formatTime(resultSet.getTimestamp("created_at")),
-                formatTime(resultSet.getTimestamp("updated_at")),
-                formatTime(resultSet.getTimestamp("started_at")),
-                formatTime(resultSet.getTimestamp("completed_at"))
-        );
-    }
-
-    private ImageTaskSummary toSummary(Connection connection, TaskRecord record) throws SQLException {
-        ResultStats stats = progressStats(connection, record);
-        return new ImageTaskSummary(
-                record.id(),
-                record.productName(),
-                record.status(),
-                statusText(record.status()),
-                record.createdAt(),
-                record.updatedAt(),
-                thumbnailDataUrl(record),
-                normalizeText(record.thumbnailFileName(), "暂无缩略图"),
-                fileSummary(record),
-                record.payload(),
-                stats.completed(),
-                stats.total(),
-                record.errorMessage()
-        );
-    }
-
-    private ImageTaskDetail toDetail(Connection connection, TaskRecord record) throws SQLException {
-        ResultStats stats = progressStats(connection, record);
-        return new ImageTaskDetail(
-                record.id(),
-                record.productName(),
-                record.status(),
-                statusText(record.status()),
-                record.createdAt(),
-                record.updatedAt(),
-                record.startedAt(),
-                record.completedAt(),
-                thumbnailDataUrl(record),
-                normalizeText(record.thumbnailFileName(), "暂无缩略图"),
-                fileSummary(record),
-                record.payload(),
-                record.payload().kitSpecs() == null ? List.of() : record.payload().kitSpecs(),
-                listTaskFiles(connection, record.id()),
-                record.analysis(),
-                detailFinalPrompt(record, "主图"),
-                detailFinalPrompt(record, "介绍图"),
-                listResults(connection, record.id()),
-                stats.completed(),
-                stats.total(),
-                record.errorMessage()
-        );
-    }
-
-    private String detailFinalPrompt(TaskRecord record, String imageType) {
-        String storedPrompt = "主图".equals(imageType) ? record.finalMainPrompt() : record.finalIntroPrompt();
-        if (storedPrompt == null || storedPrompt.isBlank() || storedPrompt.contains("【上传图深析结果】")) {
-            return storedPrompt;
-        }
-        Map<String, String> analysis = record.analysis();
-        if (analysis == null || analysis.isEmpty()) {
-            return storedPrompt;
-        }
-        DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
-        String basePrompt = "主图".equals(imageType)
-                ? generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt())
-                : generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt());
-        TargetTemplateService.TargetTemplateRecord targetTemplate = "主图".equals(imageType)
-                ? resolveTargetTemplate(record.payload().mainTargetTemplateId(), "MAIN", "主图")
-                : resolveTargetTemplate(record.payload().introTargetTemplateId(), "INTRO", "介绍图");
-        return buildGenerationPrompt(imageType, basePrompt, record.payload(), analysis, UploadMaterialContext.unknown(), targetTemplate);
-    }
-
-    private List<ImageTaskResultView> listResults(Connection connection, String taskId) throws SQLException {
-        List<ImageTaskResultView> results = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select * from image_task_results
-                where task_id = ?
-                order by
-                  case result_type when '主图' then 1 when '介绍图' then 2 else 9 end,
-                  item_index asc,
-                  version_index asc,
-                  id asc
-                """)) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    results.add(new ImageTaskResultView(
-                            resultSet.getLong("id"),
-                            resultSet.getString("result_type"),
-                            resultSet.getInt("item_index"),
-                            nullableLong(resultSet, "parent_result_id"),
-                            resultSet.getInt("version_index"),
-                            resultSet.getString("status"),
-                            statusText(resultSet.getString("status")),
-                            resultSet.getString("prompt"),
-                            resultSet.getString("image_url"),
-                            resultSet.getString("image_base64"),
-                            null,
-                            resultSet.getString("edit_suggestion"),
-                            resultSet.getString("error_message"),
-                            formatTime(resultSet.getTimestamp("created_at")),
-                            formatTime(resultSet.getTimestamp("updated_at"))
-                    ));
-                }
-            }
-        }
-        return results;
-    }
-
-    private Map<String, List<ImageTaskFileView>> listTaskFiles(Connection connection, String taskId) throws SQLException {
-        Map<String, List<ImageTaskFileView>> files = new LinkedHashMap<>();
-        files.put("实拍图", new ArrayList<>());
-        files.put("排版图", new ArrayList<>());
-        files.put("Logo图", new ArrayList<>());
-        files.put("壁纸图", new ArrayList<>());
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select id, file_group, file_name, content_type, file_size, content
-                from image_task_files
-                where task_id = ?
-                order by file_group asc, sort_order asc, id asc
-                """)) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    String group = resultSet.getString("file_group");
-                    String groupName = fileGroupName(group);
-                    StoredTaskFile storedFile = new StoredTaskFile(
-                            group,
-                            resultSet.getString("file_name"),
-                            resultSet.getString("content_type"),
-                            resultSet.getBytes("content"),
-                            0
-                    );
-                    Thumbnail thumbnail = createThumbnail(List.of(storedFile));
-                    String preview = thumbnail.bytes() == null || thumbnail.bytes().length == 0
-                            ? ""
-                            : "data:" + normalizeText(thumbnail.contentType(), "image/jpeg") + ";base64,"
-                            + Base64.getEncoder().encodeToString(thumbnail.bytes());
-                    files.computeIfAbsent(groupName, ignored -> new ArrayList<>()).add(new ImageTaskFileView(
-                            resultSet.getLong("id"),
-                            group,
-                            groupName,
-                            resultSet.getString("file_name"),
-                            resultSet.getString("content_type"),
-                            resultSet.getLong("file_size"),
-                            preview
-                    ));
-                }
-            }
-        }
-        return files;
-    }
-
-    private ResultStats progressStats(Connection connection, TaskRecord record) throws SQLException {
-        ResultStats generationStats = generationResultStats(connection, record.id());
-        int analysisTotal = countAnalyzableStoredImages(connection, record.id());
-        int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
-        int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
-        int analysisCompleted = analysisCompletedCount(connection, record, analysisTotal);
-        int total = analysisTotal + generationTotal;
-        int completed = analysisCompleted + generationStats.completed();
-        if ("COMPLETED".equals(record.status())) {
-            completed = total;
-        }
-        return new ResultStats(Math.min(completed, total), total);
-    }
-
-    private ResultStats generationResultStats(Connection connection, String taskId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select
-                  count(*) as total_count,
-                  sum(case when status = 'COMPLETED' then 1 else 0 end) as completed_count
-                from image_task_results where task_id = ?
-                """)) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return new ResultStats(resultSet.getInt("completed_count"), resultSet.getInt("total_count"));
-                }
-            }
-        }
-        return new ResultStats(0, 0);
-    }
-
-    private int analysisCompletedCount(Connection connection, TaskRecord record, int analysisTotal) throws SQLException {
-        if (analysisTotal == 0) {
-            return 0;
-        }
-        if ("GENERATING".equals(record.status()) || "COMPLETED".equals(record.status())) {
-            return analysisTotal;
-        }
-        return Math.min(analysisTotal, analyzedStoredImageCount(connection, record.id(), record.analysis()));
-    }
-
-    private int analyzedStoredImageCount(Connection connection, String taskId, Map<String, String> analysis) throws SQLException {
-        if (analysis == null || analysis.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        for (Map.Entry<String, String> entry : analysis.entrySet()) {
-            if (entry.getValue() == null || entry.getValue().isBlank()) {
-                continue;
-            }
-            String fileGroup = fileGroupCode(entry.getKey());
-            if (!fileGroup.isBlank()) {
-                count += countStoredImages(connection, taskId, fileGroup);
-            }
-        }
-        return count;
-    }
-
-    private int countStoredImages(Connection connection, String taskId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*) from image_task_files where task_id = ?
-                """)) {
-            statement.setString(1, taskId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() ? resultSet.getInt(1) : 0;
-            }
-        }
-    }
-
-    private int countAnalyzableStoredImages(Connection connection, String taskId) throws SQLException {
-        return countStoredImages(connection, taskId, "realPhoto")
-                + countStoredImages(connection, taskId, "template");
-    }
-
-    private int countStoredImages(Connection connection, String taskId, String fileGroup) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*) from image_task_files where task_id = ? and file_group = ?
-                """)) {
-            statement.setString(1, taskId);
-            statement.setString(2, fileGroup);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() ? resultSet.getInt(1) : 0;
-            }
-        }
-    }
-
-    private List<StoredUploadImage> readStoredImages(String taskId, String fileGroup) {
-        try (Connection connection = dataSource.getConnection()) {
-            return readStoredImages(connection, taskId, fileGroup);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("读取任务素材失败：" + taskId + "/" + fileGroup, ex);
-        }
-    }
-
-    private List<StoredUploadImage> readStoredImages(Connection connection, String taskId, String fileGroup) throws SQLException {
-        List<StoredUploadImage> images = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select file_name, content_type, content from image_task_files
-                where task_id = ? and file_group = ?
-                order by sort_order asc, id asc
-                """)) {
-            statement.setString(1, taskId);
-            statement.setString(2, fileGroup);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    images.add(new StoredUploadImage(
-                            resultSet.getString("file_name"),
-                            resultSet.getString("content_type"),
-                            resultSet.getBytes("content")
-                    ));
-                }
-            }
-        }
-        return images;
-    }
-
-    private void saveAnalysisAndPrompts(
-            String taskId,
-            Map<String, String> analysis,
-            String finalMainPrompt,
-            String finalIntroPrompt
-    ) {
-        try (Connection connection = dataSource.getConnection()) {
-            saveAnalysisAndPrompts(connection, taskId, analysis, finalMainPrompt, finalIntroPrompt);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存深析结果和最终提示词失败：" + taskId, ex);
-        }
-    }
-
-    private void savePartialAnalysis(String taskId, Map<String, String> analysis) {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     update image_tasks
-                     set analysis_json = ?, updated_at = current_timestamp(3)
-                     where id = ?
-                     """)) {
-            statement.setString(1, toJson(analysis));
-            statement.setString(2, taskId);
-            statement.executeUpdate();
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存深析进度失败：" + taskId, ex);
-        }
-    }
-
-    private void saveAnalysisAndPrompts(
-            Connection connection,
-            String taskId,
-            Map<String, String> analysis,
-            String finalMainPrompt,
-            String finalIntroPrompt
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_tasks
-                set analysis_json = ?, final_main_prompt = ?, final_intro_prompt = ?, updated_at = current_timestamp(3)
-                where id = ?
-                """)) {
-            statement.setString(1, toJson(analysis));
-            statement.setString(2, finalMainPrompt);
-            statement.setString(3, finalIntroPrompt);
-            statement.setString(4, taskId);
-            statement.executeUpdate();
-        }
-    }
-
-    private void clearResults(String taskId) {
-        try (Connection connection = dataSource.getConnection()) {
-            clearResults(connection, taskId);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("清理旧生成结果失败：" + taskId, ex);
-        }
-    }
-
-    private void clearResults(Connection connection, String taskId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("delete from image_task_results where task_id = ?")) {
-            statement.setString(1, taskId);
-            statement.executeUpdate();
-        }
-    }
-
-    private long insertResult(String taskId, String resultType, int index, String prompt, String status) {
-        try (Connection connection = dataSource.getConnection()) {
-            return insertResult(connection, taskId, resultType, index, prompt, status);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("创建生成结果记录失败：" + taskId, ex);
-        }
-    }
-
-    private long insertResult(Connection connection, String taskId, String resultType, int index, String prompt, String status) throws SQLException {
-        return insertResult(connection, taskId, resultType, index, prompt, status, null, 1, null);
-    }
-
-    private long insertResult(
-            Connection connection,
-            String taskId,
-            String resultType,
-            int index,
-            String prompt,
-            String status,
-            Long parentResultId,
-            int versionIndex,
-            String editSuggestion
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                insert into image_task_results (
-                  task_id, result_type, item_index, status, prompt,
-                  parent_result_id, version_index, edit_suggestion
-                )
-                values (?, ?, ?, ?, ?, ?, ?, ?)
-                """, Statement.RETURN_GENERATED_KEYS)) {
-            statement.setString(1, taskId);
-            statement.setString(2, resultType);
-            statement.setInt(3, index);
-            statement.setString(4, status);
-            statement.setString(5, prompt);
-            if (parentResultId == null) {
-                statement.setNull(6, java.sql.Types.BIGINT);
-            } else {
-                statement.setLong(6, parentResultId);
-            }
-            statement.setInt(7, Math.max(1, versionIndex));
-            statement.setString(8, editSuggestion);
-            statement.executeUpdate();
-            try (ResultSet keys = statement.getGeneratedKeys()) {
-                if (keys.next()) {
-                    return keys.getLong(1);
-                }
-            }
-        }
-        throw new IllegalStateException("创建生成结果记录失败");
-    }
-
-    private void markResultGenerating(long resultId) {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     update image_task_results
-                     set status = 'GENERATING', updated_at = current_timestamp(3)
-                     where id = ? and status = 'QUEUED'
-                     """)) {
-            statement.setLong(1, resultId);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalStateException("生成结果状态不可用，请重试：" + resultId);
-            }
-        } catch (SQLException ex) {
-            throw new IllegalStateException("更新生成结果状态失败：" + resultId, ex);
-        }
-    }
-
-    private boolean completeResult(
-            long resultId,
-            ImageGenerationService.GeneratedImage generatedImage
-    ) {
-        try (Connection connection = dataSource.getConnection()) {
-            return completeResult(connection, resultId, generatedImage);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("保存生成结果失败：" + resultId, ex);
-        }
-    }
-
-    private boolean completeResult(
-            Connection connection,
-            long resultId,
-            ImageGenerationService.GeneratedImage generatedImage
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_task_results
-                set status = 'COMPLETED', image_url = ?, image_base64 = ?, revised_prompt = ?, raw_response = ?,
-                    updated_at = current_timestamp(3)
-                where id = ? and status = 'GENERATING'
-                """)) {
-            statement.setString(1, generatedImage.imageUrl());
-            statement.setString(2, generatedImage.imageBase64());
-            statement.setString(3, generatedImage.revisedPrompt());
-            statement.setString(4, generatedImage.rawResponse());
-            statement.setLong(5, resultId);
-            return statement.executeUpdate() > 0;
-        }
-    }
-
-    private void failResult(long resultId, Exception ex) {
-        try (Connection connection = dataSource.getConnection()) {
-            failResult(connection, resultId, ex);
-        } catch (SQLException sqlEx) {
-            LOG.error("image.task.result-fail-state.failed resultId={}", resultId, sqlEx);
-        }
-    }
-
-    private void failResult(Connection connection, long resultId, Exception ex) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_task_results
-                set status = 'FAILED', error_message = ?, updated_at = current_timestamp(3)
-                where id = ? and status not in ('COMPLETED', 'PAUSED')
-                """)) {
-            statement.setString(1, abbreviate(ex.getMessage(), 4000));
-            statement.setLong(2, resultId);
-            statement.executeUpdate();
-        }
-    }
-
-    private void updateTaskState(
-            String taskId,
-            String status,
-            String errorMessage,
-            boolean markStarted,
-            boolean markCompleted
-    ) {
-        try (Connection connection = dataSource.getConnection()) {
-            updateTaskState(connection, taskId, status, errorMessage, markStarted, markCompleted);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("更新任务状态失败：" + taskId, ex);
-        }
-    }
-
-    private void updateTaskState(
-            Connection connection,
-            String taskId,
-            String status,
-            String errorMessage,
-            boolean markStarted,
-            boolean markCompleted
-    ) throws SQLException {
-        String sql = """
-                update image_tasks
-                set status = ?, error_message = ?, updated_at = current_timestamp(3),
-                    started_at = case when ? then coalesce(started_at, current_timestamp(3)) else started_at end,
-                    completed_at = case when ? then current_timestamp(3) else completed_at end
-                where id = ?
-                  and (
-                    (? = 'FAILED' and status <> 'PAUSED')
-                    or
-                    (? <> 'FAILED' and status not in ('FAILED', 'PAUSED'))
-                  )
-                """;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, status);
-            statement.setString(2, errorMessage);
-            statement.setBoolean(3, markStarted);
-            statement.setBoolean(4, markCompleted);
-            statement.setString(5, taskId);
-            statement.setString(6, status);
-            statement.setString(7, status);
-            statement.executeUpdate();
-        }
-    }
-
-    private void resetTaskForRetry(Connection connection, String taskId) throws SQLException {
-        clearResults(connection, taskId);
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update image_tasks
-                set status = 'QUEUED',
-                    error_message = null,
-                    analysis_json = null,
-                    final_main_prompt = null,
-                    final_intro_prompt = null,
-                    started_at = null,
-                    completed_at = null,
-                    updated_at = current_timestamp(3)
-                where id = ?
-                """)) {
-            statement.setString(1, taskId);
-            statement.executeUpdate();
-        }
-    }
-
-    private void failTask(String taskId, Exception ex) {
-        try (Connection connection = dataSource.getConnection()) {
-            updateTaskState(connection, taskId, "FAILED", abbreviate(ex.getMessage(), 4000), false, true);
-        } catch (SQLException sqlEx) {
-            LOG.error("image.task.fail-state.failed taskId={}", taskId, sqlEx);
-        }
-    }
-
-    private void ensureTables() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
-                    create table if not exists image_tasks (
-                      id varchar(64) primary key,
-                      product_name varchar(255) not null,
-                      status varchar(32) not null,
-                      payload_json longtext not null,
-                      analysis_json longtext null,
-                      final_main_prompt longtext null,
-                      final_intro_prompt longtext null,
-                      thumbnail longblob null,
-                      thumbnail_content_type varchar(128) null,
-                      thumbnail_file_name varchar(255) null,
-                      real_photo_count int not null default 0,
-                      package_image_count int not null default 0,
-                      template_count int not null default 0,
-                      error_message text null,
-                      created_at timestamp(3) not null default current_timestamp(3),
-                      updated_at timestamp(3) not null default current_timestamp(3) on update current_timestamp(3),
-                      started_at timestamp(3) null,
-                      completed_at timestamp(3) null
-                    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
-                    """);
-            statement.executeUpdate("""
-                    create table if not exists image_task_files (
-                      id bigint primary key auto_increment,
-                      task_id varchar(64) not null,
-                      file_group varchar(32) not null,
-                      file_name varchar(255) not null,
-                      content_type varchar(128) not null,
-                      file_size bigint not null,
-                      content longblob not null,
-                      sort_order int not null default 0,
-                      created_at timestamp(3) not null default current_timestamp(3),
-                      index idx_image_task_files_task_group (task_id, file_group),
-                      constraint fk_image_task_files_task foreign key (task_id) references image_tasks(id) on delete cascade
-                    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
-                    """);
-            statement.executeUpdate("""
-                    create table if not exists image_task_results (
-                      id bigint primary key auto_increment,
-                      task_id varchar(64) not null,
-                      result_type varchar(32) not null,
-                      item_index int not null,
-                      status varchar(32) not null,
-                      prompt longtext not null,
-                      image_url text null,
-                      image_base64 longtext null,
-                      revised_prompt longtext null,
-                      raw_response longtext null,
-                      error_message text null,
-                      created_at timestamp(3) not null default current_timestamp(3),
-                      updated_at timestamp(3) not null default current_timestamp(3) on update current_timestamp(3),
-                      index idx_image_task_results_task (task_id),
-                      constraint fk_image_task_results_task foreign key (task_id) references image_tasks(id) on delete cascade
-                    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
-                    """);
-            addColumnIfMissing(connection, "image_task_results", "parent_result_id", "bigint null");
-            addColumnIfMissing(connection, "image_task_results", "version_index", "int not null default 1");
-            addColumnIfMissing(connection, "image_task_results", "edit_suggestion", "text null");
-        } catch (SQLException ex) {
-            throw new IllegalStateException("初始化任务队列表失败", ex);
-        }
-    }
-
-    private void addColumnIfMissing(Connection connection, String tableName, String columnName, String definition) throws SQLException {
-        DatabaseMetaData metadata = connection.getMetaData();
-        try (ResultSet columns = metadata.getColumns(connection.getCatalog(), null, tableName, null)) {
-            while (columns.next()) {
-                if (columnName.equalsIgnoreCase(columns.getString("COLUMN_NAME"))) {
-                    return;
-                }
-            }
-        }
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("alter table " + tableName + " add column " + columnName + " " + definition);
-        }
-    }
-
-    private Map<String, String> parseAnalysis(String value) {
-        if (value == null || value.isBlank()) {
-            return new LinkedHashMap<>();
-        }
-        try {
-            return objectMapper.readValue(value, new TypeReference<>() {
-            });
-        } catch (JsonProcessingException ex) {
-            return new LinkedHashMap<>();
-        }
-    }
-
     private String buildEditPrompt(TaskRecord task, ResultRecord source, String suggestion) {
         StringBuilder builder = new StringBuilder();
         builder.append("基于上传的当前生成图进行局部重修，输出一张新的电商成品图。");
@@ -2227,127 +802,6 @@ public class ImageTaskQueueService {
         }
         builder.append("最终自检：只改变建议中要求改的地方；没有额外袋子/盒子/卡片/托盘；手机膜和镜头膜结构不被通用化。");
         return builder.toString();
-    }
-
-    private StoredUploadImage resultReferenceImage(ResultRecord result) {
-        DecodedImage decoded = decodeImageBase64(result.imageBase64());
-        if (decoded.bytes().length == 0) {
-            throw new IllegalStateException("当前结果没有可用于重修的本地图片数据，请选择带有接口返回图片数据的结果");
-        }
-        return new StoredUploadImage(
-                result.resultType() + "-" + result.itemIndex() + "-v" + result.versionIndex() + "." + decoded.extension(),
-                decoded.contentType(),
-                decoded.bytes()
-        );
-    }
-
-    private List<String> uniqueTaskIds(List<String> taskIds) {
-        if (taskIds == null || taskIds.isEmpty()) {
-            return List.of();
-        }
-        List<String> values = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (String taskId : taskIds) {
-            if (taskId == null || taskId.isBlank()) {
-                continue;
-            }
-            String normalized = taskId.trim();
-            if (seen.add(normalized)) {
-                values.add(normalized);
-            }
-        }
-        return values;
-    }
-
-    private int addResultToZip(ZipOutputStream zipOutput, String folder, ResultRecord result) throws IOException {
-        String baseName = sanitizeFileName(result.resultType() + "-" + result.itemIndex() + "-v" + result.versionIndex());
-        DecodedImage decoded = decodeImageBase64(result.imageBase64());
-        if (decoded.bytes().length > 0) {
-            zipOutput.putNextEntry(new ZipEntry(folder + baseName + "." + decoded.extension()));
-            zipOutput.write(decoded.bytes());
-            zipOutput.closeEntry();
-            return 1;
-        }
-        if (result.imageUrl() != null && !result.imageUrl().isBlank()) {
-            zipOutput.putNextEntry(new ZipEntry(folder + baseName + "-image-url.txt"));
-            zipOutput.write(result.imageUrl().getBytes(StandardCharsets.UTF_8));
-            zipOutput.closeEntry();
-            return 1;
-        }
-        return 0;
-    }
-
-    private DecodedImage decodeImageBase64(String value) {
-        if (value == null || value.isBlank()) {
-            return new DecodedImage(new byte[0], "image/png", "png");
-        }
-        String contentType = "image/png";
-        String payload = value.trim();
-        int commaIndex = payload.indexOf(',');
-        if (payload.startsWith("data:") && commaIndex > 0) {
-            int typeEnd = payload.indexOf(';');
-            if (typeEnd > 5) {
-                contentType = payload.substring(5, typeEnd);
-            }
-            payload = payload.substring(commaIndex + 1);
-        }
-        try {
-            return new DecodedImage(Base64.getDecoder().decode(payload), contentType, imageExtension(contentType));
-        } catch (IllegalArgumentException ex) {
-            return new DecodedImage(new byte[0], contentType, imageExtension(contentType));
-        }
-    }
-
-    private String imageExtension(String contentType) {
-        String normalized = contentType == null ? "" : contentType.toLowerCase();
-        if (normalized.contains("jpeg") || normalized.contains("jpg")) {
-            return "jpg";
-        }
-        if (normalized.contains("webp")) {
-            return "webp";
-        }
-        if (normalized.contains("gif")) {
-            return "gif";
-        }
-        return "png";
-    }
-
-    private String uniqueFolderName(String productName, String taskId, Set<String> usedFolders) {
-        String baseName = sanitizeFileName(productName);
-        String candidate = baseName;
-        if (!usedFolders.add(candidate)) {
-            String suffix = taskId == null || taskId.length() < 8 ? normalizeText(taskId, "task") : taskId.substring(0, 8);
-            candidate = sanitizeFileName(baseName + "-" + suffix);
-            int index = 2;
-            while (!usedFolders.add(candidate)) {
-                candidate = sanitizeFileName(baseName + "-" + suffix + "-" + index);
-                index++;
-            }
-        }
-        return candidate;
-    }
-
-    private String sanitizeFileName(String value) {
-        String normalized = normalizeText(value, "image-task").trim();
-        if (normalized.isBlank()) {
-            normalized = "image-task";
-        }
-        normalized = normalized.replaceAll("[\\\\/:*?\"<>|\\r\\n]+", "_");
-        normalized = normalized.replaceAll("\\s+", " ").trim();
-        return normalized.isBlank() ? "image-task" : abbreviate(normalized, 120);
-    }
-
-    private Long nullableLong(ResultSet resultSet, String column) throws SQLException {
-        long value = resultSet.getLong(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("序列化任务数据失败", ex);
-        }
     }
 
     private boolean requiresGeneration(ImageTaskPayload payload) {
@@ -2399,37 +853,6 @@ public class ImageTaskQueueService {
         return Math.max(IMAGE_SIZE_STEP, Math.round((float) normalized / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
     }
 
-    private int countGroup(List<StoredTaskFile> files, String fileGroup) {
-        return (int) files.stream().filter(file -> fileGroup.equals(file.fileGroup())).count();
-    }
-
-    private Map<String, Integer> fileSummary(TaskRecord record) {
-        Map<String, Integer> summary = new LinkedHashMap<>();
-        summary.put("实拍图", record.realPhotoCount());
-        summary.put("排版图", record.templateCount());
-        return summary;
-    }
-
-    private String fileGroupName(String fileGroup) {
-        return switch (fileGroup == null ? "" : fileGroup) {
-            case "realPhoto" -> "实拍图";
-            case "template" -> "排版图";
-            case "logo" -> "Logo图";
-            case "wallpaper" -> "壁纸图";
-            default -> fileGroup;
-        };
-    }
-
-    private String fileGroupCode(String label) {
-        return switch (label == null ? "" : label) {
-            case "实拍图" -> "realPhoto";
-            case "排版图" -> "template";
-            case "Logo图" -> "logo";
-            case "壁纸图" -> "wallpaper";
-            default -> "";
-        };
-    }
-
     private boolean usesUploadAsset(List<String> usages, String imageType) {
         String usageCode = usageCode(imageType);
         if (usageCode.isBlank()) {
@@ -2447,7 +870,7 @@ public class ImageTaskQueueService {
     }
 
     private List<String> normalizeUsageList(List<String> usages) {
-        if (usages == null) {
+        if (usages == null || usages.isEmpty()) {
             return List.of(USAGE_MAIN, USAGE_INTRO);
         }
         List<String> normalized = usages.stream()
@@ -2456,137 +879,23 @@ public class ImageTaskQueueService {
                 .filter(value -> USAGE_MAIN.equals(value) || USAGE_INTRO.equals(value))
                 .distinct()
                 .toList();
-        return normalized;
-    }
-
-    private boolean hasUsableLogoImage(ImageTaskPayload payload, UploadMaterialContext uploadMaterialContext, String imageType) {
-        return uploadMaterialContext != null
-                && uploadMaterialContext.hasLogoImage()
-                && usesUploadAsset(payload.logoUsages(), imageType);
-    }
-
-    private boolean hasUsableWallpaperImage(ImageTaskPayload payload, UploadMaterialContext uploadMaterialContext, String imageType) {
-        return uploadMaterialContext != null
-                && uploadMaterialContext.hasWallpaperImage()
-                && usesUploadAsset(payload.wallpaperUsages(), imageType);
-    }
-
-    private String thumbnailDataUrl(TaskRecord record) {
-        if (record.thumbnail() == null || record.thumbnail().length == 0) {
-            return "";
-        }
-        String contentType = normalizeText(record.thumbnailContentType(), "image/jpeg");
-        return "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(record.thumbnail());
-    }
-
-    private String statusText(String status) {
-        return switch (status == null ? "" : status) {
-            case "QUEUED" -> "待生成";
-            case "ANALYZING" -> "正在深析";
-            case "GENERATING" -> "正在生图";
-            case "PAUSED" -> "已暂停";
-            case "COMPLETED" -> "已完成";
-            case "FAILED" -> "失败";
-            default -> status;
-        };
-    }
-
-    private boolean isRunningStatus(String status) {
-        return "QUEUED".equals(status) || "ANALYZING".equals(status) || "GENERATING".equals(status);
-    }
-
-    private String joinList(List<String> values) {
-        if (values == null || values.isEmpty()) {
-            return "未选择";
-        }
-        return String.join("、", values.stream().filter(value -> value != null && !value.isBlank()).toList());
-    }
-
-    private String joinKitSpecs(List<ImageTaskKitSpec> specs) {
-        if (specs == null || specs.isEmpty()) {
-            return "未选择";
-        }
-        List<String> items = specs.stream()
-                .filter(spec -> spec != null && spec.name() != null && !spec.name().isBlank())
-                .filter(spec -> positive(spec.quantity()) > 0)
-                .map(spec -> spec.name() + " x " + positive(spec.quantity()))
-                .toList();
-        return items.isEmpty() ? "未选择" : String.join("、", items);
-    }
-
-    private void appendLogoContext(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            UploadMaterialContext uploadMaterialContext,
-            String imageType
-    ) {
-        boolean hasLogoImage = hasUsableLogoImage(payload, uploadMaterialContext, imageType);
-        String logoName = normalizeNullable(payload.logoName());
-        if (logoName.isEmpty() && !hasLogoImage) {
-            return;
-        }
-        builder.append("【Logo】");
-        if (!logoName.isEmpty()) {
-            builder.append(logoName);
-        }
-        if (hasLogoImage) {
-            if (!logoName.isEmpty()) {
-                builder.append("；");
-            }
-            builder.append("已上传Logo参考图，生成时直接按原图外观贴到画面/产品展示中，不要识别、重绘、改字、换色或编造品牌");
-        }
-        builder.append("\n");
-    }
-
-    private void appendWallpaperContext(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            UploadMaterialContext uploadMaterialContext,
-            String imageType
-    ) {
-        boolean hasWallpaperImage = hasUsableWallpaperImage(payload, uploadMaterialContext, imageType);
-        if (!hasWallpaperImage) {
-            return;
-        }
-        builder.append("【壁纸】已上传壁纸参考图，生成时直接把原图贴到手机屏幕或屏幕展示区域，不要识别、重绘、换图、只借风格或生成相似壁纸");
-        builder.append("\n");
-    }
-
-    private String productTypeText(ImageTaskPayload payload) {
-        int hdQuantity = Boolean.TRUE.equals(payload.hdEnabled()) ? positive(payload.hdQuantity()) : 0;
-        int privacyQuantity = Boolean.TRUE.equals(payload.privacyEnabled()) ? positive(payload.privacyQuantity()) : 0;
-        List<String> items = new ArrayList<>();
-        if (hdQuantity > 0) {
-            items.add("高清 x " + hdQuantity);
-        }
-        if (privacyQuantity > 0) {
-            items.add("防窥 x " + privacyQuantity);
-        }
-        return items.isEmpty() ? "未选择" : String.join("、", items);
-    }
-
-    private String normalizeText(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
-    }
-
-    private String generationBasePrompt(String value, String fallback, String analysisPrompt) {
-        String normalized = normalizeText(value, fallback);
-        if (normalized.equals(normalizeText(analysisPrompt, "")) || looksLikeAnalysisPrompt(normalized)) {
-            return fallback;
-        }
-        return normalized;
+        return normalized.isEmpty() ? List.of(USAGE_MAIN, USAGE_INTRO) : normalized;
     }
 
     private Long positiveId(Long value) {
         return value == null || value <= 0 ? null : value;
     }
 
-    private boolean looksLikeAnalysisPrompt(String value) {
-        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
-        return normalized.contains("请分析上传图片")
-                || normalized.contains("深析上传图")
-                || normalized.contains("只分析图片中与手机膜产品相关的内容")
-                || (normalized.contains("输出要求") && normalized.contains("不要写设计建议"));
+    private TaskRecord requireTask(String taskId) {
+        TaskRecord record = imageTaskRepository.findTask(taskId);
+        if (record == null) {
+            throw new IllegalArgumentException("任务不存在：" + taskId);
+        }
+        return record;
+    }
+
+    private String normalizeText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private String normalizeNullable(String value) {
@@ -2597,118 +906,10 @@ public class ImageTaskQueueService {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
-    private String formatTime(Timestamp timestamp) {
-        return timestamp == null
-                ? ""
-                : timestamp.toLocalDateTime()
-                .atZone(ZoneOffset.UTC)
-                .withZoneSameInstant(DISPLAY_ZONE)
-                .format(TIME_FORMATTER);
-    }
-
     private String abbreviate(String value, int maxLength) {
         if (value == null) {
             return "";
         }
         return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
-    }
-
-    private record StoredTaskFile(
-            String fileGroup,
-            String fileName,
-            String contentType,
-            byte[] bytes,
-            int sortOrder
-    ) {
-    }
-
-    private record Thumbnail(
-            byte[] bytes,
-            String contentType,
-            String fileName
-    ) {
-    }
-
-    private record GenerationJob(
-            long resultId,
-            String resultType,
-            int index,
-            String prompt,
-            TargetTemplateService.TargetTemplateRecord targetTemplate
-    ) {
-    }
-
-    private record ResultRecord(
-            long id,
-            String taskId,
-            String resultType,
-            int itemIndex,
-            Long parentResultId,
-            int versionIndex,
-            String status,
-            String prompt,
-            String imageUrl,
-            String imageBase64,
-            String editSuggestion,
-            String errorMessage
-    ) {
-    }
-
-    private record DecodedImage(
-            byte[] bytes,
-            String contentType,
-            String extension
-    ) {
-    }
-
-    public record DownloadFile(
-            String fileName,
-            byte[] bytes
-    ) {
-    }
-
-    private record TaskRecord(
-            String id,
-            String productName,
-            String status,
-            String payloadJson,
-            ImageTaskPayload payload,
-            Map<String, String> analysis,
-            String finalMainPrompt,
-            String finalIntroPrompt,
-            byte[] thumbnail,
-            String thumbnailContentType,
-            String thumbnailFileName,
-            int realPhotoCount,
-            int packageImageCount,
-            int templateCount,
-            String errorMessage,
-            String createdAt,
-            String updatedAt,
-            String startedAt,
-            String completedAt
-    ) {
-    }
-
-    private record ResultStats(
-            int completed,
-            int total
-    ) {
-    }
-
-    private record GenerationReferences(
-            List<StoredUploadImage> mainImages,
-            List<StoredUploadImage> introImages
-    ) {
-    }
-
-    private record UploadMaterialContext(
-            boolean hasTemplateImage,
-            boolean hasLogoImage,
-            boolean hasWallpaperImage
-    ) {
-        private static UploadMaterialContext unknown() {
-            return new UploadMaterialContext(true, true, true);
-        }
     }
 }
