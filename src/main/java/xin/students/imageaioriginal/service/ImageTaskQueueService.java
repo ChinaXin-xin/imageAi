@@ -77,6 +77,7 @@ public class ImageTaskQueueService {
     private final DefaultPromptSettingsService defaultPromptSettingsService;
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final ImageGenerationService imageGenerationService;
+    private final ImageScenePromptService imageScenePromptService;
     private final TargetTemplateService targetTemplateService;
     private final ExtraAccessoryService extraAccessoryService;
     private final ImageGenerationProperties imageGenerationProperties;
@@ -89,6 +90,7 @@ public class ImageTaskQueueService {
             DefaultPromptSettingsService defaultPromptSettingsService,
             UploadImageAnalysisService uploadImageAnalysisService,
             ImageGenerationService imageGenerationService,
+            ImageScenePromptService imageScenePromptService,
             TargetTemplateService targetTemplateService,
             ExtraAccessoryService extraAccessoryService,
             ImageGenerationProperties imageGenerationProperties
@@ -98,6 +100,7 @@ public class ImageTaskQueueService {
         this.defaultPromptSettingsService = defaultPromptSettingsService;
         this.uploadImageAnalysisService = uploadImageAnalysisService;
         this.imageGenerationService = imageGenerationService;
+        this.imageScenePromptService = imageScenePromptService;
         this.targetTemplateService = targetTemplateService;
         this.extraAccessoryService = extraAccessoryService;
         this.imageGenerationProperties = imageGenerationProperties;
@@ -554,21 +557,48 @@ public class ImageTaskQueueService {
         List<GenerationJob> jobs = new ArrayList<>();
         int mainCount = positive(payload.mainImageCount());
         int introCount = positive(payload.introImageCount());
+        List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes("主图", finalMainPrompt, mainCount);
+        List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes("介绍图", finalIntroPrompt, introCount);
+        ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
-            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount);
+            ensureTaskNotPaused(taskId);
+            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index));
             long resultId = insertResult(taskId, "主图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "主图", index, prompt, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
-            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount);
+            ensureTaskNotPaused(taskId);
+            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index));
             long resultId = insertResult(taskId, "介绍图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "介绍图", index, prompt, introTargetTemplate));
         }
         return jobs;
     }
 
-    private String generationItemPrompt(String basePrompt, String resultType, int index, int total) {
-        return basePrompt + "\n\n【当前生成】" + resultType + "第 " + index + " / " + total + " 张。";
+    private String generationItemPrompt(
+            String basePrompt,
+            String resultType,
+            int index,
+            int total,
+            ImageScenePromptService.ScenePrompt scene
+    ) {
+        StringBuilder builder = new StringBuilder(basePrompt);
+        builder.append("\n\n【当前生成】").append(resultType).append("第 ").append(index).append(" / ").append(total).append(" 张。");
+        if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
+            builder.append("\n【本张图片场景规划】\n");
+            builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
+            builder.append("场景描述：").append(scene.prompt()).append("\n");
+            builder.append("本张图必须与同任务其他图片形成不同场景；只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格。");
+        }
+        return builder.toString();
+    }
+
+    private ImageScenePromptService.ScenePrompt sceneAt(List<ImageScenePromptService.ScenePrompt> scenes, int index) {
+        if (scenes == null || scenes.isEmpty()) {
+            return null;
+        }
+        int position = Math.max(0, Math.min(scenes.size() - 1, index - 1));
+        return scenes.get(position);
     }
 
     private void generateOne(
