@@ -19,6 +19,7 @@ class ImageScenePromptServiceTests {
     void detectsForbiddenSceneObjects() {
         assertThat(service.containsForbiddenObject("加入一个黑色便携袋和展示支架突出套装质感")).isTrue();
         assertThat(service.containsForbiddenObject("只展示手机模型、屏幕膜和一体式镜头膜")).isFalse();
+        assertThat(service.containsForbiddenObject("展示无尘布、酒精清洁包、定位神器、刮板、安装辅助贴和防滑垫")).isFalse();
     }
 
     @Test
@@ -41,9 +42,13 @@ class ImageScenePromptServiceTests {
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("3D 立体斜角"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("平铺"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("近景"));
+        assertThat(scenes)
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机模型在右侧"))
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机模型在左侧"));
         assertThat(scenes).allSatisfy(scene -> {
             assertThat(service.containsForbiddenObject(scene.prompt())).isFalse();
             assertThat(scene.prompt())
+                    .contains("无文字")
                     .contains("右侧三个小孔")
                     .contains("不等大")
                     .contains("一体式片状结构");
