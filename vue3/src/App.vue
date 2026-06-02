@@ -32,6 +32,8 @@ import {
   deleteExtraAccessory,
   deleteImageTask,
   deleteTargetTemplate,
+  downloadTaskImages,
+  editTaskResult,
   loadImageTask,
   loadImageTasks,
   loadDefaultPromptSettings,
@@ -50,6 +52,7 @@ import type {
   ImageTaskDetail,
   ImageTaskKitSpec,
   ImageTaskPayload,
+  ImageTaskResult,
   ImageTaskSummary,
   SystemOverview,
   TargetTemplate,
@@ -148,6 +151,12 @@ const newDefaultSellingPoint = ref('');
 const taskQueue = ref<ImageTaskSummary[]>([]);
 const selectedQueueTask = ref<ImageTaskDetail | null>(null);
 const queueDetailVisible = ref(false);
+const selectedDownloadTaskIds = ref<string[]>([]);
+const taskZipDownloading = ref(false);
+const resultEditDialogVisible = ref(false);
+const resultEditSubmitting = ref(false);
+const editingResult = ref<ImageTaskResult | null>(null);
+const resultEditSuggestion = ref('');
 const targetTemplates = ref<TargetTemplate[]>([]);
 const targetTemplatesLoading = ref(false);
 const targetTemplateErrorMessage = ref('');
@@ -781,6 +790,9 @@ async function loadTaskQueue(showLoading = true) {
   queueErrorMessage.value = '';
   try {
     taskQueue.value = await loadImageTasks();
+    selectedDownloadTaskIds.value = selectedDownloadTaskIds.value.filter((taskId) =>
+      taskQueue.value.some((task) => task.id === taskId && task.status === 'COMPLETED'),
+    );
     if (queueDetailVisible.value && selectedQueueTask.value) {
       selectedQueueTask.value = await loadImageTask(selectedQueueTask.value.id);
     }
@@ -1053,6 +1065,78 @@ async function resumeQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
   }
 }
 
+function toggleDownloadTask(task: ImageTaskSummary, checked: boolean) {
+  if (task.status !== 'COMPLETED') {
+    return;
+  }
+  if (checked) {
+    if (!selectedDownloadTaskIds.value.includes(task.id)) {
+      selectedDownloadTaskIds.value = [...selectedDownloadTaskIds.value, task.id];
+    }
+  } else {
+    selectedDownloadTaskIds.value = selectedDownloadTaskIds.value.filter((taskId) => taskId !== task.id);
+  }
+}
+
+function handleDownloadTaskChange(task: ImageTaskSummary, checked: unknown) {
+  toggleDownloadTask(task, Boolean(checked));
+}
+
+async function downloadTaskZip(task: ImageTaskSummary | ImageTaskDetail) {
+  await downloadTaskZipByIds([task.id]);
+}
+
+async function downloadSelectedTaskZip() {
+  await downloadTaskZipByIds(selectedDownloadTaskIds.value);
+}
+
+async function downloadTaskZipByIds(taskIds: string[]) {
+  if (!taskIds.length) {
+    ElMessage.warning('请先勾选已完成任务');
+    return;
+  }
+  taskZipDownloading.value = true;
+  try {
+    const file = await downloadTaskImages(taskIds);
+    saveBlob(file.blob, file.fileName);
+    ElMessage.success('图片压缩包已开始下载');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    taskZipDownloading.value = false;
+  }
+}
+
+function openResultEditDialog(result: ImageTaskResult) {
+  editingResult.value = result;
+  resultEditSuggestion.value = '';
+  resultEditDialogVisible.value = true;
+}
+
+async function submitResultEdit() {
+  if (!selectedQueueTask.value || !editingResult.value) {
+    return;
+  }
+  const suggestion = resultEditSuggestion.value.trim();
+  if (!suggestion) {
+    ElMessage.warning('请先输入客户对这张图的修改建议');
+    return;
+  }
+  resultEditSubmitting.value = true;
+  try {
+    selectedQueueTask.value = await editTaskResult(selectedQueueTask.value.id, editingResult.value.id, suggestion);
+    await loadTaskQueue(false);
+    resultEditDialogVisible.value = false;
+    editingResult.value = null;
+    resultEditSuggestion.value = '';
+    ElMessage.success('重修版本已生成');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    resultEditSubmitting.value = false;
+  }
+}
+
 function isRunningTask(status: string): boolean {
   return ['QUEUED', 'ANALYZING', 'GENERATING'].includes(status);
 }
@@ -1207,6 +1291,17 @@ function handleImageViewerKeydown(event: KeyboardEvent) {
 function sanitizeDownloadName(name: string | null | undefined): string {
   const normalized = name?.trim().replace(/[\\/:*?"<>|]/g, '_') || 'image.png';
   return /\.[a-z0-9]{2,5}$/i.test(normalized) ? normalized : `${normalized}.png`;
+}
+
+function saveBlob(blob: Blob, name: string | null | undefined) {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = name?.trim() || 'image-task-results.zip';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 async function downloadImage(src: string | null | undefined, name: string | null | undefined) {
@@ -2070,6 +2165,15 @@ function pageSubtitle(): string {
                 </div>
                 <div class="queue-head-actions">
                   <span>{{ taskQueue.length }} 个任务</span>
+                  <el-button
+                    type="primary"
+                    :icon="Download"
+                    :loading="taskZipDownloading"
+                    :disabled="selectedDownloadTaskIds.length === 0"
+                    @click="downloadSelectedTaskZip"
+                  >
+                    下载选中结果
+                  </el-button>
                   <el-button :icon="Refresh" @click="loadTaskQueue()">刷新</el-button>
                 </div>
               </div>
@@ -2090,6 +2194,13 @@ function pageSubtitle(): string {
 
               <div v-else class="queue-list">
                 <article v-for="task in taskQueue" :key="task.id" class="queue-row">
+                  <el-checkbox
+                    class="queue-select"
+                    :model-value="selectedDownloadTaskIds.includes(task.id)"
+                    :disabled="task.status !== 'COMPLETED'"
+                    @change="handleDownloadTaskChange(task, $event)"
+                    @click.stop
+                  />
                   <div
                     class="queue-thumb image-action-wrap"
                     role="button"
@@ -2155,6 +2266,16 @@ function pageSubtitle(): string {
                         继续
                       </el-button>
                       <el-button v-else-if="task.status === 'FAILED'" text type="warning" @click="retryQueuedTask(task)">重试</el-button>
+                      <el-button
+                        v-if="task.status === 'COMPLETED'"
+                        text
+                        type="primary"
+                        :icon="Download"
+                        :loading="taskZipDownloading"
+                        @click="downloadTaskZip(task)"
+                      >
+                        下载结果
+                      </el-button>
                       <el-button text type="danger" :icon="Delete" @click="deleteQueuedTask(task)">删除</el-button>
                     </div>
                   </div>
@@ -2663,6 +2784,7 @@ function pageSubtitle(): string {
               <article v-for="result in selectedQueueTask.results" :key="result.id" class="result-row">
                 <div class="result-row-head">
                   <strong>{{ result.resultType }} #{{ result.itemIndex }}</strong>
+                  <el-tag v-if="result.versionIndex" type="info" effect="plain">v{{ result.versionIndex }}</el-tag>
                   <el-tag :type="taskStatusTagType(result.status)" effect="plain">{{ result.statusText }}</el-tag>
                 </div>
                 <div
@@ -2670,17 +2792,35 @@ function pageSubtitle(): string {
                   class="result-preview image-action-wrap"
                   role="button"
                   tabindex="0"
-                  @click="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)"
-                  @keydown.enter="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)"
+                  @click="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}-v${result.versionIndex || 1}.png`)"
+                  @keydown.enter="openImageViewer(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}-v${result.versionIndex || 1}.png`)"
                 >
                   <img :src="generatedImageSrc(result)" :alt="`${result.resultType} ${result.itemIndex}`" />
-                  <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}.png`)">
+                  <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(generatedImageSrc(result), `${result.resultType}-${result.itemIndex}-v${result.versionIndex || 1}.png`)">
                     <el-icon><Download /></el-icon>
                   </button>
                 </div>
                 <p v-else class="empty-inline result-empty-image">暂无图片</p>
+                <p v-if="result.parentResultId" class="result-version-note">
+                  来自结果 #{{ result.parentResultId }} 的重修版本
+                </p>
+                <p v-if="result.editSuggestion" class="result-version-note">
+                  <strong>建议：</strong>{{ result.editSuggestion }}
+                </p>
                 <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
                 <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
+                <div class="result-row-actions">
+                  <el-button
+                    v-if="result.status === 'COMPLETED' && generatedImageSrc(result)"
+                    size="small"
+                    type="primary"
+                    :icon="RefreshRight"
+                    :loading="resultEditSubmitting && editingResult?.id === result.id"
+                    @click="openResultEditDialog(result)"
+                  >
+                    按建议重修
+                  </el-button>
+                </div>
               </article>
             </div>
           </section>
@@ -2727,6 +2867,31 @@ function pageSubtitle(): string {
       append-to-body
     >
       <div class="markdown-content" v-html="markdownToHtml(fullTextDialogContent)" />
+    </el-dialog>
+
+    <el-dialog
+      v-model="resultEditDialogVisible"
+      title="按客户建议重修图片"
+      width="560px"
+      append-to-body
+    >
+      <div v-if="editingResult" class="result-edit-dialog">
+        <div v-if="generatedImageSrc(editingResult)" class="result-edit-preview">
+          <img :src="generatedImageSrc(editingResult)" :alt="`${editingResult.resultType} ${editingResult.itemIndex}`" />
+        </div>
+        <el-input
+          v-model="resultEditSuggestion"
+          type="textarea"
+          :rows="5"
+          maxlength="500"
+          show-word-limit
+          placeholder="输入客户对这张图的修改建议，例如：去掉左下角多出来的袋子，湿巾包必须保留 WET WIPES 字样。"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="resultEditDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="resultEditSubmitting" @click="submitResultEdit">确定重修</el-button>
+      </template>
     </el-dialog>
 
     <Teleport to="body">

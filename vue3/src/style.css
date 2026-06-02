@@ -1222,12 +1222,16 @@ h1 {
 .queue-row {
   display: grid;
   align-items: center;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-columns: 28px 72px minmax(0, 1fr) auto;
   gap: 14px;
   padding: 12px;
   border: 1px solid #edf1f5;
   border-radius: 12px;
   background: #fff;
+}
+
+.queue-select {
+  justify-self: center;
 }
 
 .queue-row + .queue-row {
@@ -1552,6 +1556,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .result-preview {
@@ -1580,6 +1585,39 @@ h1 {
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   background: #fff;
+}
+
+.result-version-note {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.result-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.result-edit-dialog {
+  display: grid;
+  gap: 14px;
+}
+
+.result-edit-preview {
+  height: 260px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.result-edit-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .dialog-actions {

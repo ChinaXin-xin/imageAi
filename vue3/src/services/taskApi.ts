@@ -122,6 +122,39 @@ export async function resumeImageTask(taskId: string): Promise<ImageTaskDetail> 
   return (await response.json()) as ImageTaskDetail;
 }
 
+export async function editTaskResult(taskId: string, resultId: number, suggestion: string): Promise<ImageTaskDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/results/${resultId}/edit`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ suggestion }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as ImageTaskDetail;
+}
+
+export async function downloadTaskImages(taskIds: string[]): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/download`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/octet-stream',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ taskIds }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return {
+    blob: await response.blob(),
+    fileName: responseFileName(response.headers.get('content-disposition')) || 'image-task-results.zip',
+  };
+}
+
 export async function deleteImageTask(taskId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
     method: 'DELETE',
@@ -236,4 +269,16 @@ export async function createImageTask(
     throw new Error(await readError(response));
   }
   return (await response.json()) as ImageTaskDetail;
+}
+
+function responseFileName(contentDisposition: string | null): string {
+  if (!contentDisposition) {
+    return '';
+  }
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const asciiMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return asciiMatch?.[1] ?? '';
 }

@@ -122,12 +122,15 @@ export interface ImageTaskResult {
   id: number;
   resultType: string;
   itemIndex: number;
+  parentResultId?: number | null;
+  versionIndex?: number | null;
   status: string;
   statusText: string;
   prompt: string;
   imageUrl?: string | null;
   imageBase64?: string | null;
   revisedPrompt?: string | null;
+  editSuggestion?: string | null;
   errorMessage?: string | null;
   createdAt: string;
   updatedAt: string;

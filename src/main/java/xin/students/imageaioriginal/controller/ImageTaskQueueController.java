@@ -1,17 +1,24 @@
 package xin.students.imageaioriginal.controller;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import xin.students.imageaioriginal.model.ImageEditRequest;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
+import xin.students.imageaioriginal.model.TaskDownloadRequest;
 import xin.students.imageaioriginal.service.ImageTaskQueueService;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -61,8 +68,35 @@ public class ImageTaskQueueController {
         return imageTaskQueueService.resumeTask(taskId);
     }
 
+    @PostMapping("/{taskId}/results/{resultId}/edit")
+    public ImageTaskDetail editResult(
+            @PathVariable String taskId,
+            @PathVariable long resultId,
+            @RequestBody ImageEditRequest request
+    ) {
+        return imageTaskQueueService.editResult(taskId, resultId, request.suggestion());
+    }
+
+    @GetMapping("/{taskId}/download")
+    public ResponseEntity<byte[]> downloadTaskImages(@PathVariable String taskId) {
+        return zipResponse(imageTaskQueueService.downloadTaskImages(List.of(taskId)));
+    }
+
+    @PostMapping("/download")
+    public ResponseEntity<byte[]> downloadTaskImages(@RequestBody TaskDownloadRequest request) {
+        return zipResponse(imageTaskQueueService.downloadTaskImages(request.taskIds()));
+    }
+
     @DeleteMapping("/{taskId}")
     public void deleteTask(@PathVariable String taskId) {
         imageTaskQueueService.deleteTask(taskId);
+    }
+
+    private ResponseEntity<byte[]> zipResponse(ImageTaskQueueService.DownloadFile file) {
+        String encodedName = java.net.URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedName)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(file.bytes());
     }
 }
