@@ -71,7 +71,7 @@ public class TargetTemplateService {
                 templates.add(toView(readRecord(resultSet)));
             }
         } catch (SQLException ex) {
-            throw new IllegalStateException("读取目标模板失败", ex);
+            throw new IllegalStateException("读取排版模板失败", ex);
         }
         return templates;
     }
@@ -80,7 +80,7 @@ public class TargetTemplateService {
         ensureTable();
         String normalizedType = normalizeType(templateType);
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("请先上传目标模板图片");
+            throw new IllegalArgumentException("请先上传排版图");
         }
         try {
             byte[] content = file.getBytes();
@@ -88,7 +88,7 @@ public class TargetTemplateService {
             String contentType = normalizeText(file.getContentType(), "image/jpeg");
             StoredUploadImage storedImage = new StoredUploadImage(fileName, contentType, content);
             UploadImageAnalysis analysis = uploadImageAnalysisService.analyzeStored(
-                    templateTypeText(normalizedType) + "目标模板",
+                    templateTypeText(normalizedType) + "排版模板",
                     defaultPromptSettingsService.getSettings().targetTemplatePrompt(),
                     List.of(storedImage)
             );
@@ -114,20 +114,20 @@ public class TargetTemplateService {
                 statement.executeUpdate();
                 try (ResultSet keys = statement.getGeneratedKeys()) {
                     if (!keys.next()) {
-                        throw new IllegalStateException("保存目标模板失败：未返回模板 ID");
+                        throw new IllegalStateException("保存排版模板失败：未返回模板 ID");
                     }
                     id = keys.getLong(1);
                 }
             }
             TargetTemplateRecord record = findRecord(id);
             if (record == null) {
-                throw new IllegalStateException("保存目标模板后读取失败：" + id);
+                throw new IllegalStateException("保存排版模板后读取失败：" + id);
             }
             return toView(record);
         } catch (IOException ex) {
-            throw new IllegalStateException("读取目标模板图片失败", ex);
+            throw new IllegalStateException("读取排版图失败", ex);
         } catch (SQLException ex) {
-            throw new IllegalStateException("保存目标模板失败", ex);
+            throw new IllegalStateException("保存排版模板失败", ex);
         }
     }
 
@@ -137,10 +137,10 @@ public class TargetTemplateService {
              PreparedStatement statement = connection.prepareStatement("delete from target_templates where id = ?")) {
             statement.setLong(1, id);
             if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("目标模板不存在：" + id);
+                throw new IllegalArgumentException("排版模板不存在：" + id);
             }
         } catch (SQLException ex) {
-            throw new IllegalStateException("删除目标模板失败：" + id, ex);
+            throw new IllegalStateException("删除排版模板失败：" + id, ex);
         }
     }
 
@@ -158,7 +158,7 @@ public class TargetTemplateService {
                 }
             }
         } catch (SQLException ex) {
-            throw new IllegalStateException("读取目标模板失败：" + id, ex);
+            throw new IllegalStateException("读取排版模板失败：" + id, ex);
         }
         return null;
     }
@@ -224,7 +224,7 @@ public class TargetTemplateService {
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
         } catch (SQLException ex) {
-            throw new IllegalStateException("初始化目标模板表失败", ex);
+            throw new IllegalStateException("初始化排版模板表失败", ex);
         }
     }
 
@@ -285,7 +285,7 @@ public class TargetTemplateService {
         if ("MAIN".equals(normalized) || "INTRO".equals(normalized)) {
             return normalized;
         }
-        throw new IllegalArgumentException("目标模板类型只能是 MAIN 或 INTRO");
+        throw new IllegalArgumentException("排版模板类型只能是 MAIN 或 INTRO");
     }
 
     private String templateTypeText(String value) {

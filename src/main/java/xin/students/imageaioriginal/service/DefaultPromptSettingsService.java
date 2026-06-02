@@ -49,7 +49,7 @@ public class DefaultPromptSettingsService {
             输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
             """;
     private static final String DEFAULT_TARGET_TEMPLATE_PROMPT = """
-            请作为跨境电商图片视觉风格分析师，只分析这张目标模板图的视觉风格，不要照抄产品内容。
+            请作为跨境电商图片视觉风格分析师，只分析这张排版模板图的视觉风格，不要照抄产品内容。
 
             请输出适合后续生图使用的中文风格说明，重点包含：
             1. 画面构图和主体摆放方式

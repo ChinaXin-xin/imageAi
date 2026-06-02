@@ -105,7 +105,7 @@ function removeKitSpec(index: number) {
     <el-input-number v-model="selectedAccessoryQuantity" :min="1" :max="99" />
     <el-button type="primary" :icon="Plus" @click="addSelectedAccessoryToKit">添加配件</el-button>
   </div>
-  <p v-if="!accessories.length" class="field-hint">暂无额外配件，请先到“目标模板”页下方添加。</p>
+  <p v-if="!accessories.length" class="field-hint">暂无额外配件，请先到“排版模板”页下方添加。</p>
 
   <div v-if="modelValue.length" class="kit-grid">
     <div v-for="(item, index) in modelValue" :key="item.accessoryId || item.name" class="kit-item">

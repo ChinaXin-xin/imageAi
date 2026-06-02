@@ -146,7 +146,6 @@ public class ImageTaskQueueService {
     public ImageTaskDetail createTask(
             String payloadJson,
             List<MultipartFile> realPhotoFiles,
-            List<MultipartFile> packageImageFiles,
             List<MultipartFile> templateFiles,
             List<MultipartFile> logoFiles,
             List<MultipartFile> wallpaperFiles
@@ -156,7 +155,6 @@ public class ImageTaskQueueService {
         String taskId = UUID.randomUUID().toString();
         List<StoredTaskFile> files = new ArrayList<>();
         files.addAll(toStoredTaskFiles("realPhoto", realPhotoFiles));
-        files.addAll(toStoredTaskFiles("packageImage", packageImageFiles));
         files.addAll(toStoredTaskFiles("template", templateFiles));
         files.addAll(toStoredTaskFiles("logo", logoFiles));
         files.addAll(toStoredTaskFiles("wallpaper", wallpaperFiles));
@@ -324,24 +322,30 @@ public class ImageTaskQueueService {
             throw new IllegalStateException("创建重修图片记录失败：" + taskId, ex);
         }
 
-        try {
-            ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
-                    taskId,
-                    source.resultType(),
-                    source.itemIndex(),
-                    editPrompt,
-                    normalizeImageDimension(task.payload().customWidth(), DEFAULT_IMAGE_SIZE),
-                    normalizeImageDimension(task.payload().customHeight(), DEFAULT_IMAGE_SIZE),
-                    List.of(resultReferenceImage(source))
-            );
-            if (!completeResult(editResultId, generatedImage)) {
-                throw new IllegalStateException("重修图片结果保存失败，请重试");
-            }
-        } catch (Exception ex) {
-            failResult(editResultId, ex);
-            throw ex;
-        }
+        submitEditGeneration(task, source, editResultId, editPrompt);
         return getTask(taskId);
+    }
+
+    private void submitEditGeneration(TaskRecord task, ResultRecord source, long editResultId, String editPrompt) {
+        imageJobExecutor.submit(() -> {
+            try {
+                ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
+                        task.id(),
+                        source.resultType(),
+                        source.itemIndex(),
+                        editPrompt,
+                        normalizeImageDimension(task.payload().customWidth(), DEFAULT_IMAGE_SIZE),
+                        normalizeImageDimension(task.payload().customHeight(), DEFAULT_IMAGE_SIZE),
+                        List.of(resultReferenceImage(source))
+                );
+                if (!completeResult(editResultId, generatedImage)) {
+                    throw new IllegalStateException("重修图片结果保存失败，请重试");
+                }
+            } catch (Exception ex) {
+                LOG.error("image.task.edit.failed taskId={} resultId={} message={}", task.id(), editResultId, ex.getMessage(), ex);
+                failResult(editResultId, ex);
+            }
+        });
     }
 
     public DownloadFile downloadTaskImages(List<String> taskIds) {
@@ -515,7 +519,7 @@ public class ImageTaskQueueService {
 
             Map<String, String> analysis = analyzeUploadedFiles(taskId);
             if (requiresGeneration(record.payload()) && analysis.isEmpty()) {
-                throw new IllegalStateException("生成主图或介绍图前必须先深析上传图，请至少上传实拍图、包装图或模板图。");
+                throw new IllegalStateException("生成主图或介绍图前必须先深析上传图，请至少上传实拍图或排版图。");
             }
             ensureTaskNotPaused(taskId);
 
@@ -715,7 +719,7 @@ public class ImageTaskQueueService {
         }
         builder.append("。\n");
         builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
-        builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
+        builder.append("若场景规划、排版模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
         appendAccessoryReferenceRule(builder, kitSpecText);
         if (hasLensProtector(payload, basePrompt)) {
             builder.append("镜头膜结构再次自检：按上传图/深析结果锁定当前机型的外轮廓、孔位数量、孔位位置、孔位大小差异，以及一体式片状或分离镜圈形态；不要套用其他手机型号镜头膜结构。\n");
@@ -779,7 +783,7 @@ public class ImageTaskQueueService {
             return null;
         }
         if (!expectedType.equals(template.templateType())) {
-            throw new IllegalArgumentException(label + "只能选择" + label + "目标模板：" + template.name());
+            throw new IllegalArgumentException(label + "只能选择" + label + "排版模板：" + template.name());
         }
         return template;
     }
@@ -828,8 +832,7 @@ public class ImageTaskQueueService {
         Map<String, String> analysis = new LinkedHashMap<>();
         String prompt = defaultPromptSettingsService.getSettings().analysisPrompt();
         analyzeGroup(taskId, "realPhoto", "实拍图", prompt, analysis);
-        analyzeGroup(taskId, "packageImage", "包装图", prompt, analysis);
-        analyzeGroup(taskId, "template", "模板图", prompt, analysis);
+        analyzeGroup(taskId, "template", "排版图", prompt, analysis);
         analyzeGroup(taskId, "logo", "Logo图", prompt, analysis);
         analyzeGroup(taskId, "wallpaper", "壁纸图", prompt, analysis);
         return analysis;
@@ -1064,10 +1067,10 @@ public class ImageTaskQueueService {
         if (targetTemplate == null) {
             return;
         }
-        builder.append("【").append(imageType).append("目标模板风格】")
+        builder.append("【").append(imageType).append("排版模板风格】")
                 .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("目标模板约束】模板只作低优先级风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("排版模板约束】模板只作低优先级风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {
@@ -1157,7 +1160,7 @@ public class ImageTaskQueueService {
             statement.setString(5, thumbnail.contentType());
             statement.setString(6, thumbnail.fileName());
             statement.setInt(7, countGroup(files, "realPhoto"));
-            statement.setInt(8, countGroup(files, "packageImage"));
+            statement.setInt(8, 0);
             statement.setInt(9, countGroup(files, "template"));
             statement.executeUpdate();
         }
@@ -1477,8 +1480,7 @@ public class ImageTaskQueueService {
     private Map<String, List<ImageTaskFileView>> listTaskFiles(Connection connection, String taskId) throws SQLException {
         Map<String, List<ImageTaskFileView>> files = new LinkedHashMap<>();
         files.put("实拍图", new ArrayList<>());
-        files.put("包装图", new ArrayList<>());
-        files.put("模板图", new ArrayList<>());
+        files.put("排版图", new ArrayList<>());
         files.put("Logo图", new ArrayList<>());
         files.put("壁纸图", new ArrayList<>());
         try (PreparedStatement statement = connection.prepareStatement("""
@@ -1612,7 +1614,6 @@ public class ImageTaskQueueService {
         try (Connection connection = dataSource.getConnection()) {
             List<StoredUploadImage> images = new ArrayList<>();
             images.addAll(readStoredImages(connection, taskId, "realPhoto"));
-            images.addAll(readStoredImages(connection, taskId, "packageImage"));
             images.addAll(readStoredImages(connection, taskId, "template"));
             images.addAll(readStoredImages(connection, taskId, "logo"));
             images.addAll(readStoredImages(connection, taskId, "wallpaper"));
@@ -2187,16 +2188,14 @@ public class ImageTaskQueueService {
     private Map<String, Integer> fileSummary(TaskRecord record) {
         Map<String, Integer> summary = new LinkedHashMap<>();
         summary.put("实拍图", record.realPhotoCount());
-        summary.put("包装图", record.packageImageCount());
-        summary.put("模板图", record.templateCount());
+        summary.put("排版图", record.templateCount());
         return summary;
     }
 
     private String fileGroupName(String fileGroup) {
         return switch (fileGroup == null ? "" : fileGroup) {
             case "realPhoto" -> "实拍图";
-            case "packageImage" -> "包装图";
-            case "template" -> "模板图";
+            case "template" -> "排版图";
             case "logo" -> "Logo图";
             case "wallpaper" -> "壁纸图";
             default -> fileGroup;
@@ -2206,8 +2205,7 @@ public class ImageTaskQueueService {
     private String fileGroupCode(String label) {
         return switch (label == null ? "" : label) {
             case "实拍图" -> "realPhoto";
-            case "包装图" -> "packageImage";
-            case "模板图" -> "template";
+            case "排版图" -> "template";
             case "Logo图" -> "logo";
             case "壁纸图" -> "wallpaper";
             default -> "";

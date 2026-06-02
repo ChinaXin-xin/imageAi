@@ -247,7 +247,6 @@ export async function createImageTask(
   payload: ImageTaskPayload,
   files: {
     realPhotoFiles: File[];
-    packageImageFiles: File[];
     templateFiles: File[];
     logoFiles: File[];
     wallpaperFiles: File[];
@@ -256,7 +255,6 @@ export async function createImageTask(
   const formData = new FormData();
   formData.append('payload', JSON.stringify(payload));
   files.realPhotoFiles.forEach((file) => formData.append('realPhotoFiles', file));
-  files.packageImageFiles.forEach((file) => formData.append('packageImageFiles', file));
   files.templateFiles.forEach((file) => formData.append('templateFiles', file));
   files.logoFiles.forEach((file) => formData.append('logoFiles', file));
   files.wallpaperFiles.forEach((file) => formData.append('wallpaperFiles', file));

@@ -81,7 +81,7 @@ const DEFAULT_ANALYSIS_PROMPT = `请客观深析上传图片，重点输出后�
 10. 客户产品范围只有手机、钢化膜、高清膜、防窥膜、镜头膜及已上传/已选择的手机膜相关清洁安装配件；不要推断包装盒、收纳袋、卡片、托盘、支架、底座或其他赠品。
 
 输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。`;
-const DEFAULT_TARGET_TEMPLATE_PROMPT = `请作为跨境电商图片视觉风格分析师，只分析这张目标模板图的视觉风格，不要照抄产品内容。
+const DEFAULT_TARGET_TEMPLATE_PROMPT = `请作为跨境电商图片视觉风格分析师，只分析这张排版模板图的视觉风格，不要照抄产品内容。
 
 请输出适合后续生图使用的中文风格说明，重点包含：
 1. 画面构图和主体摆放方式
@@ -96,8 +96,8 @@ const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
 const DEFAULT_IMAGE_SIZE = 1536;
 const IMAGE_SIZE_STEP = 16;
 
-type UploadGroup = '实拍图' | '包装图' | '模板图' | 'Logo图' | '壁纸图';
-type AnalysisUploadGroup = '实拍图' | '包装图';
+type UploadGroup = '实拍图' | '排版图' | 'Logo图' | '壁纸图';
+type AnalysisUploadGroup = '实拍图';
 type ActivePage = 'quota' | 'task' | 'queue' | 'templates' | 'settings';
 
 type ViewerImage = {
@@ -134,17 +134,14 @@ const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const taskDraftRestored = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
-const packageImageFiles = ref<UploadUserFile[]>([]);
 const templateFiles = ref<UploadUserFile[]>([]);
 const logoFiles = ref<UploadUserFile[]>([]);
 const wallpaperFiles = ref<UploadUserFile[]>([]);
 const uploadAnalysis = ref<Record<AnalysisUploadGroup, UploadImageAnalysis | null>>({
   实拍图: null,
-  包装图: null,
 });
 const analysisLoading = ref<Record<AnalysisUploadGroup, boolean>>({
   实拍图: false,
-  包装图: false,
 });
 const previewUrls = ref<Record<string, string>>({});
 const newDefaultSellingPoint = ref('');
@@ -194,7 +191,7 @@ const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色',
 const styleOptions = ['自动', '科技感', '极简风', '简洁品牌风', '3D立体', '高级电商', 'TEMU爆款'];
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
-const uploadGroups: UploadGroup[] = ['实拍图', '包装图', '模板图', 'Logo图', '壁纸图'];
+const uploadGroups: UploadGroup[] = ['实拍图', '排版图', 'Logo图', '壁纸图'];
 const targetTemplateTypes: TargetTemplateType[] = ['MAIN', 'INTRO'];
 
 const imageViewerIsSideways = computed(() => imageViewerRotation.value % 180 !== 0);
@@ -584,9 +581,8 @@ async function savePromptSettings() {
   }
 }
 
-function uploadFilesFor(type: AnalysisUploadGroup): File[] {
-  const source = type === '实拍图' ? realPhotoFiles.value : packageImageFiles.value;
-  return source.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
+function uploadFilesFor(): File[] {
+  return realPhotoFiles.value.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
 }
 
 function normalizeCustomImageSize() {
@@ -595,7 +591,7 @@ function normalizeCustomImageSize() {
 }
 
 async function analyzeUploadImage(type: AnalysisUploadGroup) {
-  const files = uploadFilesFor(type);
+  const files = uploadFilesFor();
   if (files.length === 0) {
     ElMessage.warning(`请先上传${type}。`);
     return;
@@ -623,8 +619,7 @@ function uploadKey(file: UploadUserFile): string {
 
 function uploadListFor(type: UploadGroup) {
   if (type === '实拍图') return realPhotoFiles;
-  if (type === '包装图') return packageImageFiles;
-  if (type === '模板图') return templateFiles;
+  if (type === '排版图') return templateFiles;
   if (type === 'Logo图') return logoFiles;
   return wallpaperFiles;
 }
@@ -654,12 +649,8 @@ function removeUploadFile(type: UploadGroup, file: UploadUserFile) {
   if (type === '实拍图' && source.value.length === 0) {
     resetUploadAnalysis('实拍图');
   }
-  if (type === '包装图' && source.value.length === 0) {
-    resetUploadAnalysis('包装图');
-  }
-  if (realPhotoFiles.value.length + packageImageFiles.value.length + templateFiles.value.length === 0) {
+  if (realPhotoFiles.value.length + templateFiles.value.length === 0) {
     resetUploadAnalysis('实拍图');
-    resetUploadAnalysis('包装图');
   }
 }
 
@@ -684,17 +675,14 @@ function clearUploadedImagesAndAnalysis() {
   Object.values(previewUrls.value).forEach((url) => URL.revokeObjectURL(url));
   previewUrls.value = {};
   realPhotoFiles.value = [];
-  packageImageFiles.value = [];
   templateFiles.value = [];
   logoFiles.value = [];
   wallpaperFiles.value = [];
   uploadAnalysis.value = {
     实拍图: null,
-    包装图: null,
   };
   analysisLoading.value = {
     实拍图: false,
-    包装图: false,
   };
 }
 
@@ -714,7 +702,7 @@ function autoRecognizeLogo() {
 
 function autoRecognizeKitSpecs() {
   if (!extraAccessories.value.length) {
-    ElMessage.warning('请先在目标模板页下方添加额外配件。');
+    ElMessage.warning('请先在排版模板页下方添加额外配件。');
     return;
   }
   kitSpecs.value = extraAccessories.value.map((item) => ({
@@ -732,7 +720,6 @@ async function addToTaskQueue() {
   try {
     const createdTask = await createImageTask(snapshotTaskForm(), {
       realPhotoFiles: rawUploadFiles(realPhotoFiles.value),
-      packageImageFiles: rawUploadFiles(packageImageFiles.value),
       templateFiles: rawUploadFiles(templateFiles.value),
       logoFiles: rawUploadFiles(logoFiles.value),
       wallpaperFiles: rawUploadFiles(wallpaperFiles.value),
@@ -848,10 +835,10 @@ function selectedTargetTemplate(type: TargetTemplateType): TargetTemplate | null
 
 function targetTemplateDisabledReason(type: TargetTemplateType): string {
   if (type === 'MAIN' && taskForm.value.mainImageCount <= 0) {
-    return '主图数量大于 0 后才能选择主图目标模板';
+    return '主图数量大于 0 后才能选择主图排版模板';
   }
   if (type === 'INTRO' && taskForm.value.introImageCount <= 0) {
-    return '介绍图数量大于 0 后才能选择介绍图目标模板';
+    return '介绍图数量大于 0 后才能选择介绍图排版模板';
   }
   return '';
 }
@@ -882,7 +869,7 @@ async function addTargetTemplate(type: TargetTemplateType) {
   const files = targetTemplateUploadFiles(type).value;
   const rawFile = files.find((file) => file.raw)?.raw as File | undefined;
   if (!rawFile) {
-    ElMessage.warning(`请先上传${type === 'MAIN' ? '主图' : '介绍图'}目标模板图片。`);
+    ElMessage.warning(`请先上传${type === 'MAIN' ? '主图' : '介绍图'}排版图。`);
     return;
   }
   targetTemplateUploading.value[type] = true;
@@ -897,7 +884,7 @@ async function addTargetTemplate(type: TargetTemplateType) {
       clearTargetTemplateUpload('INTRO');
     }
     targetTemplateNames.value[type] = '';
-    ElMessage.success(`${created.templateTypeText}目标模板已分析并保存。`);
+    ElMessage.success(`${created.templateTypeText}排版模板已分析并保存。`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
   } finally {
@@ -908,8 +895,8 @@ async function addTargetTemplate(type: TargetTemplateType) {
 async function removeTargetTemplate(template: TargetTemplate) {
   try {
     await ElMessageBox.confirm(
-      `确定删除目标模板「${template.name}」吗？已经创建的历史任务不会被删除。`,
-      '删除目标模板',
+      `确定删除排版模板「${template.name}」吗？已经创建的历史任务不会被删除。`,
+      '删除排版模板',
       {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
@@ -924,7 +911,7 @@ async function removeTargetTemplate(template: TargetTemplate) {
       taskForm.value.introTargetTemplateId = null;
     }
     await loadTargetTemplateList(false);
-    ElMessage.success('目标模板已删除。');
+    ElMessage.success('排版模板已删除。');
   } catch (error) {
     if (error === 'cancel' || error === 'close') return;
     ElMessage.error(error instanceof Error ? error.message : String(error));
@@ -1122,14 +1109,16 @@ async function submitResultEdit() {
     ElMessage.warning('请先输入客户对这张图的修改建议');
     return;
   }
+  const taskId = selectedQueueTask.value.id;
+  const resultId = editingResult.value.id;
+  resultEditDialogVisible.value = false;
+  editingResult.value = null;
+  resultEditSuggestion.value = '';
+  ElMessage.info('已提交后台重修，完成后会出现在历史版本里。');
   resultEditSubmitting.value = true;
   try {
-    selectedQueueTask.value = await editTaskResult(selectedQueueTask.value.id, editingResult.value.id, suggestion);
+    selectedQueueTask.value = await editTaskResult(taskId, resultId, suggestion);
     await loadTaskQueue(false);
-    resultEditDialogVisible.value = false;
-    editingResult.value = null;
-    resultEditSuggestion.value = '';
-    ElMessage.success('重修版本已生成');
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
   } finally {
@@ -1392,7 +1381,7 @@ function resetTaskForm() {
 function pageTitle(): string {
   if (activePage.value === 'quota') return 'ImageAI 额度监控';
   if (activePage.value === 'queue') return '任务队列';
-  if (activePage.value === 'templates') return '目标模板';
+  if (activePage.value === 'templates') return '排版模板';
   if (activePage.value === 'settings') return '默认设置';
   return '创建新任务';
 }
@@ -1400,7 +1389,7 @@ function pageTitle(): string {
 function pageEyebrow(): string {
   if (activePage.value === 'quota') return 'CLI Proxy API Management';
   if (activePage.value === 'queue') return 'ImageAI Queue';
-  if (activePage.value === 'templates') return 'ImageAI Target Templates';
+  if (activePage.value === 'templates') return 'ImageAI Layout Templates';
   if (activePage.value === 'settings') return 'ImageAI Defaults';
   return 'ImageAI Task Center';
 }
@@ -1408,7 +1397,7 @@ function pageEyebrow(): string {
 function pageSubtitle(): string {
   if (activePage.value === 'quota') return '集中查看账号额度、图片生成余量与服务器资源状态。';
   if (activePage.value === 'queue') return '按任务查看待生成图片的参数、素材缩略图和生图详情。';
-  if (activePage.value === 'templates') return '维护主图和介绍图的目标模板，上传后自动深析视觉风格。';
+  if (activePage.value === 'templates') return '维护主图和介绍图排版模板，可命名上传排版图并在任务里复用。';
   if (activePage.value === 'settings') return '维护主图和介绍图默认提示词，添加任务时自动带入。';
   return '上传资料并配置生成参数，将商品主图与介绍图任务加入队列。';
 }
@@ -1483,7 +1472,7 @@ function pageSubtitle(): string {
             @click="activePage = 'templates'; loadTargetTemplateList(false); loadExtraAccessoryList(false)"
           >
             <el-icon><CircleCheck /></el-icon>
-            <span v-if="!isCollapsed">目标模板</span>
+            <span v-if="!isCollapsed">排版模板</span>
           </button>
           <button
             class="nav-item"
@@ -1613,7 +1602,7 @@ function pageSubtitle(): string {
                 <div class="task-card-head">
                   <div>
                     <h2>商品资料</h2>
-                    <p>实拍图、包装图和模板用于任务生成参考。</p>
+                    <p>实拍图和排版图用于任务生成参考。</p>
                   </div>
                   <el-button size="small" :icon="Refresh" @click="ensureProductName">生成名称</el-button>
                 </div>
@@ -1684,63 +1673,7 @@ function pageSubtitle(): string {
 
                 <div class="upload-section">
                   <div class="section-title">
-                    <span>包装图</span>
-                    <small>可上传多个</small>
-                    <el-button
-                      size="small"
-                      text
-                      type="primary"
-                      :loading="analysisLoading['包装图']"
-                      @click="analyzeUploadImage('包装图')"
-                    >
-                      深析上传图
-                    </el-button>
-                    <el-popover
-                      placement="right"
-                      width="420"
-                      trigger="hover"
-                    >
-                      <template #reference>
-                        <span class="analysis-chip" :class="{ ready: uploadAnalysis['包装图'] }">分析结果</span>
-                      </template>
-                      <div class="analysis-popover">
-                        <strong>包装图深析结果</strong>
-                        <p>{{ uploadAnalysis['包装图']?.result || '上传图片后点击“深析上传图”，这里会显示 GPT 5.5 返回的分析结果。' }}</p>
-                      </div>
-                    </el-popover>
-                  </div>
-                  <el-upload
-                    v-model:file-list="packageImageFiles"
-                    class="compact-upload"
-                    action="#"
-                    drag
-                    multiple
-                    :auto-upload="false"
-                    :show-file-list="false"
-                    @remove="handleUploadRemove"
-                  >
-                    <el-icon><Upload /></el-icon>
-                    <div>拖拽或点击上传包装图</div>
-                  </el-upload>
-                  <UploadPreviewGrid
-                    :files="packageImageFiles"
-                    :file-preview-url="filePreviewUrl"
-                    :upload-key="uploadKey"
-                    @preview="openImageViewer"
-                    @download="downloadImage"
-                    @remove="(file) => removeUploadFile('包装图', file)"
-                  />
-                  <p
-                    class="analysis-result-line"
-                    :class="{ ready: uploadAnalysis['包装图'] }"
-                  >
-                    {{ uploadAnalysis['包装图']?.result || (analysisLoading['包装图'] ? '正在深析上传图...' : '暂无深析结果') }}
-                  </p>
-                </div>
-
-                <div class="upload-section">
-                  <div class="section-title">
-                    <span>模板图</span>
+                    <span>排版图</span>
                     <small>仅支持上传一张</small>
                   </div>
                   <el-upload
@@ -1754,7 +1687,7 @@ function pageSubtitle(): string {
                     @remove="handleUploadRemove"
                   >
                     <el-icon><Upload /></el-icon>
-                    <div>上传模板图</div>
+                    <div>上传排版图</div>
                   </el-upload>
                   <UploadPreviewGrid
                     :files="templateFiles"
@@ -1762,7 +1695,7 @@ function pageSubtitle(): string {
                     :upload-key="uploadKey"
                     @preview="openImageViewer"
                     @download="downloadImage"
-                    @remove="(file) => removeUploadFile('模板图', file)"
+                    @remove="(file) => removeUploadFile('排版图', file)"
                   />
                 </div>
               </section>
@@ -2044,13 +1977,13 @@ function pageSubtitle(): string {
 
                 <div class="target-template-selectors">
                   <div class="form-row no-margin">
-                    <label>主图目标模板</label>
+                    <label>主图排版模板</label>
                     <el-select
                       v-model="taskForm.mainTargetTemplateId"
                       clearable
                       filterable
                       :disabled="taskForm.mainImageCount <= 0"
-                      :placeholder="targetTemplateDisabledReason('MAIN') || '选择主图目标模板'"
+                      :placeholder="targetTemplateDisabledReason('MAIN') || '选择已上传主图排版模板'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >
                       <el-option
@@ -2083,13 +2016,13 @@ function pageSubtitle(): string {
                     </div>
                   </div>
                   <div class="form-row no-margin">
-                    <label>介绍图目标模板</label>
+                    <label>介绍图排版模板</label>
                     <el-select
                       v-model="taskForm.introTargetTemplateId"
                       clearable
                       filterable
                       :disabled="taskForm.introImageCount <= 0"
-                      :placeholder="targetTemplateDisabledReason('INTRO') || '选择介绍图目标模板'"
+                      :placeholder="targetTemplateDisabledReason('INTRO') || '选择已上传介绍图排版模板'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >
                       <el-option
@@ -2228,8 +2161,7 @@ function pageSubtitle(): string {
                     <p>{{ task.form.platform }} / {{ task.form.customWidth }} x {{ task.form.customHeight }} / {{ task.form.language }}</p>
                     <div class="queue-tags">
                       <span>实拍图 {{ fileCount(task, '实拍图') }}</span>
-                      <span>包装图 {{ fileCount(task, '包装图') }}</span>
-                      <span>模板图 {{ fileCount(task, '模板图') }}</span>
+                      <span>排版图 {{ fileCount(task, '排版图') }}</span>
                       <span>主图 {{ task.form.mainImageCount }}</span>
                       <span>介绍图 {{ task.form.introImageCount }}</span>
                       <span>进度 {{ task.completedCount }} / {{ task.totalCount }}</span>
@@ -2298,8 +2230,8 @@ function pageSubtitle(): string {
               <article v-for="type in targetTemplateTypes" :key="type" class="template-panel">
                 <div class="task-card-head">
                   <div>
-                    <h2>{{ type === 'MAIN' ? '主图目标模板' : '介绍图目标模板' }}</h2>
-                    <p>上传目标风格图后，后端会自动调用 GPT 5.5 分析并保存风格。</p>
+                    <h2>{{ type === 'MAIN' ? '主图排版模板' : '介绍图排版模板' }}</h2>
+                    <p>上传排版图后，后端会自动调用 GPT 5.5 分析并保存风格。</p>
                   </div>
                 </div>
 
@@ -2307,7 +2239,7 @@ function pageSubtitle(): string {
                   <label>模板名称</label>
                   <el-input
                     v-model="targetTemplateNames[type]"
-                    :placeholder="type === 'MAIN' ? '例如：深色科技主图' : '例如：模块化介绍图'"
+                    :placeholder="type === 'MAIN' ? '例如：深色科技主图排版' : '例如：模块化介绍图排版'"
                   />
                 </div>
 
@@ -2321,7 +2253,7 @@ function pageSubtitle(): string {
                   :show-file-list="false"
                 >
                   <el-icon><Upload /></el-icon>
-                  <div>拖拽或点击上传目标模板图</div>
+                  <div>拖拽或点击上传排版图</div>
                 </el-upload>
 
                 <UploadPreviewGrid
@@ -2341,7 +2273,7 @@ function pageSubtitle(): string {
                   :loading="targetTemplateUploading[type]"
                   @click="addTargetTemplate(type)"
                 >
-                  添加并深析模板
+                  添加并深析排版模板
                 </el-button>
 
                 <div v-if="targetTemplatesByType(type).length" class="target-template-list">
@@ -2371,14 +2303,14 @@ function pageSubtitle(): string {
                         size="small"
                         text
                         type="primary"
-                        @click="openFullTextDialog(`${template.templateTypeText}目标模板风格`, template.styleAnalysis)"
+                        @click="openFullTextDialog(`${template.templateTypeText}排版模板风格`, template.styleAnalysis)"
                       >
                         查看全文
                       </el-button>
                     </div>
                   </article>
                 </div>
-                <el-empty v-else description="暂无目标模板" />
+                <el-empty v-else description="暂无排版模板" />
               </article>
             </section>
 
@@ -2505,14 +2437,14 @@ function pageSubtitle(): string {
               </div>
               <div style="height: 20px;"></div>
               <div class="form-row">
-                <label>目标模板图片分析提示词</label>
+                <label>排版模板图片分析提示词</label>
                 <el-input
                   v-model="defaultSettings.targetTemplatePrompt"
                   type="textarea"
                   :rows="15"
                   maxlength="3000"
                   show-word-limit
-                  placeholder="请输入分析目标模板图风格时发送给 GPT 的提示词"
+                  placeholder="请输入分析排版模板图风格时发送给 GPT 的提示词"
                 />
               </div>
 
@@ -2701,8 +2633,7 @@ function pageSubtitle(): string {
           <el-descriptions-item label="防窥数量">{{ selectedQueueTask.form.privacyEnabled ? selectedQueueTask.form.privacyQuantity : 0 }}</el-descriptions-item>
           <el-descriptions-item label="素材数量">
             实拍 {{ fileCount(selectedQueueTask, '实拍图') }} /
-            包装 {{ fileCount(selectedQueueTask, '包装图') }} /
-            模板 {{ fileCount(selectedQueueTask, '模板图') }}
+            排版 {{ fileCount(selectedQueueTask, '排版图') }}
           </el-descriptions-item>
           <el-descriptions-item label="卖点" :span="3">
             {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}
