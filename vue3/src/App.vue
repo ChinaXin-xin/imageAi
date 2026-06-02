@@ -184,6 +184,7 @@ const imageViewerRotation = ref(0);
 const imageViewerNaturalSize = ref<ViewerNaturalSize>({ width: 1, height: 1 });
 const imageViewerViewport = ref<ViewerViewport>({ width: window.innerWidth, height: window.innerHeight });
 let queueRefreshTimer: number | undefined;
+let taskQueueRequest: Promise<void> | null = null;
 
 const platforms = ['Amazon', 'TEMU', 'TikTok Shop', '自定义'];
 const ratioOptions = ['1536:1536', '1024:1024', '960:640', '自定义'];
@@ -385,10 +386,10 @@ onMounted(() => {
   window.addEventListener('keydown', handleImageViewerKeydown, true);
   window.addEventListener('resize', updateImageViewerViewport);
   queueRefreshTimer = window.setInterval(() => {
-    if (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status))) {
+    if (!taskQueueRequest && (activePage.value === 'queue' || taskQueue.value.some((task) => isRunningTask(task.status)))) {
       loadTaskQueue(false);
     }
-  }, 3000);
+  }, 8000);
 });
 
 onUnmounted(() => {
@@ -783,23 +784,36 @@ function rawUploadFiles(files: UploadUserFile[]): File[] {
 }
 
 async function loadTaskQueue(showLoading = true) {
+  if (taskQueueRequest) {
+    return taskQueueRequest;
+  }
   if (showLoading) {
     queueLoading.value = true;
   }
-  queueErrorMessage.value = '';
-  try {
-    taskQueue.value = await loadImageTasks();
-    selectedDownloadTaskIds.value = selectedDownloadTaskIds.value.filter((taskId) =>
-      taskQueue.value.some((task) => task.id === taskId && task.status === 'COMPLETED'),
-    );
-    if (queueDetailVisible.value && selectedQueueTask.value) {
-      selectedQueueTask.value = await loadImageTask(selectedQueueTask.value.id);
+  const request = (async () => {
+    queueErrorMessage.value = '';
+    try {
+      taskQueue.value = await loadImageTasks();
+      selectedDownloadTaskIds.value = selectedDownloadTaskIds.value.filter((taskId) =>
+        taskQueue.value.some((task) => task.id === taskId && task.status === 'COMPLETED'),
+      );
+      if (queueDetailVisible.value && selectedQueueTask.value) {
+        selectedQueueTask.value = await loadImageTask(selectedQueueTask.value.id);
+      }
+    } catch (error) {
+      queueErrorMessage.value = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (showLoading) {
+        queueLoading.value = false;
+      }
     }
-  } catch (error) {
-    queueErrorMessage.value = error instanceof Error ? error.message : String(error);
+  })();
+  taskQueueRequest = request;
+  try {
+    await request;
   } finally {
-    if (showLoading) {
-      queueLoading.value = false;
+    if (taskQueueRequest === request) {
+      taskQueueRequest = null;
     }
   }
 }

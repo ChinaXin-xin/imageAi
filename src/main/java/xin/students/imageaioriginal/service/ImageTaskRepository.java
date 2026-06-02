@@ -109,6 +109,24 @@ public class ImageTaskRepository {
 
     public List<ImageTaskSummary> listTasks() {
         return taskMapper.selectList(new LambdaQueryWrapper<ImageTaskEntity>()
+                        .select(
+                                ImageTaskEntity::getId,
+                                ImageTaskEntity::getProductName,
+                                ImageTaskEntity::getStatus,
+                                ImageTaskEntity::getPayloadJson,
+                                ImageTaskEntity::getAnalysisJson,
+                                ImageTaskEntity::getThumbnail,
+                                ImageTaskEntity::getThumbnailContentType,
+                                ImageTaskEntity::getThumbnailFileName,
+                                ImageTaskEntity::getRealPhotoCount,
+                                ImageTaskEntity::getPackageImageCount,
+                                ImageTaskEntity::getTemplateCount,
+                                ImageTaskEntity::getErrorMessage,
+                                ImageTaskEntity::getCreatedAt,
+                                ImageTaskEntity::getUpdatedAt,
+                                ImageTaskEntity::getStartedAt,
+                                ImageTaskEntity::getCompletedAt
+                        )
                         .orderByDesc(ImageTaskEntity::getCreatedAt))
                 .stream()
                 .map(this::toTaskRecord)
@@ -622,7 +640,7 @@ public class ImageTaskRepository {
 
     private ResultStats progressStats(TaskRecord record) {
         ResultStats generationStats = generationResultStats(record.id());
-        int analysisTotal = countStoredImages(record.id(), "realPhoto") + countStoredImages(record.id(), "template");
+        int analysisTotal = record.realPhotoCount() + record.templateCount();
         int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
         int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
         int analysisCompleted = analysisCompletedCount(record, analysisTotal);
@@ -636,6 +654,7 @@ public class ImageTaskRepository {
 
     private ResultStats generationResultStats(String taskId) {
         List<ImageTaskResultEntity> results = resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                .select(ImageTaskResultEntity::getStatus)
                 .eq(ImageTaskResultEntity::getTaskId, taskId));
         int completed = (int) results.stream().filter(result -> "COMPLETED".equals(result.getStatus())).count();
         return new ResultStats(completed, results.size());
@@ -648,10 +667,10 @@ public class ImageTaskRepository {
         if ("GENERATING".equals(record.status()) || "COMPLETED".equals(record.status())) {
             return analysisTotal;
         }
-        return Math.min(analysisTotal, analyzedStoredImageCount(record.id(), record.analysis()));
+        return Math.min(analysisTotal, analyzedStoredImageCount(record, record.analysis()));
     }
 
-    private int analyzedStoredImageCount(String taskId, Map<String, String> analysis) {
+    private int analyzedStoredImageCount(TaskRecord record, Map<String, String> analysis) {
         if (analysis == null || analysis.isEmpty()) {
             return 0;
         }
@@ -662,10 +681,18 @@ public class ImageTaskRepository {
             }
             String fileGroup = fileGroupCode(entry.getKey());
             if (!fileGroup.isBlank()) {
-                count += countStoredImages(taskId, fileGroup);
+                count += storedImageCount(record, fileGroup);
             }
         }
         return count;
+    }
+
+    private int storedImageCount(TaskRecord record, String fileGroup) {
+        return switch (fileGroup == null ? "" : fileGroup) {
+            case "realPhoto" -> record.realPhotoCount();
+            case "template" -> record.templateCount();
+            default -> countStoredImages(record.id(), fileGroup);
+        };
     }
 
     private void addColumnIfMissing(Connection connection, String tableName, String columnName, String definition) throws SQLException {
