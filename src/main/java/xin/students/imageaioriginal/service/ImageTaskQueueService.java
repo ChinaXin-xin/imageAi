@@ -740,6 +740,8 @@ public class ImageTaskQueueService {
 
         builder.append("【手机膜结构规则】\n");
         builder.append("镜头膜/屏幕膜按上传图的外轮廓、孔位数量、孔位位置、孔位大小生成。若小孔大小不同或结构非对称，必须保留差异；禁止做成等大、等距、分离镜圈或标准圆环。孔洞内不要添加不存在的镜片、金属圈、螺丝、图标或文字。\n\n");
+        appendCameraProtectorCriticalRules(builder, payload, analysis);
+        appendAllowedObjectsContext(builder, payload);
 
         appendKitLock(builder, payload);
 
@@ -770,9 +772,52 @@ public class ImageTaskQueueService {
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
-        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、Logo、水印或装饰文字。\n");
+        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装盒、收纳袋、小黑包、卡片、托盘、Logo、水印或装饰文字。\n");
+        builder.append("\n【生成前自检清单】\n");
+        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图一致；2. S23U 右侧三个小孔是否不是等大；3. 是否只出现允许物品；4. 是否没有额外黑色小包装/小袋/包装盒；5. 套装配件数量是否严格正确；6. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
         builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
         return builder.toString();
+    }
+
+    private void appendCameraProtectorCriticalRules(
+            StringBuilder builder,
+            ImageTaskPayload payload,
+            Map<String, String> analysis
+    ) {
+        String model = normalizeNullable(payload.model()).toLowerCase();
+        String allAnalysis = analysis == null
+                ? ""
+                : String.join("\n", analysis.values().stream().filter(value -> value != null && !value.isBlank()).toList());
+        boolean looksLikeS23Ultra = model.contains("s23u")
+                || model.contains("s23 ultra")
+                || model.contains("s23ultra")
+                || normalizeNullable(payload.model()).contains("三星S23U");
+        boolean hasLensProtector = allAnalysis.contains("镜头膜")
+                || allAnalysis.contains("镜头保护")
+                || joinList(payload.sellingPoints()).contains("镜头保护");
+        if (!looksLikeS23Ultra || !hasLensProtector) {
+            return;
+        }
+        builder.append("【三星S23U镜头膜关键结构锁定】\n");
+        builder.append("镜头膜必须是一整片黑色异形片状保护膜，不是分离圆环，不是手机本体摄像头模组。\n");
+        builder.append("左侧必须有 3 个较大圆孔纵向排列；右侧必须有 3 个较小圆孔纵向排列，且右侧三个小孔大小不相同：右上孔最大/中等，右中孔最小，右下孔大于右中但小于右上。\n");
+        builder.append("右侧三个小孔绝对不能生成成一样大；如果画面较小导致看不清，必须放大镜头膜或用近景展示孔位差异。\n");
+        builder.append("保留右侧外轮廓的台阶/凹口和整体圆角异形边缘，孔洞保持真实贯穿开孔，不填入额外镜片或黑色圆点。\n\n");
+    }
+
+    private void appendAllowedObjectsContext(StringBuilder builder, ImageTaskPayload payload) {
+        builder.append("【允许出现物品白名单】\n");
+        builder.append("只允许出现：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的一体式镜头膜");
+        String kitSpecText = joinKitSpecs(payload.kitSpecs());
+        if (!"未选择".equals(kitSpecText)) {
+            builder.append("、套装配件（").append(kitSpecText).append("）");
+        }
+        builder.append("。\n");
+        builder.append("除上述白名单外，不要生成任何额外包装、黑色小袋、黑色小包装、收纳袋、包装盒、安装卡、说明书、托盘、未选择贴纸或未上传配件。\n");
+        if (kitSpecText.contains("酒精包")) {
+            builder.append("酒精包只能按参考图生成扁平密封湿巾包/酒精棉片包装，不要变成软布袋、收纳袋、额外黑色包装或没有参考图形状的黑色小包。\n");
+        }
+        builder.append("\n");
     }
 
     private void appendKitLock(StringBuilder builder, ImageTaskPayload payload) {

@@ -55,6 +55,19 @@ public class UploadImageAnalysisService {
 
             输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
             """;
+    private static final String STRUCTURE_ANALYSIS_REQUIREMENTS = """
+
+            【精密孔位强制要求】
+            如果图片中出现镜头膜/镜头保护片，必须额外输出：
+            - 它是一体式片状结构还是分离镜圈；
+            - 大孔数量、小孔数量，以及左右/上下排列；
+            - 每个小孔的相对大小顺序，例如“右上最大、右中最小、右下居中”；
+            - 小孔是否等大，若不等大必须明确写出“禁止生成成等大孔”；
+            - 外轮廓是否有台阶、凹口、凸起、圆角、异形边缘；
+            - 哪些包装/配件没有出现在实拍图里，后续生图不得凭空添加。
+
+            如果是三星 S23U / S23 Ultra 镜头膜，尤其要检查右侧三个小孔是否大小不一致，并明确写出三者的大小关系。
+            """;
 
     private final GptProperties gptProperties;
     private final CliProxyProperties cliProxyProperties;
@@ -217,7 +230,11 @@ public class UploadImageAnalysisService {
     }
 
     private String buildPrompt(String prompt) {
-        return prompt == null || prompt.isBlank() ? DEFAULT_ANALYSIS_PROMPT : prompt.trim();
+        String normalized = prompt == null || prompt.isBlank() ? DEFAULT_ANALYSIS_PROMPT : prompt.trim();
+        if (normalized.contains("【精密孔位强制要求】")) {
+            return normalized;
+        }
+        return normalized + STRUCTURE_ANALYSIS_REQUIREMENTS;
     }
 
     private EncodedImage toDataUrl(StoredUploadImage file) {
