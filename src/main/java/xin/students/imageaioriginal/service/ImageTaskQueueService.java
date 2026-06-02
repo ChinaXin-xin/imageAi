@@ -71,6 +71,8 @@ public class ImageTaskQueueService {
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
     private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
+    private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "钢化膜、防窥膜、镜头膜";
+    private static final String CUSTOMER_ALLOWED_ACCESSORIES = "无尘布、酒精清洁包、定位神器、刮板、安装辅助贴、镜头膜安装辅助贴防滑垫";
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -609,6 +611,7 @@ public class ImageTaskQueueService {
             builder.append("、已选择套装配件（").append(kitSpecText).append("）");
         }
         builder.append("。\n");
+        builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
         builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、小黑包、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
         if (looksLikeS23Ultra(payload) && hasLensProtector(payload, basePrompt)) {
             builder.append("三星 S23U 镜头膜再次自检：一体式片状结构；右上、右中、右下三个小孔必须不等大，右中孔最小，不能做成分离圆环或等大孔。\n");
@@ -828,6 +831,7 @@ public class ImageTaskQueueService {
             builder.append("、套装配件（").append(kitSpecText).append("）");
         }
         builder.append("。\n");
+        builder.append("客户明确可用产品只有：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件只有：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。未选择、未上传或不在这个范围内的物品都不要出现。\n");
         builder.append("除上述白名单外，不要生成任何额外包装、包装袋、黑色小袋、黑色小包装、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
         if (kitSpecText.contains("酒精包")) {
             builder.append("酒精包只能按参考图生成扁平密封湿巾包/酒精棉片包装，不要变成软布袋、收纳袋、额外黑色包装或没有参考图形状的黑色小包。\n");
