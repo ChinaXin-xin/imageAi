@@ -73,6 +73,7 @@ public class ImageTaskQueueService {
     private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
     private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "钢化膜、防窥膜、镜头膜";
     private static final String CUSTOMER_ALLOWED_ACCESSORIES = "无尘布、酒精清洁包、定位神器、刮板、安装辅助贴、镜头膜安装辅助贴防滑垫";
+    private static final String CLEANING_PACK_REFERENCE_RULE = "酒精清洁包/湿巾包只能按已上传或已选择的参考图生成：若参考图是黑色方形 WET WIPES 包，必须是扁平方形黑色小包，正面保留清晰白色文字（如 WET WIPES、Remove Dust、Effective Sterilization 等可见字样）；不要生成空白白色小袋、无字黑色小袋、软布袋、收纳袋或任意未上传袋子。";
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -612,7 +613,8 @@ public class ImageTaskQueueService {
         }
         builder.append("。\n");
         builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
-        builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、小黑包、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
+        builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
+        appendCleaningPackRule(builder, kitSpecText);
         if (looksLikeS23Ultra(payload) && hasLensProtector(payload, basePrompt)) {
             builder.append("三星 S23U 镜头膜再次自检：一体式片状结构；右上、右中、右下三个小孔必须不等大，右中孔最小，不能做成分离圆环或等大孔。\n");
         }
@@ -800,9 +802,9 @@ public class ImageTaskQueueService {
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
-        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、小黑包、卡片、托盘、支架、底座、展示道具、Logo、水印或装饰文字。\n");
+        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、Logo、水印或装饰文字（参考图配件自身文字除外）。\n");
         builder.append("\n【生成前自检清单】\n");
-        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图一致；2. S23U 右侧三个小孔是否不是等大；3. 是否只出现允许物品；4. 是否没有额外黑色小包装/小袋/包装盒/支架/底座/展示道具；5. 套装配件数量是否严格正确；6. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
+        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图一致；2. S23U 右侧三个小孔是否不是等大；3. 是否只出现允许物品；4. 是否没有额外黑/白小袋、包装盒、支架、底座、展示道具；5. 若出现酒精清洁包/湿巾包，是否与参考图形状、颜色和可见文字一致；6. 套装配件数量是否严格正确；7. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
         builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
         return builder.toString();
     }
@@ -834,11 +836,26 @@ public class ImageTaskQueueService {
         }
         builder.append("。\n");
         builder.append("客户明确可用产品只有：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件只有：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。未选择、未上传或不在这个范围内的物品都不要出现。\n");
-        builder.append("除上述白名单外，不要生成任何额外包装、包装袋、黑色小袋、黑色小包装、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
-        if (kitSpecText.contains("酒精包")) {
-            builder.append("酒精包只能按参考图生成扁平密封湿巾包/酒精棉片包装，不要变成软布袋、收纳袋、额外黑色包装或没有参考图形状的黑色小包。\n");
-        }
+        builder.append("除上述白名单外，不要生成任何额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
+        appendCleaningPackRule(builder, kitSpecText);
         builder.append("\n");
+    }
+
+    private void appendCleaningPackRule(StringBuilder builder, String kitSpecText) {
+        if (hasCleaningPack(kitSpecText)) {
+            builder.append(CLEANING_PACK_REFERENCE_RULE).append("\n");
+        } else {
+            builder.append("未选择酒精清洁包/湿巾包时，不要生成任何黑色小袋、白色小袋、湿巾包、酒精包或清洁包。\n");
+        }
+    }
+
+    private boolean hasCleaningPack(String kitSpecText) {
+        String normalized = normalizeNullable(kitSpecText).toLowerCase();
+        return normalized.contains("酒精")
+                || normalized.contains("清洁包")
+                || normalized.contains("湿巾")
+                || normalized.contains("wet wipes")
+                || normalized.contains("wipe");
     }
 
     private void appendFilmTypeLock(StringBuilder builder, ImageTaskPayload payload) {

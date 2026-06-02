@@ -18,11 +18,11 @@ public record ImageGenerationProperties(
     }
 
     public int resolvedMaxImagesPerTask() {
-        return bounded(maxImagesPerTask, 3, 1, 12);
+        return bounded(maxImagesPerTask, 10, 1, 12);
     }
 
     public int resolvedMaxGlobalImageConcurrency() {
-        return bounded(maxGlobalImageConcurrency, 6, 1, 32);
+        return bounded(maxGlobalImageConcurrency, 10, 1, 32);
     }
 
     private int bounded(Integer value, int fallback, int min, int max) {
