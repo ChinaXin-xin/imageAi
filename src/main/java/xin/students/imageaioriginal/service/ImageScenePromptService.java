@@ -52,9 +52,9 @@ public class ImageScenePromptService {
         if (normalizedCount <= 0) {
             return List.of();
         }
-        boolean requiresS23UltraLock = requiresS23UltraLensLock(basePrompt);
+        boolean requiresLensStructureLock = requiresLensStructureLock(basePrompt);
         if (normalizedCount == 1) {
-            return fallbackScenes(imageType, normalizedCount, requiresS23UltraLock);
+            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock);
         }
 
         String requestId = UUID.randomUUID().toString().substring(0, 8);
@@ -84,7 +84,7 @@ public class ImageScenePromptService {
                     .retrieve()
                     .body(JsonNode.class);
             String text = extractText(response);
-            List<ScenePrompt> scenes = normalizeScenes(parseScenes(text), imageType, normalizedCount, requiresS23UltraLock);
+            List<ScenePrompt> scenes = normalizeScenes(parseScenes(text), imageType, normalizedCount, requiresLensStructureLock);
             LOG.info(
                     "gpt.scene-plan.response id={} type={} count={} parsedCount={} result={}",
                     requestId,
@@ -102,7 +102,7 @@ public class ImageScenePromptService {
                     normalizedCount,
                     ex.getMessage()
             );
-            return fallbackScenes(imageType, normalizedCount, requiresS23UltraLock);
+            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock);
         }
     }
 
@@ -127,7 +127,7 @@ public class ImageScenePromptService {
                 6. prompt 只写本张图相对基础提示词需要变化的场景规划，不要重复粘贴完整基础提示词。
                 7. 多张图必须包含风格和角度变化：至少一张 3D 立体斜角/悬浮分层图，至少一张平铺图，至少一张近景细节图；如果数量不足 3，就优先保证一张立体斜角、一张平铺。
                 8. 场景 prompt 只写白名单内物品：手机/手机模型、上传实拍图对应的屏幕膜和镜头膜、已选择套装配件。不要加入任何支架、底座、托盘、展示道具、额外包装、收纳袋、包装盒、卡片、未上传包装或未选择配件；酒精清洁包/湿巾包只能按参考图形态出现。
-                9. 如果基础提示词包含三星 S23U 镜头膜，所有场景都必须提醒右侧三个小孔大小不一致，不能做成等大。
+                9. 如果基础提示词包含镜头膜，所有场景都必须提醒按上传图/深析结果保留对应机型的外轮廓、孔位数量、孔位位置和孔位大小差异，不能套用其他机型结构。
                 10. 不要在场景 prompt 里写“额外包装、非参考图黑/白小袋、收纳袋、包装盒、卡片、托盘、支架、底座、展示道具”等高风险物品词；含这些词的场景会被丢弃。
                 11. 如果是主图，多张之间必须显著裂变：至少包含钢化膜在手机左侧/右侧的摆放变化、俯拍/斜拍角度变化、轮廓光变化；若任务没有指定手机颜色，可以规划不同手机颜色，但不得改变机型。
                 12. 如果场景里需要出现酒精清洁包/湿巾包，必须提醒按参考图复现形状、颜色和可见文字；例如黑色方形 WET WIPES 包要有白色 WET WIPES 等参考图文字，不能变成空白白色小袋或无字黑色小袋。
@@ -169,9 +169,9 @@ public class ImageScenePromptService {
             List<ScenePrompt> parsedScenes,
             String imageType,
             int count,
-            boolean requiresS23UltraLock
+            boolean requiresLensStructureLock
     ) {
-        List<ScenePrompt> fallback = fallbackScenes(imageType, count, requiresS23UltraLock);
+        List<ScenePrompt> fallback = fallbackScenes(imageType, count, requiresLensStructureLock);
         List<ScenePrompt> normalized = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             ScenePrompt parsed = i < parsedScenes.size() ? parsedScenes.get(i) : null;
@@ -181,7 +181,7 @@ public class ImageScenePromptService {
                 normalized.add(new ScenePrompt(
                         i + 1,
                         normalizeTitle(parsed.sceneTitle(), i + 1),
-                        appendDiversityDirective(parsed.prompt().trim(), imageType, i, count, requiresS23UltraLock)
+                        appendDiversityDirective(parsed.prompt().trim(), imageType, i, count, requiresLensStructureLock)
                 ));
             }
         }
@@ -193,10 +193,10 @@ public class ImageScenePromptService {
         return FORBIDDEN_OBJECT_TERMS.stream().anyMatch(normalized::contains);
     }
 
-    List<ScenePrompt> fallbackScenes(String imageType, int count, boolean requiresS23UltraLock) {
-        String cameraHoleLock = requiresS23UltraLock
-                ? "镜头膜右侧三个小孔必须不等大，右中孔最小，保持一体式片状结构。"
-                : "镜头膜按上传图保持孔位数量、位置和大小差异。";
+    List<ScenePrompt> fallbackScenes(String imageType, int count, boolean requiresLensStructureLock) {
+        String cameraHoleLock = requiresLensStructureLock
+                ? "镜头膜必须按上传图/深析结果保持对应机型的外轮廓、孔位数量、位置和大小差异，不套用其他手机型号。"
+                : "产品结构按上传图/深析结果保持外轮廓、数量、位置和大小差异。";
         String[] mainScenes = {
                 "无文字 3D 立体斜角主图，手机模型在右侧，钢化膜/屏幕膜在左侧悬浮分层展示，强调厚度、轮廓光、边缘高光和空间纵深；" + cameraHoleLock,
                 "无文字高端平铺主图，45 度俯拍，手机模型在左侧，钢化膜/屏幕膜在右侧，产品与已选择配件均衡分布，只出现白名单物品；" + cameraHoleLock,
@@ -224,7 +224,7 @@ public class ImageScenePromptService {
             String imageType,
             int zeroBasedIndex,
             int total,
-            boolean requiresS23UltraLock
+            boolean requiresLensStructureLock
     ) {
         String directive = switch (zeroBasedIndex % 5) {
             case 0 -> "本张必须是 3D 立体斜角/悬浮分层场景，有明显厚度、真实阴影和空间纵深；钢化膜/屏幕膜与手机左右错位摆放。";
@@ -240,25 +240,20 @@ public class ImageScenePromptService {
             directive = directive + " 主图必须无文字、无图标、无角标、无卖点标签、无水印。";
         }
         String structureLock = "所有场景都必须保留上传图真实产品结构，不改变孔位数量、位置和大小差异。";
-        String s23UltraLock = requiresS23UltraLock
-                ? "三星 S23U 镜头膜必须是一体式片状，右侧三个小孔大小不一致，右中孔最小，不能做成等大孔。"
+        String lensStructureLock = requiresLensStructureLock
+                ? "镜头膜必须按上传图/深析结果锁定对应机型结构，不改变孔位数量、位置、大小差异和一体式/分离式形态。"
                 : "";
         String objectAudit = "只出现白名单物品；若场景联想到支架、底座、展示道具或额外包装，全部忽略。";
-        return abbreviate(prompt + " " + directive + " " + structureLock + " " + s23UltraLock + " " + objectAudit, MAX_SCENE_PROMPT_CHARS);
+        return abbreviate(prompt + " " + directive + " " + structureLock + " " + lensStructureLock + " " + objectAudit, MAX_SCENE_PROMPT_CHARS);
     }
 
-    private boolean requiresS23UltraLensLock(String basePrompt) {
+    private boolean requiresLensStructureLock(String basePrompt) {
         String normalized = basePrompt == null ? "" : basePrompt.replaceAll("\\s+", "").toLowerCase();
-        boolean looksLikeS23Ultra = normalized.contains("s23u")
-                || normalized.contains("s23ultra")
-                || normalized.contains("s23 ultra")
-                || normalized.contains("三星s23u")
-                || normalized.contains("三星s23ultra");
-        boolean hasLensProtector = normalized.contains("镜头膜")
+        return normalized.contains("镜头膜")
                 || normalized.contains("镜头保护")
+                || normalized.contains("镜头保护膜")
                 || normalized.contains("camera protector")
                 || normalized.contains("lens protector");
-        return looksLikeS23Ultra && hasLensProtector;
     }
 
     private String extractText(JsonNode response) {

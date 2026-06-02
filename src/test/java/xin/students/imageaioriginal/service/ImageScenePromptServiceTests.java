@@ -25,18 +25,19 @@ class ImageScenePromptServiceTests {
     }
 
     @Test
-    void fallbackSceneKeepsS23UltraLensHoleLock() {
-        var scenes = service.planScenes("主图", "三星 S23U 镜头膜，一体式片状结构，镜头保护", 1);
+    void fallbackSceneKeepsGenericLensStructureLock() {
+        var scenes = service.planScenes("主图", "某型号手机镜头膜，上传图显示异形外轮廓和大小不同的孔位，镜头保护", 1);
 
         assertThat(scenes).hasSize(1);
         assertThat(scenes.get(0).prompt())
-                .contains("右侧三个小孔")
-                .contains("不等大")
-                .contains("一体式片状结构");
+                .contains("按上传图")
+                .contains("对应机型")
+                .contains("孔位数量")
+                .contains("大小差异");
     }
 
     @Test
-    void simulatedFallbackScenesStaySafeAndKeepS23UltraLock() {
+    void simulatedFallbackScenesStaySafeAndKeepGenericLensLock() {
         var scenes = service.fallbackScenes("主图", 5, true);
 
         assertThat(scenes).hasSize(5);
@@ -51,9 +52,9 @@ class ImageScenePromptServiceTests {
             assertThat(service.containsForbiddenObject(scene.prompt())).isFalse();
             assertThat(scene.prompt())
                     .contains("无文字")
-                    .contains("右侧三个小孔")
-                    .contains("不等大")
-                    .contains("一体式片状结构");
+                    .contains("对应机型")
+                    .contains("孔位数量")
+                    .contains("大小差异");
         });
     }
 }
