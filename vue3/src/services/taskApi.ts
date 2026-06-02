@@ -47,7 +47,8 @@ export async function analyzeUploadedImages(type: string, files: File[], prompt:
   const formData = new FormData();
   formData.append('type', type);
   formData.append('prompt', prompt);
-  files.forEach((file) => formData.append('files', file));
+  const preparedFiles = await prepareImageFiles(files);
+  preparedFiles.forEach((file) => formData.append('files', file));
 
   const response = await fetch(`${API_BASE_URL}/api/task/analyze-upload`, {
     method: 'POST',
@@ -183,7 +184,7 @@ export async function createTargetTemplate(
 ): Promise<TargetTemplate> {
   const formData = new FormData();
   formData.append('templateType', templateType);
-  formData.append('file', file);
+  formData.append('file', await prepareImageFile(file));
   if (name?.trim()) {
     formData.append('name', name.trim());
   }
@@ -220,7 +221,7 @@ export async function loadExtraAccessories(): Promise<ExtraAccessory[]> {
 
 export async function createExtraAccessory(file: File, name?: string): Promise<ExtraAccessory> {
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', await prepareImageFile(file));
   if (name?.trim()) {
     formData.append('name', name.trim());
   }
@@ -254,10 +255,16 @@ export async function createImageTask(
 ): Promise<ImageTaskDetail> {
   const formData = new FormData();
   formData.append('payload', JSON.stringify(payload));
-  files.realPhotoFiles.forEach((file) => formData.append('realPhotoFiles', file));
-  files.templateFiles.forEach((file) => formData.append('templateFiles', file));
-  files.logoFiles.forEach((file) => formData.append('logoFiles', file));
-  files.wallpaperFiles.forEach((file) => formData.append('wallpaperFiles', file));
+  const [realPhotoFiles, templateFiles, logoFiles, wallpaperFiles] = await Promise.all([
+    prepareImageFiles(files.realPhotoFiles),
+    prepareImageFiles(files.templateFiles),
+    prepareImageFiles(files.logoFiles),
+    prepareImageFiles(files.wallpaperFiles),
+  ]);
+  realPhotoFiles.forEach((file) => formData.append('realPhotoFiles', file));
+  templateFiles.forEach((file) => formData.append('templateFiles', file));
+  logoFiles.forEach((file) => formData.append('logoFiles', file));
+  wallpaperFiles.forEach((file) => formData.append('wallpaperFiles', file));
 
   const response = await fetch(`${API_BASE_URL}/api/tasks`, {
     method: 'POST',
@@ -267,6 +274,66 @@ export async function createImageTask(
     throw new Error(await readError(response));
   }
   return (await response.json()) as ImageTaskDetail;
+}
+
+async function prepareImageFiles(files: File[]): Promise<File[]> {
+  return Promise.all(files.map((file) => prepareImageFile(file)));
+}
+
+async function prepareImageFile(file: File): Promise<File> {
+  if (isApiFriendlyImage(file)) {
+    return file;
+  }
+  if (!isPotentialBrowserImage(file) || typeof createImageBitmap !== 'function') {
+    return file;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      bitmap.close();
+      return file;
+    }
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const blob = await canvasToBlob(canvas);
+    return new File([blob], convertedPngName(file.name), {
+      type: 'image/png',
+      lastModified: file.lastModified,
+    });
+  } catch {
+    return file;
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error('图片转换失败'));
+      }
+    }, 'image/png');
+  });
+}
+
+function isApiFriendlyImage(file: File): boolean {
+  const type = file.type.toLowerCase();
+  return type === 'image/jpeg' || type === 'image/png' || type === 'image/webp';
+}
+
+function isPotentialBrowserImage(file: File): boolean {
+  const type = file.type.toLowerCase();
+  return type.startsWith('image/') || /\.(avif|heic|heif)$/i.test(file.name);
+}
+
+function convertedPngName(fileName: string): string {
+  const normalized = fileName.trim() || 'upload-image';
+  return normalized.replace(/\.[^.]+$/, '') + '.png';
 }
 
 function responseFileName(contentDisposition: string | null): string {

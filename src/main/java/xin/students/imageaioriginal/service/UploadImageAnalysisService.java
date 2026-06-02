@@ -251,7 +251,20 @@ public class UploadImageAnalysisService {
         try {
             BufferedImage source = ImageIO.read(new ByteArrayInputStream(file.bytes()));
             if (source == null) {
-                throw new IllegalArgumentException("仅支持图片文件：" + file.fileName());
+                String contentType = normalizeImageContentType(file);
+                String base64 = Base64.getEncoder().encodeToString(file.bytes());
+                LOG.info(
+                        "gpt.analysis.image.raw fileName={} contentType={} bytes={}",
+                        safeValue(file.fileName()),
+                        contentType,
+                        file.size()
+                );
+                return new EncodedImage(
+                        "data:" + contentType + ";base64," + base64,
+                        file.bytes().length,
+                        0,
+                        0
+                );
             }
             byte[] imageBytes = encodeJpeg(source, PRIMARY_MAX_EDGE, 0.78f);
             if (imageBytes.length > TARGET_IMAGE_BYTES) {
@@ -267,6 +280,24 @@ public class UploadImageAnalysisService {
         } catch (IOException ex) {
             throw new IllegalStateException("读取上传图片失败：" + file.fileName(), ex);
         }
+    }
+
+    private String normalizeImageContentType(StoredUploadImage file) {
+        String contentType = file.contentType() == null ? "" : file.contentType().trim().toLowerCase();
+        if (contentType.startsWith("image/")) {
+            return contentType;
+        }
+        String fileName = file.fileName() == null ? "" : file.fileName().toLowerCase();
+        if (fileName.endsWith(".avif")) {
+            return "image/avif";
+        }
+        if (fileName.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (fileName.endsWith(".png")) {
+            return "image/png";
+        }
+        return "image/jpeg";
     }
 
     private byte[] encodeJpeg(BufferedImage source, int maxEdge, float quality) throws IOException {

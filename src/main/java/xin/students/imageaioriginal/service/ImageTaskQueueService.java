@@ -59,6 +59,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -77,6 +78,8 @@ public class ImageTaskQueueService {
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
     private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
+    private static final int IMAGE_GENERATION_MAX_ATTEMPTS = 3;
+    private static final int IMAGE_GENERATION_RETRY_DELAY_MILLIS = 2_000;
     private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "手机、钢化膜、高清膜、防窥膜、镜头膜";
     private static final String CUSTOMER_ALLOWED_ACCESSORIES = "任务已上传或已选择的手机膜相关清洁/安装辅助配件";
     private static final String ACCESSORY_REFERENCE_RULE = "所有手机膜相关配件都只能按已上传或已选择的参考图生成：必须保留参考图的真实外形、颜色、材质、尺寸比例和可见文字；如果参考图有字，只复现参考图上可见的字，不要凭空加字、改字或生成无字替代品；不要套用其他配件的形状。";
@@ -749,22 +752,83 @@ public class ImageTaskQueueService {
             List<StoredUploadImage> referenceImages
     ) {
         markResultGenerating(job.resultId());
-        try {
-            ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
-                    taskId,
-                    job.resultType(),
-                    job.index(),
-                    job.prompt(),
-                    normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
-                    normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
-                    referenceImages
-            );
-            if (!completeResult(job.resultId(), generatedImage)) {
-                throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
+        for (int attempt = 1; attempt <= IMAGE_GENERATION_MAX_ATTEMPTS; attempt++) {
+            try {
+                ensureTaskNotPaused(taskId);
+                ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
+                        taskId,
+                        job.resultType(),
+                        job.index(),
+                        job.prompt(),
+                        normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
+                        normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
+                        referenceImages
+                );
+                if (!completeResult(job.resultId(), generatedImage)) {
+                    throw new IllegalStateException("生成结果已超时或任务已失败，请重试。");
+                }
+                return;
+            } catch (Exception ex) {
+                if (isTaskPausedOrDeleted(taskId)) {
+                    throw ex;
+                }
+                if (attempt >= IMAGE_GENERATION_MAX_ATTEMPTS || !isRetryableImageGenerationError(ex)) {
+                    failResult(job.resultId(), ex);
+                    throw ex;
+                }
+                LOG.warn(
+                        "image.task.image.retry taskId={} resultId={} type={} index={} attempt={} nextAttempt={} message={}",
+                        taskId,
+                        job.resultId(),
+                        job.resultType(),
+                        job.index(),
+                        attempt,
+                        attempt + 1,
+                        ex.getMessage()
+                );
+                sleepBeforeRetry(taskId, job, attempt);
             }
-        } catch (Exception ex) {
-            failResult(job.resultId(), ex);
-            throw ex;
+        }
+    }
+
+    private boolean isRetryableImageGenerationError(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+        if (error instanceof TimeoutException || hasCause(error, TimeoutException.class)) {
+            return true;
+        }
+        String message = error.getMessage() == null ? "" : error.getMessage();
+        return message.contains("生图接口超过")
+                || message.contains("未返回")
+                || message.contains("空响应")
+                || message.contains("HTTP 5")
+                || message.contains("I/O error")
+                || message.contains("Unexpected end")
+                || message.contains("Connection reset")
+                || message.contains("Read timed out");
+    }
+
+    private boolean hasCause(Throwable error, Class<? extends Throwable> causeType) {
+        Throwable current = error;
+        while (current != null) {
+            if (causeType.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void sleepBeforeRetry(String taskId, GenerationJob job, int attempt) {
+        try {
+            Thread.sleep((long) IMAGE_GENERATION_RETRY_DELAY_MILLIS * attempt);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "图片生成重试等待被中断：" + taskId + "/" + job.resultType() + "#" + job.index(),
+                    interrupted
+            );
         }
     }
 
