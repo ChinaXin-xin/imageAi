@@ -71,9 +71,9 @@ public class ImageTaskQueueService {
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
     private static final int MAX_ANALYSIS_PROMPT_CHARS = 1800;
-    private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "钢化膜、防窥膜、镜头膜";
-    private static final String CUSTOMER_ALLOWED_ACCESSORIES = "无尘布、酒精清洁包、定位神器、刮板、安装辅助贴、镜头膜安装辅助贴防滑垫";
-    private static final String CLEANING_PACK_REFERENCE_RULE = "酒精清洁包/湿巾包只能按已上传或已选择的参考图生成：若参考图是黑色方形 WET WIPES 包，必须是扁平方形黑色小包，正面保留清晰白色文字（如 WET WIPES、Remove Dust、Effective Sterilization 等可见字样）；不要生成空白白色小袋、无字黑色小袋、软布袋、收纳袋或任意未上传袋子。";
+    private static final String CUSTOMER_ALLOWED_PRODUCT_TYPES = "手机、钢化膜、高清膜、防窥膜、镜头膜";
+    private static final String CUSTOMER_ALLOWED_ACCESSORIES = "任务已上传或已选择的手机膜相关清洁/安装辅助配件";
+    private static final String ACCESSORY_REFERENCE_RULE = "所有手机膜相关配件都只能按已上传或已选择的参考图生成：必须保留参考图的真实外形、颜色、材质、尺寸比例和可见文字；如果参考图有字，只复现参考图上可见的字，不要凭空加字、改字或生成无字替代品；不要套用其他配件的形状。";
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -614,7 +614,7 @@ public class ImageTaskQueueService {
         builder.append("。\n");
         builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
         builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
-        appendCleaningPackRule(builder, kitSpecText);
+        appendAccessoryReferenceRule(builder, kitSpecText);
         if (hasLensProtector(payload, basePrompt)) {
             builder.append("镜头膜结构再次自检：按上传图/深析结果锁定当前机型的外轮廓、孔位数量、孔位位置、孔位大小差异，以及一体式片状或分离镜圈形态；不要套用其他手机型号镜头膜结构。\n");
         }
@@ -804,7 +804,7 @@ public class ImageTaskQueueService {
         builder.append("\n【负面约束】\n");
         builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、Logo、水印或装饰文字（参考图配件自身文字除外）。\n");
         builder.append("\n【生成前自检清单】\n");
-        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图和深析结果一致；2. 是否没有套用其他手机型号镜头膜结构；3. 是否只出现允许物品；4. 是否没有额外黑/白小袋、包装盒、支架、底座、展示道具；5. 若出现酒精清洁包/湿巾包，是否与参考图形状、颜色和可见文字一致；6. 套装配件数量是否严格正确；7. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
+        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图和深析结果一致；2. 是否没有套用其他手机型号镜头膜结构；3. 是否只出现允许物品；4. 是否没有额外黑/白小袋、包装盒、支架、底座、展示道具；5. 若出现清洁/安装辅助配件，是否与参考图形状、颜色、尺寸比例和可见文字一致；6. 套装配件数量是否严格正确；7. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
         builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
         return builder.toString();
     }
@@ -821,7 +821,7 @@ public class ImageTaskQueueService {
             return;
         }
         builder.append("【镜头膜关键结构智能锁定】\n");
-        builder.append("镜头膜必须按上传图和深析结果识别当前手机型号，不要套用三星、苹果或其他任意机型的通用镜头膜结构。\n");
+        builder.append("镜头膜必须按上传图和深析结果识别当前手机型号，不要套用任意其他品牌或型号的通用镜头膜结构。\n");
         builder.append("必须锁定：一体式片状或分离镜圈形态、外轮廓、异形边缘、缺口/台阶、孔位数量、孔位相对位置、每个孔位大小差异。\n");
         builder.append("如果深析结果写明某些孔位大小不同、排列不对称或外轮廓有特殊凹凸，必须保留这些差异；不能把不同大小孔做成等大，也不能增加/删除/移动孔位。\n");
         builder.append("如果画面较小导致看不清，必须放大镜头膜或用近景展示孔位差异；孔洞保持真实贯穿开孔，不填入额外镜片、黑色圆点或装饰圈。\n\n");
@@ -835,27 +835,34 @@ public class ImageTaskQueueService {
             builder.append("、套装配件（").append(kitSpecText).append("）");
         }
         builder.append("。\n");
-        builder.append("客户明确可用产品只有：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件只有：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。未选择、未上传或不在这个范围内的物品都不要出现。\n");
+        builder.append("客户明确可用产品范围：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件范围：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。未选择、未上传或不在这个范围内的物品都不要出现。\n");
         builder.append("除上述白名单外，不要生成任何额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
-        appendCleaningPackRule(builder, kitSpecText);
+        appendAccessoryReferenceRule(builder, kitSpecText);
         builder.append("\n");
     }
 
-    private void appendCleaningPackRule(StringBuilder builder, String kitSpecText) {
-        if (hasCleaningPack(kitSpecText)) {
-            builder.append(CLEANING_PACK_REFERENCE_RULE).append("\n");
+    private void appendAccessoryReferenceRule(StringBuilder builder, String kitSpecText) {
+        if (hasSelectedAccessory(kitSpecText)) {
+            builder.append(ACCESSORY_REFERENCE_RULE).append("\n");
         } else {
-            builder.append("未选择酒精清洁包/湿巾包时，不要生成任何黑色小袋、白色小袋、湿巾包、酒精包或清洁包。\n");
+            builder.append("未选择或上传清洁/安装辅助配件时，不要生成任何小袋、清洁包、湿巾包、除尘贴、无尘布、定位器、刮板、辅助贴或防滑垫。\n");
         }
     }
 
-    private boolean hasCleaningPack(String kitSpecText) {
+    private boolean hasSelectedAccessory(String kitSpecText) {
         String normalized = normalizeNullable(kitSpecText).toLowerCase();
-        return normalized.contains("酒精")
-                || normalized.contains("清洁包")
+        return !"未选择".equals(normalized)
+                && (normalized.contains("酒精")
+                || normalized.contains("清洁")
                 || normalized.contains("湿巾")
+                || normalized.contains("除尘")
+                || normalized.contains("无尘")
+                || normalized.contains("定位")
+                || normalized.contains("刮板")
+                || normalized.contains("辅助贴")
+                || normalized.contains("防滑")
                 || normalized.contains("wet wipes")
-                || normalized.contains("wipe");
+                || normalized.contains("wipe"));
     }
 
     private void appendFilmTypeLock(StringBuilder builder, ImageTaskPayload payload) {

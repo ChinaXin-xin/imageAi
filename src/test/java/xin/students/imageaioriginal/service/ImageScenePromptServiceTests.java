@@ -20,8 +20,8 @@ class ImageScenePromptServiceTests {
         assertThat(service.containsForbiddenObject("加入一个黑色便携袋和展示支架突出套装质感")).isTrue();
         assertThat(service.containsForbiddenObject("加入一个空白白色小袋和无字黑色小袋")).isTrue();
         assertThat(service.containsForbiddenObject("只展示手机模型、屏幕膜和一体式镜头膜")).isFalse();
-        assertThat(service.containsForbiddenObject("展示无尘布、酒精清洁包、定位神器、刮板、安装辅助贴和防滑垫")).isFalse();
-        assertThat(service.containsForbiddenObject("展示黑色方形 WET WIPES 包，保留白色 WET WIPES 文字")).isFalse();
+        assertThat(service.containsForbiddenObject("展示按参考图识别的清洁配件、安装辅助贴和除尘贴")).isFalse();
+        assertThat(service.containsForbiddenObject("展示参考图清洁包，保留参考图可见文字")).isFalse();
     }
 
     @Test
