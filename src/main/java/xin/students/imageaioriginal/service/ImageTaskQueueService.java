@@ -616,6 +616,7 @@ public class ImageTaskQueueService {
         if (looksLikeS23Ultra(payload) && hasLensProtector(payload, basePrompt)) {
             builder.append("三星 S23U 镜头膜再次自检：一体式片状结构；右上、右中、右下三个小孔必须不等大，右中孔最小，不能做成分离圆环或等大孔。\n");
         }
+        appendPerImageFilmTypeAudit(builder, payload);
         builder.append(resultType).append("第 ").append(index).append(" 张生成前先完成自查，结构锁定优先于场景创意和模板风格。");
     }
 
@@ -792,6 +793,7 @@ public class ImageTaskQueueService {
         if (!"未选择".equals(productTypeText)) {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
+        appendFilmTypeLock(builder, payload);
         builder.append("\n【").append(imageType).append("画面要求】\n");
         builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
         builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
@@ -837,6 +839,66 @@ public class ImageTaskQueueService {
             builder.append("酒精包只能按参考图生成扁平密封湿巾包/酒精棉片包装，不要变成软布袋、收纳袋、额外黑色包装或没有参考图形状的黑色小包。\n");
         }
         builder.append("\n");
+    }
+
+    private void appendFilmTypeLock(StringBuilder builder, ImageTaskPayload payload) {
+        boolean hasHdFilm = hasHdFilm(payload);
+        boolean hasPrivacyFilm = hasPrivacyFilm(payload);
+        if (!hasHdFilm && !hasPrivacyFilm) {
+            return;
+        }
+        builder.append("【膜类型锁定】\n");
+        if (hasHdFilm) {
+            builder.append("高清/钢化膜必须表现为透明、清亮、高透玻璃质感，可以有浅蓝边缘高光；不要生成成褐色、灰黑色、暗色防窥膜。\n");
+        }
+        if (hasPrivacyFilm) {
+            builder.append("防窥膜必须表现为深色、灰黑或轻微褐色防窥质感，从斜角可见暗色防窥效果；不要生成成完全透明的高清膜。\n");
+        }
+        if (hasHdFilm && hasPrivacyFilm) {
+            builder.append("同一套装同时包含高清/钢化膜和防窥膜时，两类膜要按数量分开摆放并用材质颜色区分，不能互相替换或合并。\n");
+        }
+        builder.append("\n");
+    }
+
+    private void appendPerImageFilmTypeAudit(StringBuilder builder, ImageTaskPayload payload) {
+        boolean hasHdFilm = hasHdFilm(payload);
+        boolean hasPrivacyFilm = hasPrivacyFilm(payload);
+        if (!hasHdFilm && !hasPrivacyFilm) {
+            return;
+        }
+        builder.append("膜类型自检：");
+        if (hasHdFilm) {
+            builder.append("高清/钢化膜保持透明清亮，不要变成褐色或暗色防窥膜；");
+        }
+        if (hasPrivacyFilm) {
+            builder.append("防窥膜保持深色/灰黑/轻微褐色防窥质感，不要变成普通透明膜；");
+        }
+        builder.append("\n");
+    }
+
+    private boolean hasHdFilm(ImageTaskPayload payload) {
+        if (Boolean.TRUE.equals(payload.hdEnabled()) && positive(payload.hdQuantity()) > 0) {
+            return true;
+        }
+        return hasKitSpecName(payload, "高清") || hasKitSpecName(payload, "钢化膜");
+    }
+
+    private boolean hasPrivacyFilm(ImageTaskPayload payload) {
+        if (Boolean.TRUE.equals(payload.privacyEnabled()) && positive(payload.privacyQuantity()) > 0) {
+            return true;
+        }
+        return hasKitSpecName(payload, "防窥");
+    }
+
+    private boolean hasKitSpecName(ImageTaskPayload payload, String keyword) {
+        if (payload.kitSpecs() == null || payload.kitSpecs().isEmpty()) {
+            return false;
+        }
+        return payload.kitSpecs().stream()
+                .filter(spec -> spec != null && positive(spec.quantity()) > 0)
+                .map(ImageTaskKitSpec::name)
+                .filter(name -> name != null && !name.isBlank())
+                .anyMatch(name -> name.contains(keyword));
     }
 
     private boolean looksLikeS23Ultra(ImageTaskPayload payload) {
