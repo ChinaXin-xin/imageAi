@@ -562,13 +562,13 @@ public class ImageTaskQueueService {
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index));
+            String prompt = generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
             long resultId = insertResult(taskId, "主图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "主图", index, prompt, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index));
+            String prompt = generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
             long resultId = insertResult(taskId, "介绍图", index, prompt, "QUEUED");
             jobs.add(new GenerationJob(resultId, "介绍图", index, prompt, introTargetTemplate));
         }
@@ -580,7 +580,8 @@ public class ImageTaskQueueService {
             String resultType,
             int index,
             int total,
-            ImageScenePromptService.ScenePrompt scene
+            ImageScenePromptService.ScenePrompt scene,
+            ImageTaskPayload payload
     ) {
         StringBuilder builder = new StringBuilder(basePrompt);
         builder.append("\n\n【当前生成】").append(resultType).append("第 ").append(index).append(" / ").append(total).append(" 张。");
@@ -590,7 +591,29 @@ public class ImageTaskQueueService {
             builder.append("场景描述：").append(scene.prompt()).append("\n");
             builder.append("本张图必须与同任务其他图片形成不同场景；只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格。");
         }
+        appendPerImageSelfAudit(builder, payload, basePrompt, resultType, index);
         return builder.toString();
+    }
+
+    private void appendPerImageSelfAudit(
+            StringBuilder builder,
+            ImageTaskPayload payload,
+            String basePrompt,
+            String resultType,
+            int index
+    ) {
+        String kitSpecText = joinKitSpecs(payload.kitSpecs());
+        builder.append("\n【本张成品自审与修正】\n");
+        builder.append("本张只允许出现：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的一体式镜头膜");
+        if (!"未选择".equals(kitSpecText)) {
+            builder.append("、已选择套装配件（").append(kitSpecText).append("）");
+        }
+        builder.append("。\n");
+        builder.append("若场景规划、目标模板风格或模型联想引入包装盒、包装袋、收纳袋、小黑包、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
+        if (looksLikeS23Ultra(payload) && hasLensProtector(payload, basePrompt)) {
+            builder.append("三星 S23U 镜头膜再次自检：一体式片状结构；右上、右中、右下三个小孔必须不等大，右中孔最小，不能做成分离圆环或等大孔。\n");
+        }
+        builder.append(resultType).append("第 ").append(index).append(" 张生成前先完成自查，结构锁定优先于场景创意和模板风格。");
     }
 
     private ImageScenePromptService.ScenePrompt sceneAt(List<ImageScenePromptService.ScenePrompt> scenes, int index) {
@@ -772,9 +795,9 @@ public class ImageTaskQueueService {
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
-        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装盒、收纳袋、小黑包、卡片、托盘、Logo、水印或装饰文字。\n");
+        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、小黑包、卡片、托盘、支架、底座、展示道具、Logo、水印或装饰文字。\n");
         builder.append("\n【生成前自检清单】\n");
-        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图一致；2. S23U 右侧三个小孔是否不是等大；3. 是否只出现允许物品；4. 是否没有额外黑色小包装/小袋/包装盒；5. 套装配件数量是否严格正确；6. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
+        builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图一致；2. S23U 右侧三个小孔是否不是等大；3. 是否只出现允许物品；4. 是否没有额外黑色小包装/小袋/包装盒/支架/底座/展示道具；5. 套装配件数量是否严格正确；6. 至少当前场景的角度、纵深或光影与其他图片不同。\n");
         builder.append("\n【生成要求】结合上传图深析、任务参数和规格生成；必须包含与机型一致的手机或手机模型；套装配件严格按数量出现，未选择的配件不要出现；不要编造不可见细节。");
         return builder.toString();
     }
@@ -784,18 +807,10 @@ public class ImageTaskQueueService {
             ImageTaskPayload payload,
             Map<String, String> analysis
     ) {
-        String model = normalizeNullable(payload.model()).toLowerCase();
         String allAnalysis = analysis == null
                 ? ""
                 : String.join("\n", analysis.values().stream().filter(value -> value != null && !value.isBlank()).toList());
-        boolean looksLikeS23Ultra = model.contains("s23u")
-                || model.contains("s23 ultra")
-                || model.contains("s23ultra")
-                || normalizeNullable(payload.model()).contains("三星S23U");
-        boolean hasLensProtector = allAnalysis.contains("镜头膜")
-                || allAnalysis.contains("镜头保护")
-                || joinList(payload.sellingPoints()).contains("镜头保护");
-        if (!looksLikeS23Ultra || !hasLensProtector) {
+        if (!looksLikeS23Ultra(payload) || !hasLensProtector(payload, allAnalysis)) {
             return;
         }
         builder.append("【三星S23U镜头膜关键结构锁定】\n");
@@ -813,11 +828,26 @@ public class ImageTaskQueueService {
             builder.append("、套装配件（").append(kitSpecText).append("）");
         }
         builder.append("。\n");
-        builder.append("除上述白名单外，不要生成任何额外包装、黑色小袋、黑色小包装、收纳袋、包装盒、安装卡、说明书、托盘、未选择贴纸或未上传配件。\n");
+        builder.append("除上述白名单外，不要生成任何额外包装、包装袋、黑色小袋、黑色小包装、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
         if (kitSpecText.contains("酒精包")) {
             builder.append("酒精包只能按参考图生成扁平密封湿巾包/酒精棉片包装，不要变成软布袋、收纳袋、额外黑色包装或没有参考图形状的黑色小包。\n");
         }
         builder.append("\n");
+    }
+
+    private boolean looksLikeS23Ultra(ImageTaskPayload payload) {
+        String model = normalizeNullable(payload.model()).toLowerCase();
+        return model.contains("s23u")
+                || model.contains("s23 ultra")
+                || model.contains("s23ultra")
+                || normalizeNullable(payload.model()).contains("三星S23U");
+    }
+
+    private boolean hasLensProtector(ImageTaskPayload payload, String analysisText) {
+        String normalizedAnalysis = normalizeNullable(analysisText);
+        return normalizedAnalysis.contains("镜头膜")
+                || normalizedAnalysis.contains("镜头保护")
+                || joinList(payload.sellingPoints()).contains("镜头保护");
     }
 
     private void appendKitLock(StringBuilder builder, ImageTaskPayload payload) {
