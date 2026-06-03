@@ -17,6 +17,7 @@ import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.TaskDownloadRequest;
 import xin.students.imageaioriginal.service.ImageTaskDownloadFile;
+import xin.students.imageaioriginal.service.ImageTaskPreviewFile;
 import xin.students.imageaioriginal.service.ImageTaskQueueService;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +41,14 @@ public class ImageTaskQueueController {
     @GetMapping("/{taskId}")
     public ImageTaskDetail getTask(@PathVariable String taskId) {
         return imageTaskQueueService.getTask(taskId);
+    }
+
+    @GetMapping("/{taskId}/files/{fileId}/preview")
+    public ResponseEntity<byte[]> taskFilePreview(@PathVariable String taskId, @PathVariable long fileId) {
+        ImageTaskPreviewFile file = imageTaskQueueService.taskFilePreview(taskId, fileId);
+        return ResponseEntity.ok()
+                .contentType(imageMediaType(file.contentType()))
+                .body(file.bytes());
     }
 
     @PostMapping
@@ -98,5 +107,13 @@ public class ImageTaskQueueController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedName)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(file.bytes());
+    }
+
+    private MediaType imageMediaType(String contentType) {
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (Exception ex) {
+            return MediaType.IMAGE_JPEG;
+        }
     }
 }

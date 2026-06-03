@@ -150,6 +150,11 @@ public class ImageTaskQueueService {
         return imageTaskRepository.getTask(taskId);
     }
 
+    public ImageTaskPreviewFile taskFilePreview(String taskId, long fileId) {
+        imageTaskRepository.ensureTables();
+        return imageTaskRepository.taskFilePreview(taskId, fileId);
+    }
+
     public ImageTaskDetail retryTask(String taskId) {
         imageTaskRepository.ensureTables();
         TaskRecord record = requireTask(taskId);

@@ -102,6 +102,9 @@ public class ImageTaskRepository {
             entity.setContentType(file.contentType());
             entity.setFileSize((long) file.bytes().length);
             entity.setContent(file.bytes());
+            Thumbnail fileThumbnail = imageTaskFileService.createThumbnail(List.of(file));
+            entity.setThumbnail(fileThumbnail.bytes());
+            entity.setThumbnailContentType(fileThumbnail.contentType());
             entity.setSortOrder(file.sortOrder());
             fileMapper.insert(entity);
         }
@@ -114,7 +117,6 @@ public class ImageTaskRepository {
                                 ImageTaskEntity::getProductName,
                                 ImageTaskEntity::getStatus,
                                 ImageTaskEntity::getPayloadJson,
-                                ImageTaskEntity::getAnalysisJson,
                                 ImageTaskEntity::getThumbnail,
                                 ImageTaskEntity::getThumbnailContentType,
                                 ImageTaskEntity::getThumbnailFileName,
@@ -267,6 +269,22 @@ public class ImageTaskRepository {
                 .stream()
                 .map(entity -> new StoredUploadImage(entity.getFileName(), entity.getContentType(), entity.getContent()))
                 .toList();
+    }
+
+    public ImageTaskPreviewFile taskFilePreview(String taskId, long fileId) {
+        ImageTaskFileEntity entity = fileMapper.selectOne(new LambdaQueryWrapper<ImageTaskFileEntity>()
+                .eq(ImageTaskFileEntity::getTaskId, taskId)
+                .eq(ImageTaskFileEntity::getId, fileId)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new IllegalArgumentException("任务文件不存在：" + fileId);
+        }
+        Thumbnail thumbnail = cachedFileThumbnail(entity);
+        return new ImageTaskPreviewFile(
+                normalizeText(entity.getFileName(), "preview.jpg"),
+                normalizeText(thumbnail.contentType(), "image/jpeg"),
+                thumbnail.bytes() == null ? new byte[0] : thumbnail.bytes()
+        );
     }
 
     public void saveAnalysisAndPrompts(String taskId, Map<String, String> analysis, String finalMainPrompt, String finalIntroPrompt) {
@@ -438,12 +456,16 @@ public class ImageTaskRepository {
                       content_type varchar(128) not null,
                       file_size bigint not null,
                       content longblob not null,
+                      thumbnail longblob null,
+                      thumbnail_content_type varchar(128) null,
                       sort_order int not null default 0,
                       created_at timestamp(3) not null default current_timestamp(3),
                       index idx_image_task_files_task_group (task_id, file_group),
                       constraint fk_image_task_files_task foreign key (task_id) references image_tasks(id) on delete cascade
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
+            addColumnIfMissing(connection, "image_task_files", "thumbnail", "longblob null");
+            addColumnIfMissing(connection, "image_task_files", "thumbnail_content_type", "varchar(128) null");
             statement.executeUpdate("""
                     create table if not exists image_task_results (
                       id bigint primary key auto_increment,
@@ -622,18 +644,19 @@ public class ImageTaskRepository {
         files.put("Logo图", new ArrayList<>());
         files.put("壁纸图", new ArrayList<>());
         for (ImageTaskFileEntity entity : fileMapper.selectList(new LambdaQueryWrapper<ImageTaskFileEntity>()
+                .select(
+                        ImageTaskFileEntity::getId,
+                        ImageTaskFileEntity::getFileGroup,
+                        ImageTaskFileEntity::getFileName,
+                        ImageTaskFileEntity::getContentType,
+                        ImageTaskFileEntity::getFileSize
+                )
                 .eq(ImageTaskFileEntity::getTaskId, taskId)
                 .orderByAsc(ImageTaskFileEntity::getFileGroup)
                 .orderByAsc(ImageTaskFileEntity::getSortOrder)
                 .orderByAsc(ImageTaskFileEntity::getId))) {
             String group = entity.getFileGroup();
             String groupName = fileGroupName(group);
-            StoredTaskFile storedFile = new StoredTaskFile(group, entity.getFileName(), entity.getContentType(), entity.getContent(), 0);
-            Thumbnail thumbnail = imageTaskFileService.createThumbnail(List.of(storedFile));
-            String preview = thumbnail.bytes() == null || thumbnail.bytes().length == 0
-                    ? ""
-                    : "data:" + normalizeText(thumbnail.contentType(), "image/jpeg") + ";base64,"
-                    + Base64.getEncoder().encodeToString(thumbnail.bytes());
             files.computeIfAbsent(groupName, ignored -> new ArrayList<>()).add(new ImageTaskFileView(
                     entity.getId(),
                     group,
@@ -641,7 +664,7 @@ public class ImageTaskRepository {
                     entity.getFileName(),
                     entity.getContentType(),
                     valueOrZero(entity.getFileSize()),
-                    preview
+                    filePreviewUrl(taskId, entity.getId())
             ));
         }
         return files;
@@ -830,6 +853,37 @@ public class ImageTaskRepository {
         }
         String contentType = normalizeText(record.thumbnailContentType(), "image/jpeg");
         return "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(record.thumbnail());
+    }
+
+    private Thumbnail cachedFileThumbnail(ImageTaskFileEntity entity) {
+        if (entity.getThumbnail() != null && entity.getThumbnail().length > 0) {
+            return new Thumbnail(entity.getThumbnail(), entity.getThumbnailContentType(), entity.getFileName());
+        }
+        if (entity.getContent() == null || entity.getContent().length == 0) {
+            return new Thumbnail(null, null, entity.getFileName());
+        }
+        StoredTaskFile storedFile = new StoredTaskFile(
+                entity.getFileGroup(),
+                entity.getFileName(),
+                entity.getContentType(),
+                entity.getContent(),
+                valueOrZero(entity.getSortOrder())
+        );
+        Thumbnail thumbnail = imageTaskFileService.createThumbnail(List.of(storedFile));
+        if (thumbnail.bytes() != null && thumbnail.bytes().length > 0) {
+            fileMapper.update(null, new LambdaUpdateWrapper<ImageTaskFileEntity>()
+                    .set(ImageTaskFileEntity::getThumbnail, thumbnail.bytes())
+                    .set(ImageTaskFileEntity::getThumbnailContentType, thumbnail.contentType())
+                    .eq(ImageTaskFileEntity::getId, entity.getId()));
+        }
+        return thumbnail;
+    }
+
+    private String filePreviewUrl(String taskId, Long fileId) {
+        if (fileId == null) {
+            return "";
+        }
+        return "/api/tasks/" + taskId + "/files/" + fileId + "/preview";
     }
 
     private String statusText(String status) {

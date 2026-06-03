@@ -40,8 +40,9 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         long startNanos = System.nanoTime();
         boolean multipart = isMultipart(request);
+        boolean captureResponseBody = LOG.isDebugEnabled();
         HttpServletRequest requestToUse = multipart ? request : new ContentCachingRequestWrapper(request);
-        ContentCachingResponseWrapper responseToUse = new ContentCachingResponseWrapper(response);
+        ContentCachingResponseWrapper responseToUse = captureResponseBody ? new ContentCachingResponseWrapper(response) : null;
         LOG.info(
                 "api.request id={} method={} uri={} query={} remote={} contentType={} payload={}",
                 requestId,
@@ -54,21 +55,29 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         );
 
         try {
-            filterChain.doFilter(requestToUse, responseToUse);
+            filterChain.doFilter(requestToUse, captureResponseBody ? responseToUse : response);
         } finally {
             long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
             LOG.info(
-                    "api.response id={} method={} uri={} status={} elapsedMs={} contentType={} requestBody={} responseBody={}",
+                    "api.response id={} method={} uri={} status={} elapsedMs={} contentType={} requestBody={}",
                     requestId,
                     request.getMethod(),
                     request.getRequestURI(),
-                    responseToUse.getStatus(),
+                    captureResponseBody ? responseToUse.getStatus() : response.getStatus(),
                     elapsedMs,
-                    safeValue(responseToUse.getContentType()),
-                    multipart ? "[multipart skipped]" : bodySummary((ContentCachingRequestWrapper) requestToUse),
-                    bodySummary(responseToUse)
+                    safeValue(captureResponseBody ? responseToUse.getContentType() : response.getContentType()),
+                    multipart ? "[multipart skipped]" : bodySummary((ContentCachingRequestWrapper) requestToUse)
             );
-            responseToUse.copyBodyToResponse();
+            if (captureResponseBody) {
+                LOG.debug(
+                        "api.response.body id={} method={} uri={} responseBody={}",
+                        requestId,
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        bodySummary(responseToUse)
+                );
+                responseToUse.copyBodyToResponse();
+            }
         }
     }
 

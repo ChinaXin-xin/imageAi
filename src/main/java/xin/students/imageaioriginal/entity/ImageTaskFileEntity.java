@@ -18,6 +18,8 @@ public class ImageTaskFileEntity {
     private String contentType;
     private Long fileSize;
     private byte[] content;
+    private byte[] thumbnail;
+    private String thumbnailContentType;
     private Integer sortOrder;
     private Timestamp createdAt;
 }
