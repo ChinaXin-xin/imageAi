@@ -1341,6 +1341,10 @@ function taskFilesByGroup(type: UploadGroup) {
   return selectedQueueTask.value?.files?.[type] ?? [];
 }
 
+function taskFileOriginalSrc(file: { original?: string | null; preview?: string | null }): string {
+  return file.original || file.preview || '';
+}
+
 function visibleKitSpecs(task: ImageTaskDetail | null) {
   return task?.kitSpecs?.filter((item) => Number(item.quantity) > 0) ?? [];
 }
@@ -2680,11 +2684,11 @@ function pageSubtitle(): string {
                       class="image-action-wrap"
                       role="button"
                       tabindex="0"
-                      @click="openImageViewer(file.preview, file.fileName)"
-                      @keydown.enter="openImageViewer(file.preview, file.fileName)"
+                      @click="openImageViewer(taskFileOriginalSrc(file), file.fileName)"
+                      @keydown.enter="openImageViewer(taskFileOriginalSrc(file), file.fileName)"
                     >
                       <img :src="file.preview" :alt="file.fileName" />
-                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(file.preview, file.fileName)">
+                      <button class="image-download-button" type="button" title="下载图片" @click.stop="downloadImage(taskFileOriginalSrc(file), file.fileName)">
                         <el-icon><Download /></el-icon>
                       </button>
                     </div>

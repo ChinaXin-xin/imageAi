@@ -146,6 +146,7 @@ export interface ImageTaskFileView {
   contentType: string;
   fileSize: number;
   preview: string;
+  original: string;
 }
 
 export interface ImageTaskScene {

@@ -165,6 +165,11 @@ public class ImageTaskQueueService {
         return imageTaskRepository.taskFilePreview(taskId, fileId);
     }
 
+    public ImageTaskPreviewFile taskFileOriginal(String taskId, long fileId) {
+        imageTaskRepository.ensureTables();
+        return imageTaskRepository.taskFileOriginal(taskId, fileId);
+    }
+
     public ImageTaskPreviewFile taskResultImage(String taskId, long resultId) {
         imageTaskRepository.ensureTables();
         return imageTaskRepository.resultImage(taskId, resultId);

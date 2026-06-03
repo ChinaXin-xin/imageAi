@@ -51,6 +51,14 @@ public class ImageTaskQueueController {
                 .body(file.bytes());
     }
 
+    @GetMapping("/{taskId}/files/{fileId}/original")
+    public ResponseEntity<byte[]> taskFileOriginal(@PathVariable String taskId, @PathVariable long fileId) {
+        ImageTaskPreviewFile file = imageTaskQueueService.taskFileOriginal(taskId, fileId);
+        return ResponseEntity.ok()
+                .contentType(imageMediaType(file.contentType()))
+                .body(file.bytes());
+    }
+
     @GetMapping("/{taskId}/results/{resultId}/image")
     public ResponseEntity<byte[]> taskResultImage(@PathVariable String taskId, @PathVariable long resultId) {
         ImageTaskPreviewFile file = imageTaskQueueService.taskResultImage(taskId, resultId);

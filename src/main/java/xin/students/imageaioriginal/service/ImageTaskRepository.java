@@ -318,6 +318,21 @@ public class ImageTaskRepository {
         );
     }
 
+    public ImageTaskPreviewFile taskFileOriginal(String taskId, long fileId) {
+        ImageTaskFileEntity entity = fileMapper.selectOne(new LambdaQueryWrapper<ImageTaskFileEntity>()
+                .eq(ImageTaskFileEntity::getTaskId, taskId)
+                .eq(ImageTaskFileEntity::getId, fileId)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new IllegalArgumentException("任务文件不存在：" + fileId);
+        }
+        return new ImageTaskPreviewFile(
+                normalizeText(entity.getFileName(), "upload-image"),
+                normalizeText(entity.getContentType(), "application/octet-stream"),
+                entity.getContent() == null ? new byte[0] : entity.getContent()
+        );
+    }
+
     public void saveAnalysisAndPrompts(String taskId, Map<String, String> analysis, String finalMainPrompt, String finalIntroPrompt) {
         ImageTaskEntity task = new ImageTaskEntity();
         task.setId(taskId);
@@ -762,7 +777,8 @@ public class ImageTaskRepository {
                     entity.getFileName(),
                     entity.getContentType(),
                     valueOrZero(entity.getFileSize()),
-                    filePreviewUrl(taskId, entity.getId())
+                    filePreviewUrl(taskId, entity.getId()),
+                    fileOriginalUrl(taskId, entity.getId())
             ));
         }
         return files;
@@ -1034,6 +1050,13 @@ public class ImageTaskRepository {
             return "";
         }
         return "/api/tasks/" + taskId + "/files/" + fileId + "/preview";
+    }
+
+    private String fileOriginalUrl(String taskId, Long fileId) {
+        if (fileId == null) {
+            return "";
+        }
+        return "/api/tasks/" + taskId + "/files/" + fileId + "/original";
     }
 
     private String resultImageUrl(ImageTaskResultEntity result) {

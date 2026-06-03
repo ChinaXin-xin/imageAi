@@ -7,6 +7,7 @@ public record ImageTaskFileView(
         String fileName,
         String contentType,
         Long fileSize,
-        String preview
+        String preview,
+        String original
 ) {
 }
