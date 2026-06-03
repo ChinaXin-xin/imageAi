@@ -39,11 +39,12 @@ public class ImageTaskQueueService {
     private static final String LAYOUT_TEMPLATE_ANALYSIS_PROMPT = """
             请只分析这张排版图的版式用途，不要把它当参考风格图，也不要要求生成图中原有商品。
             重点输出：
-            1. 画面里可用于填入本任务产品图片的主体区域、留白区域和信息模块位置；
-            2. 产品应放入的位置、大小比例、前后层级、透视角度和裁切关系；
-            3. 背景、光影、边框、卡片、分栏或模块化排版的布局约束；
-            4. 哪些元素只是排版占位或示例内容，生成时不要照抄其中商品、品牌、文字或图标。
-            输出简短明确的排版约束，服务于把本任务产品填进这张版式。
+            1. 画面里可用于填入本任务产品图片的主体区域、配件区域、留白区域和信息模块位置；
+            2. 手机、手机膜、镜头膜和配件应放入的位置、大小比例、前后层级、透视角度、安全边距和裁切关系；
+            3. 背景、光影、边框、卡片、分栏、网格、左右/上下对齐关系或模块化排版的布局约束；
+            4. 哪些元素只是排版占位或示例内容，生成时不要照抄其中商品、品牌、文字或图标；
+            5. 如果排版图要求整齐矩阵、分栏或产品卡片，必须明确输出这些版式骨架，不要写成自由散落摆放。
+            输出简短明确的排版约束，服务于把本任务产品按相同版式填进去，并保持手机完整入画、手机膜与手机比例一致。
             """;
     private static final int STALE_GENERATION_SECONDS = 60 * 60;
     private static final long STALE_CHECK_INTERVAL_MILLIS = 30_000;
@@ -738,6 +739,7 @@ public class ImageTaskQueueService {
 
     private UploadMaterialContext uploadMaterialContext(String taskId) {
         return new UploadMaterialContext(
+                imageTaskRepository.countStoredImages(taskId, "realPhoto") > 0,
                 imageTaskRepository.countStoredImages(taskId, "template") > 0,
                 imageTaskRepository.countStoredImages(taskId, "wallpaper") > 0
         );

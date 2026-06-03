@@ -157,7 +157,7 @@ public class ImageGenerationService {
         request.put("size", size);
 
         LOG.info(
-                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} referenceBytes={} promptChars={} prompt={}",
+                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} referenceBytes={} referenceNames={} promptChars={} prompt={}",
                 requestId,
                 taskId,
                 resultType,
@@ -166,6 +166,7 @@ public class ImageGenerationService {
                 size,
                 referenceCount,
                 preparedReferenceImages.stream().mapToLong(image -> image.bytes() == null ? 0 : image.bytes().length).sum(),
+                preparedReferenceImages.stream().map(StoredUploadImage::fileName).toList(),
                 prompt == null ? 0 : prompt.length(),
                 prompt
         );

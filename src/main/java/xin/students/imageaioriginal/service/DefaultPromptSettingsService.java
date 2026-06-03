@@ -23,18 +23,45 @@ public class DefaultPromptSettingsService {
     private static final long SETTINGS_ID = 1L;
 
     private static final String DEFAULT_MAIN_PROMPT = """
+            生成高转化电商主图。先严格还原上传实拍图中的手机膜、镜头膜和配件真实结构；如果启用排版图，按排版图的主体区、配件区、留白、安全边距和对齐关系填图。
+            手机必须完整入画并保留安全边距；屏幕膜/钢化膜/防窥膜与手机屏幕长宽比一致、尺寸接近可覆盖屏幕区域；镜头膜只匹配后摄区域，不能放大到接近半个手机；配件按参考图等比例缩放并整齐摆放。
+            产品结构和比例优先级高于风格：不得把异形镜头膜改成通用款，不得统一不同大小的孔位，不得增加或删除开孔、镜圈、配件，不得把产品自由散落摆放。
+            主图按 Amazon/TEMU 平台首图标准：不加文字、图标、角标、贴纸文案和水印；通过左右位置、俯拍/斜拍角度、背景光影、轮廓光和轻微 3D 层次做差异化，避免重复铺货感。
+            """;
+    private static final String DEFAULT_INTRO_PROMPT = """
+            生成产品介绍图。按实拍图锁定手机膜/镜头膜/配件结构和比例；如果启用排版图，优先沿用排版图的信息模块、产品区域、配件区域、网格/分栏、留白和对齐关系。
+            手机主体尽量完整入画；屏幕膜与手机屏幕比例一致；镜头膜只对应后摄区域；清洁/安装配件必须按参考图外形、颜色、标签区域和可见文字等比例摆放。
+            围绕高清、防指纹、抗摔、防窥、易安装、镜头保护等卖点做清晰模块化展示，信息不要遮挡产品，版面整齐有秩序。
+            """;
+    private static final String PREVIOUS_DEFAULT_MAIN_PROMPT = """
             生成高转化电商主图。先严格还原上传实拍图中的手机膜、镜头膜和配件真实结构，再做电商视觉美化。
             产品结构优先级高于风格：不得把异形镜头膜改成通用款，不得统一不同大小的孔位，不得增加或删除开孔、镜圈、配件。
             主图按 Amazon/TEMU 平台首图标准：不加文字、图标、角标、贴纸文案和水印；通过左右位置、俯拍/斜拍角度、手机颜色、背景光影、轮廓光和轻微 3D 层次做差异化，避免重复铺货感。
             钢化膜轮廓可以加清晰高光和玻璃边缘光效，提高高清晰度、立体感和科技感；风格只服务于真实产品展示，不遮挡、不改变产品结构。
             """;
-    private static final String DEFAULT_INTRO_PROMPT =
+    private static final String PREVIOUS_DEFAULT_INTRO_PROMPT =
             "生成产品介绍图：围绕高清、防指纹、抗摔、防窥、易安装、镜头保护等卖点进行模块化展示，信息层级清晰，适合详情页。";
     private static final String LEGACY_DEFAULT_MAIN_PROMPT =
             "生成高转化电商主图：突出手机膜产品质感、包装完整度和平台风格，画面干净高级，主体清晰，适合跨境电商首图。";
     private static final String LEGACY_DEFAULT_ANALYSIS_PROMPT =
             "请分析上传图片中的产品类型、材质、包装、颜色、机型线索、可用于主图和介绍图的卖点，不要编造看不见的信息。";
     private static final String DEFAULT_ANALYSIS_PROMPT = """
+            请客观深析上传图片，重点输出后续生图必须锁定的真实产品结构，不要编造看不见的信息。
+            如果图片中包含手机膜、镜头膜、保护壳或电子配件，必须逐项描述：
+            1. 产品类型、外轮廓、边缘形状、缺口、倒角和厚度感；
+            2. 开孔/孔位数量、相对位置、排列方向、每个孔的相对大小；
+            3. 哪些孔位大小不一致、哪些结构是非对称或异形结构；
+            4. 材质、颜色、透明度、反光、高光、表面纹理；
+            5. 仅在图片可见时描述手机膜相关清洁/安装辅助配件；输出它们的真实形状、颜色、材质、数量、相对尺寸和是否有可见文字，不要套用固定配件外观；
+            6. 生图时必须禁止模型改成通用款、标准款或常见款的关键细节。
+            7. 如果是镜头膜，必须明确输出大孔数量、小孔数量、左右/上下位置、每个小孔的相对大小顺序，以及是否禁止生成成等大孔。
+            8. 如果是任意型号镜头膜，必须先识别手机品牌/型号线索，再按上传图写清所有大孔/小孔的数量、左右/上下位置、大小关系和非对称结构；不要套用其他手机型号的常见孔位。
+            9. 如果出现清洁/安装辅助配件，必须识别真实外形、颜色、尺寸比例和是否有文字；若有文字，必须抄出参考图可见文字，后续生图只能复现参考图文字，不要生成无字替代品或凭空文字。
+            10. 必须输出手机、屏幕膜、镜头膜和清洁/安装配件之间的相对比例：屏幕膜是否应接近手机屏幕尺寸、镜头膜应对应后摄区域多大范围、配件相对手机大约是小件/中件/大件；不要让后续生图把镜头膜或配件放大成接近半个手机。
+            11. 客户产品范围只有手机、钢化膜、高清膜、防窥膜、镜头膜及已上传/已选择的手机膜相关清洁安装配件；不要推断包装盒、收纳袋、卡片、托盘、支架、底座或其他赠品。
+            输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
+            """;
+    private static final String PREVIOUS_DEFAULT_ANALYSIS_PROMPT = """
             请客观深析上传图片，重点输出后续生图必须锁定的真实产品结构，不要编造看不见的信息。
             如果图片中包含手机膜、镜头膜、保护壳或电子配件，必须逐项描述：
             1. 产品类型、外轮廓、边缘形状、缺口、倒角和厚度感；
@@ -105,6 +132,9 @@ public class DefaultPromptSettingsService {
                     DEFAULT_CUSTOM_SELLING_POINTS
             ))
                     : toSettings(entity);
+            if (entity != null && shouldPersistNormalizedSettings(entity, settings)) {
+                settings = saveSettings(settings);
+            }
             cachedSettings = settings;
             return settings;
         }
@@ -145,6 +175,13 @@ public class DefaultPromptSettingsService {
                 normalize(entity.getTargetTemplatePrompt(), DEFAULT_TARGET_TEMPLATE_PROMPT),
                 parseSellingPoints(entity.getCustomSellingPoints())
         );
+    }
+
+    private boolean shouldPersistNormalizedSettings(DefaultPromptSettingsEntity entity, DefaultPromptSettings settings) {
+        return !sameText(entity.getMainPrompt(), settings.mainPrompt())
+                || !sameText(entity.getIntroPrompt(), settings.introPrompt())
+                || !sameText(entity.getAnalysisPrompt(), settings.analysisPrompt())
+                || !sameText(entity.getTargetTemplatePrompt(), settings.targetTemplatePrompt());
     }
 
     private void ensureTable() {
@@ -199,7 +236,8 @@ public class DefaultPromptSettingsService {
 
     private String normalizeAnalysisPrompt(String value) {
         String normalized = normalize(value, DEFAULT_ANALYSIS_PROMPT);
-        if (sameText(normalized, LEGACY_DEFAULT_ANALYSIS_PROMPT)) {
+        if (sameText(normalized, LEGACY_DEFAULT_ANALYSIS_PROMPT)
+                || sameText(normalized, PREVIOUS_DEFAULT_ANALYSIS_PROMPT)) {
             return DEFAULT_ANALYSIS_PROMPT.trim();
         }
         return normalized;
@@ -207,8 +245,10 @@ public class DefaultPromptSettingsService {
 
     private String normalizeGenerationPrompt(String value, String fallback, String analysisPrompt) {
         String normalized = normalize(value, fallback);
-        if (sameText(normalized, LEGACY_DEFAULT_MAIN_PROMPT)) {
-            return DEFAULT_MAIN_PROMPT.trim();
+        if (sameText(normalized, LEGACY_DEFAULT_MAIN_PROMPT)
+                || sameText(normalized, PREVIOUS_DEFAULT_MAIN_PROMPT)
+                || sameText(normalized, PREVIOUS_DEFAULT_INTRO_PROMPT)) {
+            return fallback.trim();
         }
         if (sameText(normalized, analysisPrompt) || looksLikeAnalysisPrompt(normalized)) {
             return fallback;

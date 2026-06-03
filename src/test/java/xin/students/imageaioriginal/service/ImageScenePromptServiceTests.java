@@ -44,10 +44,11 @@ class ImageScenePromptServiceTests {
         assertThat(scenes)
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("3D 立体斜角"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("平铺"))
-                .anySatisfy(scene -> assertThat(scene.prompt()).contains("近景"));
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("精密结构"));
         assertThat(scenes)
-                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机模型在右侧"))
-                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机模型在左侧"));
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机完整入画"))
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("尺寸匹配"))
+                .anySatisfy(scene -> assertThat(scene.prompt()).containsAnyOf("配件区", "整齐"));
         assertThat(scenes).allSatisfy(scene -> {
             assertThat(service.containsForbiddenObject(scene.prompt())).isFalse();
             assertThat(scene.prompt())
