@@ -81,6 +81,9 @@ record ResultStats(
         int completed,
         int total
 ) {
+    static ResultStats empty() {
+        return new ResultStats(0, 0);
+    }
 }
 
 record GenerationReferences(

@@ -108,7 +108,7 @@ public class ImageTaskRepository {
     }
 
     public List<ImageTaskSummary> listTasks() {
-        return taskMapper.selectList(new LambdaQueryWrapper<ImageTaskEntity>()
+        List<TaskRecord> records = taskMapper.selectList(new LambdaQueryWrapper<ImageTaskEntity>()
                         .select(
                                 ImageTaskEntity::getId,
                                 ImageTaskEntity::getProductName,
@@ -130,7 +130,12 @@ public class ImageTaskRepository {
                         .orderByDesc(ImageTaskEntity::getCreatedAt))
                 .stream()
                 .map(this::toTaskRecord)
-                .map(this::toSummary)
+                .toList();
+        Map<String, ResultStats> generationStats = generationResultStats(records.stream()
+                .map(TaskRecord::id)
+                .toList());
+        return records.stream()
+                .map(record -> toSummary(record, generationStats.getOrDefault(record.id(), ResultStats.empty())))
                 .toList();
     }
 
@@ -514,7 +519,11 @@ public class ImageTaskRepository {
     }
 
     private ImageTaskSummary toSummary(TaskRecord record) {
-        ResultStats stats = progressStats(record);
+        return toSummary(record, progressStats(record));
+    }
+
+    private ImageTaskSummary toSummary(TaskRecord record, ResultStats generationStats) {
+        ResultStats stats = progressStats(record, generationStats);
         return new ImageTaskSummary(
                 record.id(),
                 record.productName(),
@@ -639,7 +648,13 @@ public class ImageTaskRepository {
     }
 
     private ResultStats progressStats(TaskRecord record) {
-        ResultStats generationStats = generationResultStats(record.id());
+        return progressStats(record, generationResultStats(record.id()));
+    }
+
+    private ResultStats progressStats(TaskRecord record, ResultStats generationStats) {
+        if (generationStats == null) {
+            generationStats = ResultStats.empty();
+        }
         int analysisTotal = record.realPhotoCount() + record.templateCount();
         int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
         int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
@@ -650,6 +665,29 @@ public class ImageTaskRepository {
             completed = total;
         }
         return new ResultStats(Math.min(completed, total), total);
+    }
+
+    private Map<String, ResultStats> generationResultStats(List<String> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, ResultStats> stats = new LinkedHashMap<>();
+        for (String taskId : taskIds) {
+            stats.put(taskId, ResultStats.empty());
+        }
+        List<ImageTaskResultEntity> results = resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                .select(ImageTaskResultEntity::getTaskId, ImageTaskResultEntity::getStatus)
+                .in(ImageTaskResultEntity::getTaskId, taskIds));
+        for (ImageTaskResultEntity result : results) {
+            String taskId = result.getTaskId();
+            if (taskId == null) {
+                continue;
+            }
+            ResultStats current = stats.getOrDefault(taskId, ResultStats.empty());
+            int completed = current.completed() + ("COMPLETED".equals(result.getStatus()) ? 1 : 0);
+            stats.put(taskId, new ResultStats(completed, current.total() + 1));
+        }
+        return stats;
     }
 
     private ResultStats generationResultStats(String taskId) {
