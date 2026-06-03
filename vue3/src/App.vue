@@ -1176,7 +1176,7 @@ function fileCount(task: ImageTaskSummary | ImageTaskDetail, type: UploadGroup):
 }
 
 function uploadGroupDisplayName(type: UploadGroup): string {
-  return type === '排版图' ? '参考风格图' : type;
+  return type;
 }
 
 function analysisPreview(value: string | null | undefined): string {
@@ -1637,7 +1637,7 @@ function pageSubtitle(): string {
                 <div class="task-card-head">
                   <div>
                     <h2>商品资料</h2>
-                    <p>实拍图和参考风格图用于任务生成参考。</p>
+                    <p>实拍图用于锁定产品结构，排版图用于填入图片版式。</p>
                   </div>
                   <el-button size="small" :icon="Refresh" @click="ensureProductName">生成名称</el-button>
                 </div>
@@ -1708,7 +1708,7 @@ function pageSubtitle(): string {
 
                 <div class="upload-section">
                   <div class="section-title">
-                    <span>参考风格图</span>
+                    <span>排版图</span>
                     <small>仅支持上传一张</small>
                   </div>
                   <el-upload
@@ -1722,7 +1722,7 @@ function pageSubtitle(): string {
                     @remove="handleUploadRemove"
                   >
                     <el-icon><Upload /></el-icon>
-                    <div>上传参考风格图</div>
+                    <div>上传排版图</div>
                   </el-upload>
                   <UploadPreviewGrid
                     :files="templateFiles"
@@ -2163,7 +2163,7 @@ function pageSubtitle(): string {
               <div class="panel-head">
                 <div>
                   <h2>任务队列</h2>
-                  <p>后端会深析实拍图和参考风格图，再提交最终生图提示词。</p>
+                  <p>后端会深析实拍图，并按排版图、参考风格图和素材用途提交最终生图提示词。</p>
                 </div>
                 <div class="queue-head-actions">
                   <span>{{ taskQueue.length }} 个任务</span>
@@ -2230,7 +2230,7 @@ function pageSubtitle(): string {
                     <p>{{ task.form.platform }} / {{ task.form.customWidth }} x {{ task.form.customHeight }} / {{ task.form.language }}</p>
                     <div class="queue-tags">
                       <span>实拍图 {{ fileCount(task, '实拍图') }}</span>
-                      <span>参考风格图 {{ fileCount(task, '排版图') }}</span>
+                      <span>排版图 {{ fileCount(task, '排版图') }}</span>
                       <span>主图 {{ task.form.mainImageCount }}</span>
                       <span>介绍图 {{ task.form.introImageCount }}</span>
                       <span>进度 {{ task.completedCount }} / {{ task.totalCount }}</span>
@@ -2709,7 +2709,7 @@ function pageSubtitle(): string {
           <el-descriptions-item label="防窥数量">{{ selectedQueueTask.form.privacyEnabled ? selectedQueueTask.form.privacyQuantity : 0 }}</el-descriptions-item>
           <el-descriptions-item label="素材数量">
             实拍 {{ fileCount(selectedQueueTask, '实拍图') }} /
-            参考风格图 {{ fileCount(selectedQueueTask, '排版图') }}
+            排版图 {{ fileCount(selectedQueueTask, '排版图') }}
           </el-descriptions-item>
           <el-descriptions-item label="卖点" :span="3">
             {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}

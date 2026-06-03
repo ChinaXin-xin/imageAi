@@ -315,15 +315,15 @@ public class ImageTaskPromptBuilder {
                 || !usesUploadAsset(payload.templateUsages(), imageType)) {
             return;
         }
-        String styleAnalysis = normalizeNullable(analysis == null ? null : analysis.get("排版图"));
-        if (styleAnalysis.isBlank()) {
-            builder.append("【").append(imageType).append("上传参考风格图约束】上传参考风格图已作为低优先级布局参考图传入；必须参考其构图、背景、光影、空间层次和排版风格，但不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
+        String layoutAnalysis = normalizeNullable(analysis == null ? null : analysis.get("排版图"));
+        if (layoutAnalysis.isBlank()) {
+            builder.append("【").append(imageType).append("排版图约束】排版图已作为低优先级版式/填图参考图传入；把本任务产品填入排版图对应主体区域和信息模块关系中，但不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
             return;
         }
-        builder.append("【").append(imageType).append("上传参考风格图风格】")
-                .append(abbreviate(styleAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
+        builder.append("【").append(imageType).append("排版图版式分析】")
+                .append(abbreviate(layoutAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("上传参考风格图约束】上传参考风格图已作为低优先级布局参考图传入；只应用构图、背景、光影、空间层次和排版风格；不要照抄参考图中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
+        builder.append("【").append(imageType).append("排版图约束】排版图已作为低优先级版式/填图参考图传入；只应用主体区域、留白、信息模块、层级、透视和裁切关系；不要把排版图当参考风格图，不要照抄排版图中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
     }
 
     private void appendTargetTemplateContext(
@@ -337,7 +337,7 @@ public class ImageTaskPromptBuilder {
         builder.append("【").append(imageType).append("参考风格图风格】")
                 .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("参考风格图约束】参考风格图已作为低优先级布局参考图传入；只作构图、背景、光影、空间层次和排版风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("参考风格图约束】参考风格图已作为低优先级风格参考图传入；只作构图氛围、背景质感、光影、空间层次和视觉风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private void appendPerImageSelfAudit(
