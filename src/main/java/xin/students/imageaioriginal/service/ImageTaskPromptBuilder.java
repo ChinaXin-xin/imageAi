@@ -329,7 +329,7 @@ public class ImageTaskPromptBuilder {
         builder.append("【").append(imageType).append("参考风格图风格】")
                 .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("参考风格图约束】参考风格图已作为低优先级风格参考图传入；只作构图氛围、背景质感、光影、空间层次和视觉风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("参考风格图约束】仅应用上方参考风格图风格文字；只作构图氛围、背景质感、光影、空间层次和视觉风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private void appendPerImageSelfAudit(

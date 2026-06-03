@@ -625,18 +625,11 @@ public class ImageTaskQueueService {
         List<StoredUploadImage> accessoryImages = accessoryRecords(payload.kitSpecs()).stream()
                 .map(extraAccessoryService::toStoredImage)
                 .toList();
-        StoredUploadImage mainTargetTemplateImage = mainTargetTemplate == null
-                ? null
-                : targetTemplateService.toStoredImage(mainTargetTemplate);
-        StoredUploadImage introTargetTemplateImage = introTargetTemplate == null
-                ? null
-                : targetTemplateService.toStoredImage(introTargetTemplate);
         List<StoredUploadImage> mainReferences = generationReferenceImagesForType(
                 "主图",
                 payload,
                 realPhotoImages,
                 templateImages,
-                mainTargetTemplateImage,
                 wallpaperImages,
                 accessoryImages
         );
@@ -645,7 +638,6 @@ public class ImageTaskQueueService {
                 payload,
                 realPhotoImages,
                 templateImages,
-                introTargetTemplateImage,
                 wallpaperImages,
                 accessoryImages
         );
@@ -669,7 +661,6 @@ public class ImageTaskQueueService {
             ImageTaskPayload payload,
             List<StoredUploadImage> realPhotoImages,
             List<StoredUploadImage> templateImages,
-            StoredUploadImage targetTemplateImage,
             List<StoredUploadImage> wallpaperImages,
             List<StoredUploadImage> accessoryImages
     ) {
@@ -677,9 +668,6 @@ public class ImageTaskQueueService {
         referenceImages.addAll(realPhotoImages == null ? List.of() : realPhotoImages);
         if (usesUploadAsset(payload.templateUsages(), imageType)) {
             referenceImages.addAll(templateImages == null ? List.of() : templateImages);
-        }
-        if (targetTemplateImage != null) {
-            referenceImages.add(targetTemplateImage);
         }
         if (usesUploadAsset(payload.wallpaperUsages(), imageType)) {
             referenceImages.addAll(wallpaperImages == null ? List.of() : wallpaperImages);

@@ -171,10 +171,6 @@ public class TargetTemplateService {
         return entity == null ? null : toRecord(entity);
     }
 
-    public StoredUploadImage toStoredImage(TargetTemplateRecord record) {
-        return new StoredUploadImage(record.fileName(), record.contentType(), record.content());
-    }
-
     private TargetTemplateView toView(TargetTemplateRecord record) {
         return new TargetTemplateView(
                 record.id(),
