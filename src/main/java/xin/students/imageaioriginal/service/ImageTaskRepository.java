@@ -824,7 +824,7 @@ public class ImageTaskRepository {
         if (generationStats == null) {
             generationStats = ResultStats.empty();
         }
-        int analysisTotal = record.realPhotoCount() + record.templateCount();
+        int analysisTotal = record.realPhotoCount();
         int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
         int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
         int analysisCompleted = analysisCompletedCount(record, analysisTotal);
@@ -887,7 +887,7 @@ public class ImageTaskRepository {
                 continue;
             }
             String fileGroup = fileGroupCode(entry.getKey());
-            if (!fileGroup.isBlank()) {
+            if ("realPhoto".equals(fileGroup)) {
                 count += storedImageCount(record, fileGroup);
             }
         }
@@ -897,7 +897,6 @@ public class ImageTaskRepository {
     private int storedImageCount(TaskRecord record, String fileGroup) {
         return switch (fileGroup == null ? "" : fileGroup) {
             case "realPhoto" -> record.realPhotoCount();
-            case "template" -> record.templateCount();
             default -> countStoredImages(record.id(), fileGroup);
         };
     }

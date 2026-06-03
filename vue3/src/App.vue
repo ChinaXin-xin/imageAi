@@ -192,7 +192,7 @@ const styleOptions = ['自动', '科技感', '极简风', '简洁品牌风', '3D
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
 const uploadGroups: UploadGroup[] = ['实拍图', '排版图', '壁纸图'];
-const backendAnalysisGroups: UploadGroup[] = ['实拍图', '排版图'];
+const backendAnalysisGroups: AnalysisUploadGroup[] = ['实拍图'];
 const targetTemplateTypes: TargetTemplateType[] = ['MAIN', 'INTRO'];
 
 function defaultAssetUsages(): ImageAssetUsage[] {

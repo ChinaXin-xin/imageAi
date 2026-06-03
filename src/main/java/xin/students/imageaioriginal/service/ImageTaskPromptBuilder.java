@@ -82,7 +82,7 @@ public class ImageTaskPromptBuilder {
         builder.append("\n【").append(imageType).append("画面要求】\n");
         builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
         builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
-        appendUploadedTemplateContext(builder, imageType, payload, analysis, uploadMaterialContext);
+        appendUploadedTemplateContext(builder, imageType, payload, uploadMaterialContext);
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
@@ -337,7 +337,6 @@ public class ImageTaskPromptBuilder {
             StringBuilder builder,
             String imageType,
             ImageTaskPayload payload,
-            Map<String, String> analysis,
             UploadMaterialContext uploadMaterialContext
     ) {
         if (uploadMaterialContext == null
@@ -345,15 +344,9 @@ public class ImageTaskPromptBuilder {
                 || !usesUploadAsset(payload.templateUsages(), imageType)) {
             return;
         }
-        String layoutAnalysis = normalizeNullable(analysis == null ? null : analysis.get("排版图"));
-        if (layoutAnalysis.isBlank()) {
-            builder.append("【").append(imageType).append("排版图约束】排版图已作为版式骨架/填图参考图传入；把本任务产品填入排版图对应主体区域、配件区域、信息模块、留白和对齐关系中。排版图版式优先级高于场景规划和参考风格图，仅在产品结构冲突时让位于实拍图；不得改变上传实拍图产品结构、孔位、外轮廓、产品比例和配件数量。\n");
-            return;
-        }
-        builder.append("【").append(imageType).append("排版图版式分析】")
-                .append(abbreviate(layoutAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
-                .append("\n");
-        builder.append("【").append(imageType).append("排版图约束】排版图已作为版式骨架/填图参考图传入；必须优先应用主体区域、配件区域、留白、安全边距、信息模块、网格/分栏、对齐关系、层级、透视和裁切关系。不要把排版图当参考风格图，不要照抄排版图中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓、产品比例和配件数量；不得把产品自由散落摆放。\n");
+        builder.append("【").append(imageType).append("排版图约束】排版图已作为版式/布局参考图随本张生图请求传入；如当前")
+                .append(imageType)
+                .append("启用排版图，必须直接按排版图的主体区、配件区、信息区、留白、安全边距、网格/分栏、对齐关系、层级和裁切关系填入本任务产品、手机与已选配件。不要分析、重绘、照抄排版图中的示例商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓、产品比例和配件数量；场景规划只能在排版图骨架内调整光影、角度、背景或层次，不能重新散乱摆放。\n");
     }
 
     private void appendTargetTemplateContext(
