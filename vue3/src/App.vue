@@ -2420,6 +2420,20 @@ function pageSubtitle(): string {
                 <el-button :icon="Refresh" @click="loadPromptSettings">重新读取</el-button>
               </div>
 
+              <div class="form-row">
+                <label>深析实拍图的提示词</label>
+                <el-input
+                    v-model="defaultSettings.analysisPrompt"
+                    type="textarea"
+                    :rows="10"
+                    maxlength="2000"
+                    show-word-limit
+                    placeholder="请输入深析上传图时发送给 GPT 的默认分析要求"
+                />
+              </div>
+
+              <div style="height: 20px;"></div>
+              
               <div class="prompt-grid">
                 <div class="form-row">
                   <label>主图提示词默认内容</label>
@@ -2445,18 +2459,7 @@ function pageSubtitle(): string {
                 </div>
               </div>
               <div style="height: 20px;"></div>
-              <div class="form-row">
-                <label>深析上传图的提示词</label>
-                <el-input
-                  v-model="defaultSettings.analysisPrompt"
-                  type="textarea"
-                  :rows="10"
-                  maxlength="2000"
-                  show-word-limit
-                  placeholder="请输入深析上传图时发送给 GPT 的默认分析要求"
-                />
-              </div>
-              <div style="height: 20px;"></div>
+
               <div class="form-row">
                 <label>参考风格图分析提示词</label>
                 <el-input
@@ -2729,6 +2732,26 @@ function pageSubtitle(): string {
             </div>
           </section>
 
+          <el-divider />
+
+          <section class="detail-block detail-wide">
+            <h3>最终生图提示词</h3>
+            <div class="prompt-preview-grid">
+              <article>
+                <strong>主图</strong>
+                <p @click="openFullTextDialog('主图最终提示词', selectedQueueTask.finalMainPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalMainPrompt || '后端生成中') }}
+                </p>
+              </article>
+              <article>
+                <strong>介绍图</strong>
+                <p @click="openFullTextDialog('介绍图最终提示词', selectedQueueTask.finalIntroPrompt)">
+                  {{ analysisPreview(selectedQueueTask.finalIntroPrompt || '后端生成中') }}
+                </p>
+              </article>
+            </div>
+          </section>
+
           <section class="detail-block detail-wide">
             <h3>场景规划</h3>
             <div class="analysis-grid">
@@ -2823,7 +2846,7 @@ function pageSubtitle(): string {
                 <p v-if="result.editSuggestion" class="result-version-note">
                   <strong>建议：</strong>{{ result.editSuggestion }}
                 </p>
-                <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>
+<!--                <p v-if="result.imageUrl"><strong>图片地址：</strong>{{ result.imageUrl }}</p>-->
                 <p v-if="result.errorMessage" class="queue-error-text"><strong>错误：</strong>{{ result.errorMessage }}</p>
                 <div class="result-row-actions">
                   <el-button
@@ -2837,24 +2860,6 @@ function pageSubtitle(): string {
                     按建议重修
                   </el-button>
                 </div>
-              </article>
-            </div>
-          </section>
-
-          <section class="detail-block detail-wide">
-            <h3>最终生图提示词</h3>
-            <div class="prompt-preview-grid">
-              <article>
-                <strong>主图</strong>
-                <p @click="openFullTextDialog('主图最终提示词', selectedQueueTask.finalMainPrompt)">
-                  {{ analysisPreview(selectedQueueTask.finalMainPrompt || '后端生成中') }}
-                </p>
-              </article>
-              <article>
-                <strong>介绍图</strong>
-                <p @click="openFullTextDialog('介绍图最终提示词', selectedQueueTask.finalIntroPrompt)">
-                  {{ analysisPreview(selectedQueueTask.finalIntroPrompt || '后端生成中') }}
-                </p>
               </article>
             </div>
           </section>
