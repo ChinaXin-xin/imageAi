@@ -134,7 +134,6 @@ public class ImageTaskQueueService {
             String payloadJson,
             List<MultipartFile> realPhotoFiles,
             List<MultipartFile> templateFiles,
-            List<MultipartFile> logoFiles,
             List<MultipartFile> wallpaperFiles
     ) {
         imageTaskRepository.ensureTables();
@@ -143,7 +142,6 @@ public class ImageTaskQueueService {
         List<StoredTaskFile> files = new ArrayList<>();
         files.addAll(imageTaskFileService.toStoredTaskFiles("realPhoto", realPhotoFiles));
         files.addAll(imageTaskFileService.toStoredTaskFiles("template", templateFiles));
-        files.addAll(imageTaskFileService.toStoredTaskFiles("logo", logoFiles));
         files.addAll(imageTaskFileService.toStoredTaskFiles("wallpaper", wallpaperFiles));
         imageTaskRepository.createTask(taskId, payload, files, imageTaskFileService.createThumbnail(files));
         startProcessing(taskId);
@@ -623,7 +621,6 @@ public class ImageTaskQueueService {
     ) {
         List<StoredUploadImage> realPhotoImages = imageTaskRepository.readStoredImages(taskId, "realPhoto");
         List<StoredUploadImage> templateImages = imageTaskRepository.readStoredImages(taskId, "template");
-        List<StoredUploadImage> logoImages = imageTaskRepository.readStoredImages(taskId, "logo");
         List<StoredUploadImage> wallpaperImages = imageTaskRepository.readStoredImages(taskId, "wallpaper");
         List<StoredUploadImage> accessoryImages = accessoryRecords(payload.kitSpecs()).stream()
                 .map(extraAccessoryService::toStoredImage)
@@ -640,7 +637,6 @@ public class ImageTaskQueueService {
                 realPhotoImages,
                 templateImages,
                 mainTargetTemplateImage,
-                logoImages,
                 wallpaperImages,
                 accessoryImages
         );
@@ -650,7 +646,6 @@ public class ImageTaskQueueService {
                 realPhotoImages,
                 templateImages,
                 introTargetTemplateImage,
-                logoImages,
                 wallpaperImages,
                 accessoryImages
         );
@@ -675,7 +670,6 @@ public class ImageTaskQueueService {
             List<StoredUploadImage> realPhotoImages,
             List<StoredUploadImage> templateImages,
             StoredUploadImage targetTemplateImage,
-            List<StoredUploadImage> logoImages,
             List<StoredUploadImage> wallpaperImages,
             List<StoredUploadImage> accessoryImages
     ) {
@@ -686,9 +680,6 @@ public class ImageTaskQueueService {
         }
         if (targetTemplateImage != null) {
             referenceImages.add(targetTemplateImage);
-        }
-        if (usesUploadAsset(payload.logoUsages(), imageType)) {
-            referenceImages.addAll(logoImages == null ? List.of() : logoImages);
         }
         if (usesUploadAsset(payload.wallpaperUsages(), imageType)) {
             referenceImages.addAll(wallpaperImages == null ? List.of() : wallpaperImages);
@@ -755,7 +746,6 @@ public class ImageTaskQueueService {
     private UploadMaterialContext uploadMaterialContext(String taskId) {
         return new UploadMaterialContext(
                 imageTaskRepository.countStoredImages(taskId, "template") > 0,
-                imageTaskRepository.countStoredImages(taskId, "logo") > 0,
                 imageTaskRepository.countStoredImages(taskId, "wallpaper") > 0
         );
     }
@@ -788,7 +778,6 @@ public class ImageTaskQueueService {
                 imageSize[1],
                 normalizeText(payload.phoneColor(), "自动"),
                 normalizeText(payload.customColor(), "#2563eb"),
-                normalizeNullable(payload.logoName()),
                 normalizeNullable(payload.wallpaperName()),
                 normalizeText(payload.style(), "自动"),
                 normalizeText(payload.layout(), "自动"),
@@ -805,7 +794,6 @@ public class ImageTaskQueueService {
                 positiveId(payload.mainTargetTemplateId()),
                 positiveId(payload.introTargetTemplateId()),
                 normalizeUsageList(payload.templateUsages()),
-                normalizeUsageList(payload.logoUsages()),
                 normalizeUsageList(payload.wallpaperUsages()),
                 normalizeKitSpecs(payload.kitSpecs())
         );

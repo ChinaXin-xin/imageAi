@@ -68,7 +68,6 @@ public class ImageTaskPromptBuilder {
         builder.append("【手机颜色】").append(normalizeText(payload.phoneColor(), "自动")).append("\n");
         builder.append("【设计风格】").append(normalizeText(payload.style(), "自动")).append("\n");
         builder.append("【布局模式】").append(normalizeText(payload.layout(), "自动")).append("\n");
-        appendLogoContext(builder, payload, uploadMaterialContext, imageType);
         appendWallpaperContext(builder, payload, uploadMaterialContext, imageType);
         builder.append("【卖点】").append(joinList(payload.sellingPoints())).append("\n");
         String kitSpecText = joinKitSpecs(payload.kitSpecs());
@@ -85,7 +84,7 @@ public class ImageTaskPromptBuilder {
         appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
-        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、未上传或未选择用于当前类型的Logo、水印或装饰文字（参考图配件自身文字除外）。\n");
+        builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、水印或装饰文字（参考图配件自身文字除外）。\n");
         builder.append("\n【生成前自检清单】\n");
         builder.append("1. 镜头膜孔位数量、位置、大小差异是否与上传实拍图和深析结果一致；" +
                 "2. 是否没有套用其他手机型号镜头膜结构；3. 是否只出现允许物品；4. 是否没有额外黑/白小袋、包装盒、支架、底座、展示道具；" +
@@ -165,14 +164,11 @@ public class ImageTaskPromptBuilder {
         if (!"未选择".equals(kitSpecText)) {
             builder.append("、套装配件（").append(kitSpecText).append("）");
         }
-        if (hasUsableLogoImage(payload, uploadMaterialContext, imageType)) {
-            builder.append("、已上传且选择当前类型使用的Logo图");
-        }
         if (hasUsableWallpaperImage(payload, uploadMaterialContext, imageType)) {
             builder.append("、已上传且选择当前类型使用的壁纸图");
         }
         builder.append("。\n");
-        builder.append("客户明确可用产品范围：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件范围：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。Logo/壁纸仅在上方白名单列出时允许出现；未选择、未上传或不在这个范围内的物品都不要出现。\n");
+        builder.append("客户明确可用产品范围：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件范围：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。壁纸仅在上方白名单列出时允许出现；未选择、未上传或不在这个范围内的物品都不要出现。\n");
         builder.append("除上述白名单外，不要生成任何额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
         appendAccessoryReferenceRule(builder, kitSpecText);
         builder.append("\n");
@@ -180,10 +176,6 @@ public class ImageTaskPromptBuilder {
 
     private void appendPromptAssetWhitelist(StringBuilder builder, String basePrompt) {
         String normalizedPrompt = normalizeNullable(basePrompt);
-        if (normalizedPrompt.contains("【Logo】已上传Logo参考图")
-                || normalizedPrompt.contains("已上传Logo参考图")) {
-            builder.append("、已上传且当前类型启用的Logo图");
-        }
         if (normalizedPrompt.contains("【壁纸】已上传壁纸参考图")
                 || normalizedPrompt.contains("已上传壁纸参考图")) {
             builder.append("、已上传且当前类型启用的壁纸图");
@@ -382,12 +374,6 @@ public class ImageTaskPromptBuilder {
         return extraAccessoryService.findRecord(spec.accessoryId());
     }
 
-    private boolean hasUsableLogoImage(ImageTaskPayload payload, UploadMaterialContext uploadMaterialContext, String imageType) {
-        return uploadMaterialContext != null
-                && uploadMaterialContext.hasLogoImage()
-                && usesUploadAsset(payload.logoUsages(), imageType);
-    }
-
     private boolean hasUsableWallpaperImage(ImageTaskPayload payload, UploadMaterialContext uploadMaterialContext, String imageType) {
         return uploadMaterialContext != null
                 && uploadMaterialContext.hasWallpaperImage()
@@ -421,30 +407,6 @@ public class ImageTaskPromptBuilder {
                 .distinct()
                 .toList();
         return normalized.isEmpty() ? List.of(USAGE_MAIN, USAGE_INTRO) : normalized;
-    }
-
-    private void appendLogoContext(
-            StringBuilder builder,
-            ImageTaskPayload payload,
-            UploadMaterialContext uploadMaterialContext,
-            String imageType
-    ) {
-        boolean hasLogoImage = hasUsableLogoImage(payload, uploadMaterialContext, imageType);
-        String logoName = normalizeNullable(payload.logoName());
-        if (logoName.isEmpty() && !hasLogoImage) {
-            return;
-        }
-        builder.append("【Logo】");
-        if (!logoName.isEmpty()) {
-            builder.append(logoName);
-        }
-        if (hasLogoImage) {
-            if (!logoName.isEmpty()) {
-                builder.append("；");
-            }
-            builder.append("已上传Logo参考图，生成时必须直接按原图外观贴到画面/产品展示中，保留原图可见文字、图形、颜色和比例；不要识别、重绘、改字、换色、生成相似Logo或编造品牌");
-        }
-        builder.append("\n");
     }
 
     private void appendWallpaperContext(

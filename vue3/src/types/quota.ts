@@ -100,7 +100,6 @@ export interface ImageTaskPayload {
   customHeight: number;
   phoneColor: string;
   customColor: string;
-  logoName: string;
   wallpaperName: string;
   style: string;
   layout: string;
@@ -117,7 +116,6 @@ export interface ImageTaskPayload {
   mainTargetTemplateId?: number | null;
   introTargetTemplateId?: number | null;
   templateUsages: ImageAssetUsage[];
-  logoUsages: ImageAssetUsage[];
   wallpaperUsages: ImageAssetUsage[];
   kitSpecs: ImageTaskKitSpec[];
 }

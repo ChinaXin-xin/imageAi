@@ -97,7 +97,7 @@ const TASK_DRAFT_CACHE_KEY = 'imageai:add-task-draft:v1';
 const DEFAULT_IMAGE_SIZE = 1536;
 const IMAGE_SIZE_STEP = 16;
 
-type UploadGroup = '实拍图' | '排版图' | 'Logo图' | '壁纸图';
+type UploadGroup = '实拍图' | '排版图' | '壁纸图';
 type AnalysisUploadGroup = '实拍图';
 type ActivePage = 'quota' | 'task' | 'queue' | 'templates' | 'settings';
 
@@ -135,7 +135,6 @@ const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const realPhotoFiles = ref<UploadUserFile[]>([]);
 const templateFiles = ref<UploadUserFile[]>([]);
-const logoFiles = ref<UploadUserFile[]>([]);
 const wallpaperFiles = ref<UploadUserFile[]>([]);
 const uploadAnalysis = ref<Record<AnalysisUploadGroup, UploadImageAnalysis | null>>({
   实拍图: null,
@@ -192,7 +191,7 @@ const phoneColors = ['自动', '黑色', '白色', '银色', '金色', '蓝色',
 const styleOptions = ['自动', '科技感', '极简风', '简洁品牌风', '3D立体', '高级电商', 'TEMU爆款'];
 const layoutOptions = ['自动', '居中展示', '左图右文', '右图左文', '产品矩阵', '场景渲染'];
 const languageOptions = ['中文', '英文', '中英双语'];
-const uploadGroups: UploadGroup[] = ['实拍图', '排版图', 'Logo图', '壁纸图'];
+const uploadGroups: UploadGroup[] = ['实拍图', '排版图', '壁纸图'];
 const backendAnalysisGroups: UploadGroup[] = ['实拍图', '排版图'];
 const targetTemplateTypes: TargetTemplateType[] = ['MAIN', 'INTRO'];
 
@@ -235,7 +234,6 @@ const taskForm = ref({
   customHeight: DEFAULT_IMAGE_SIZE,
   phoneColor: '自动',
   customColor: '#2563eb',
-  logoName: '',
   wallpaperName: '',
   style: '自动',
   layout: '自动',
@@ -253,7 +251,6 @@ const taskForm = ref({
   mainTargetTemplateId: null as number | null,
   introTargetTemplateId: null as number | null,
   templateUsages: defaultAssetUsages(),
-  logoUsages: defaultAssetUsages(),
   wallpaperUsages: defaultAssetUsages(),
 });
 
@@ -431,15 +428,6 @@ watch(
   (count, previousCount) => {
     if (count > 0 && previousCount === 0) {
       taskForm.value.templateUsages = defaultAssetUsages();
-    }
-  },
-);
-
-watch(
-  () => logoFiles.value.length,
-  (count, previousCount) => {
-    if (count > 0 && previousCount === 0) {
-      taskForm.value.logoUsages = defaultAssetUsages();
     }
   },
 );
@@ -637,7 +625,6 @@ function uploadKey(file: UploadUserFile): string {
 function uploadListFor(type: UploadGroup) {
   if (type === '实拍图') return realPhotoFiles;
   if (type === '排版图') return templateFiles;
-  if (type === 'Logo图') return logoFiles;
   return wallpaperFiles;
 }
 
@@ -693,7 +680,6 @@ function clearUploadedImagesAndAnalysis() {
   previewUrls.value = {};
   realPhotoFiles.value = [];
   templateFiles.value = [];
-  logoFiles.value = [];
   wallpaperFiles.value = [];
   uploadAnalysis.value = {
     实拍图: null,
@@ -733,7 +719,6 @@ async function addToTaskQueue() {
     const createdTask = await createImageTask(snapshotTaskForm(), {
       realPhotoFiles: rawUploadFiles(realPhotoFiles.value),
       templateFiles: rawUploadFiles(templateFiles.value),
-      logoFiles: rawUploadFiles(logoFiles.value),
       wallpaperFiles: rawUploadFiles(wallpaperFiles.value),
     });
     selectedQueueTask.value = null;
@@ -758,7 +743,6 @@ function snapshotTaskForm(): ImageTaskPayload {
     customHeight: taskForm.value.customHeight,
     phoneColor: taskForm.value.phoneColor,
     customColor: taskForm.value.customColor,
-    logoName: taskForm.value.logoName,
     wallpaperName: taskForm.value.wallpaperName,
     style: taskForm.value.style,
     layout: taskForm.value.layout,
@@ -775,7 +759,6 @@ function snapshotTaskForm(): ImageTaskPayload {
     mainTargetTemplateId: taskForm.value.mainTargetTemplateId,
     introTargetTemplateId: taskForm.value.introTargetTemplateId,
     templateUsages: [...taskForm.value.templateUsages],
-    logoUsages: [...taskForm.value.logoUsages],
     wallpaperUsages: [...taskForm.value.wallpaperUsages],
     kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
   };
@@ -1380,7 +1363,6 @@ function resetTaskForm() {
     customHeight: DEFAULT_IMAGE_SIZE,
     phoneColor: '自动',
     customColor: '#2563eb',
-    logoName: '',
     wallpaperName: '',
     style: '自动',
     layout: '自动',
@@ -1398,7 +1380,6 @@ function resetTaskForm() {
     mainTargetTemplateId: null,
     introTargetTemplateId: null,
     templateUsages: defaultAssetUsages(),
-    logoUsages: defaultAssetUsages(),
     wallpaperUsages: defaultAssetUsages(),
   };
   if (defaultSettings.value.mainPrompt) {
@@ -1745,44 +1726,8 @@ function pageSubtitle(): string {
               <section class="task-card">
                 <div class="task-card-head">
                   <div>
-                    <h2>品牌与素材</h2>
-                    <p>Logo、壁纸按上传图直接用于生成。</p>
-                  </div>
-                </div>
-                <div class="two-fields">
-                  <div class="form-row">
-                    <label>Logo 图片</label>
-                    <el-upload
-                      v-model:file-list="logoFiles"
-                      class="line-upload"
-                      action="#"
-                      :auto-upload="false"
-                      :limit="1"
-                      :show-file-list="false"
-                      @remove="handleUploadRemove"
-                    >
-                      <el-button :icon="Upload">上传 Logo</el-button>
-                    </el-upload>
-                    <UploadPreviewGrid
-                      :files="logoFiles"
-                      compact
-                      :file-preview-url="filePreviewUrl"
-                      :upload-key="uploadKey"
-                      @preview="openImageViewer"
-                      @download="downloadImage"
-                      @remove="(file) => removeUploadFile('Logo图', file)"
-                    />
-                    <div v-if="logoFiles.length" class="asset-usage-options">
-                      <span>用于</span>
-                      <el-checkbox-group v-model="taskForm.logoUsages" size="small">
-                        <el-checkbox-button label="MAIN">主图</el-checkbox-button>
-                        <el-checkbox-button label="INTRO">介绍图</el-checkbox-button>
-                      </el-checkbox-group>
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <label>Logo 名称</label>
-                    <el-input v-model="taskForm.logoName" placeholder="输入品牌名，可选" />
+                    <h2>素材</h2>
+                    <p>壁纸按上传图直接用于生成。</p>
                   </div>
                 </div>
                 <div class="form-row">

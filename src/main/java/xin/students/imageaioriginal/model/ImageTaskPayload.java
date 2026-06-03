@@ -11,7 +11,6 @@ public record ImageTaskPayload(
         Integer customHeight,
         String phoneColor,
         String customColor,
-        String logoName,
         String wallpaperName,
         String style,
         String layout,
@@ -28,7 +27,6 @@ public record ImageTaskPayload(
         Long mainTargetTemplateId,
         Long introTargetTemplateId,
         List<String> templateUsages,
-        List<String> logoUsages,
         List<String> wallpaperUsages,
         List<ImageTaskKitSpec> kitSpecs
 ) {

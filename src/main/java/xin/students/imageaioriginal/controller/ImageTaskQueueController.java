@@ -64,10 +64,9 @@ public class ImageTaskQueueController {
             @RequestParam("payload") String payload,
             @RequestParam(value = "realPhotoFiles", required = false) List<MultipartFile> realPhotoFiles,
             @RequestParam(value = "templateFiles", required = false) List<MultipartFile> templateFiles,
-            @RequestParam(value = "logoFiles", required = false) List<MultipartFile> logoFiles,
             @RequestParam(value = "wallpaperFiles", required = false) List<MultipartFile> wallpaperFiles
     ) {
-        return imageTaskQueueService.createTask(payload, realPhotoFiles, templateFiles, logoFiles, wallpaperFiles);
+        return imageTaskQueueService.createTask(payload, realPhotoFiles, templateFiles, wallpaperFiles);
     }
 
     @PostMapping("/{taskId}/retry")

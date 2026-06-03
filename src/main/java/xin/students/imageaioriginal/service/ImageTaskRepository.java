@@ -740,7 +740,6 @@ public class ImageTaskRepository {
         Map<String, List<ImageTaskFileView>> files = new LinkedHashMap<>();
         files.put("实拍图", new ArrayList<>());
         files.put("排版图", new ArrayList<>());
-        files.put("Logo图", new ArrayList<>());
         files.put("壁纸图", new ArrayList<>());
         for (ImageTaskFileEntity entity : fileMapper.selectList(new LambdaQueryWrapper<ImageTaskFileEntity>()
                 .select(
@@ -984,7 +983,6 @@ public class ImageTaskRepository {
         return switch (fileGroup == null ? "" : fileGroup) {
             case "realPhoto" -> "实拍图";
             case "template" -> "排版图";
-            case "logo" -> "Logo图";
             case "wallpaper" -> "壁纸图";
             default -> fileGroup;
         };
@@ -994,7 +992,6 @@ public class ImageTaskRepository {
         return switch (label == null ? "" : label) {
             case "实拍图" -> "realPhoto";
             case "排版图" -> "template";
-            case "Logo图" -> "logo";
             case "壁纸图" -> "wallpaper";
             default -> "";
         };

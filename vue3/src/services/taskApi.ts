@@ -249,21 +249,18 @@ export async function createImageTask(
   files: {
     realPhotoFiles: File[];
     templateFiles: File[];
-    logoFiles: File[];
     wallpaperFiles: File[];
   },
 ): Promise<ImageTaskSummary> {
   const formData = new FormData();
   formData.append('payload', JSON.stringify(payload));
-  const [realPhotoFiles, templateFiles, logoFiles, wallpaperFiles] = await Promise.all([
+  const [realPhotoFiles, templateFiles, wallpaperFiles] = await Promise.all([
     prepareImageFiles(files.realPhotoFiles),
     prepareImageFiles(files.templateFiles),
-    prepareImageFiles(files.logoFiles),
     prepareImageFiles(files.wallpaperFiles),
   ]);
   realPhotoFiles.forEach((file) => formData.append('realPhotoFiles', file));
   templateFiles.forEach((file) => formData.append('templateFiles', file));
-  logoFiles.forEach((file) => formData.append('logoFiles', file));
   wallpaperFiles.forEach((file) => formData.append('wallpaperFiles', file));
 
   const response = await fetch(`${API_BASE_URL}/api/tasks`, {

@@ -98,10 +98,9 @@ record GenerationReferences(
 
 record UploadMaterialContext(
         boolean hasTemplateImage,
-        boolean hasLogoImage,
         boolean hasWallpaperImage
 ) {
     static UploadMaterialContext unknown() {
-        return new UploadMaterialContext(true, true, true);
+        return new UploadMaterialContext(true, true);
     }
 }
