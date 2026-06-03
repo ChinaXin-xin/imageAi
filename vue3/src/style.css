@@ -1560,6 +1560,21 @@ h1 {
   color: #2563eb;
 }
 
+.scene-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scene-item {
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.scene-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .result-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

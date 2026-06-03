@@ -2759,6 +2759,70 @@ function pageSubtitle(): string {
           </section>
 
           <section class="detail-block detail-wide">
+            <h3>场景规划</h3>
+            <div class="analysis-grid">
+              <article class="analysis-card">
+                <strong>主图场景 {{ selectedQueueTask.mainScenes?.length || 0 }}</strong>
+                <el-empty
+                  v-if="!selectedQueueTask.mainScenes?.length"
+                  description="暂无主图场景"
+                  :image-size="56"
+                />
+                <div v-else class="scene-list">
+                  <div v-for="scene in selectedQueueTask.mainScenes" :key="`main-${scene.index}`" class="scene-item">
+                    <strong>主图 #{{ scene.index }} {{ scene.sceneTitle }}</strong>
+                    <p
+                      :class="{ clickable: isLongText(scene.prompt) }"
+                      @click="openFullTextDialog(`主图场景 #${scene.index}`, scene.prompt)"
+                    >
+                      {{ analysisPreview(scene.prompt) }}
+                    </p>
+                    <el-button
+                      v-if="isLongText(scene.prompt)"
+                      class="text-more-button"
+                      size="small"
+                      text
+                      type="primary"
+                      @click="openFullTextDialog(`主图场景 #${scene.index}`, scene.prompt)"
+                    >
+                      查看全文
+                    </el-button>
+                  </div>
+                </div>
+              </article>
+              <article class="analysis-card">
+                <strong>介绍图场景 {{ selectedQueueTask.introScenes?.length || 0 }}</strong>
+                <el-empty
+                  v-if="!selectedQueueTask.introScenes?.length"
+                  description="暂无介绍图场景"
+                  :image-size="56"
+                />
+                <div v-else class="scene-list">
+                  <div v-for="scene in selectedQueueTask.introScenes" :key="`intro-${scene.index}`" class="scene-item">
+                    <strong>介绍图 #{{ scene.index }} {{ scene.sceneTitle }}</strong>
+                    <p
+                      :class="{ clickable: isLongText(scene.prompt) }"
+                      @click="openFullTextDialog(`介绍图场景 #${scene.index}`, scene.prompt)"
+                    >
+                      {{ analysisPreview(scene.prompt) }}
+                    </p>
+                    <el-button
+                      v-if="isLongText(scene.prompt)"
+                      class="text-more-button"
+                      size="small"
+                      text
+                      type="primary"
+                      @click="openFullTextDialog(`介绍图场景 #${scene.index}`, scene.prompt)"
+                    >
+                      查看全文
+                    </el-button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="detail-block detail-wide">
             <h3>生成结果</h3>
             <el-empty v-if="selectedQueueTask.results.length === 0" description="暂无生成结果" />
             <div v-else class="result-list">

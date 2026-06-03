@@ -16,6 +16,8 @@ public class ImageTaskEntity {
     private String status;
     private String payloadJson;
     private String analysisJson;
+    private String mainScenesJson;
+    private String introScenesJson;
     private String finalMainPrompt;
     private String finalIntroPrompt;
     private byte[] thumbnail;

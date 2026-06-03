@@ -323,13 +323,20 @@ public class ImageTaskQueueService {
             imageTaskRepository.saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
             ensureTaskNotPaused(taskId);
             imageTaskRepository.clearResults(taskId);
+            int mainCount = positive(record.payload().mainImageCount());
+            int introCount = positive(record.payload().introImageCount());
+            List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes("主图", finalMainPrompt, mainCount);
+            List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes("介绍图", finalIntroPrompt, introCount);
+            imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
             List<GenerationJob> jobs = createGenerationJobs(
                     taskId,
                     finalMainPrompt,
                     finalIntroPrompt,
                     record.payload(),
                     mainTargetTemplate,
-                    introTargetTemplate
+                    introTargetTemplate,
+                    mainScenes,
+                    introScenes
             );
             imageTaskRepository.updateTaskState(taskId, "GENERATING", null, false, false);
 
@@ -438,13 +445,13 @@ public class ImageTaskQueueService {
             String finalIntroPrompt,
             ImageTaskPayload payload,
             TargetTemplateService.TargetTemplateRecord mainTargetTemplate,
-            TargetTemplateService.TargetTemplateRecord introTargetTemplate
+            TargetTemplateService.TargetTemplateRecord introTargetTemplate,
+            List<ImageScenePromptService.ScenePrompt> mainScenes,
+            List<ImageScenePromptService.ScenePrompt> introScenes
     ) {
         List<GenerationJob> jobs = new ArrayList<>();
         int mainCount = positive(payload.mainImageCount());
         int introCount = positive(payload.introImageCount());
-        List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes("主图", finalMainPrompt, mainCount);
-        List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes("介绍图", finalIntroPrompt, introCount);
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);

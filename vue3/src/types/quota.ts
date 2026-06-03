@@ -150,6 +150,12 @@ export interface ImageTaskFileView {
   preview: string;
 }
 
+export interface ImageTaskScene {
+  index: number;
+  sceneTitle: string;
+  prompt: string;
+}
+
 export interface ImageTaskSummary {
   id: string;
   productName: string;
@@ -172,6 +178,8 @@ export interface ImageTaskDetail extends ImageTaskSummary {
   kitSpecs: ImageTaskKitSpec[];
   files: Record<string, ImageTaskFileView[]>;
   analysis: Record<string, string>;
+  mainScenes: ImageTaskScene[];
+  introScenes: ImageTaskScene[];
   finalMainPrompt?: string | null;
   finalIntroPrompt?: string | null;
   results: ImageTaskResult[];

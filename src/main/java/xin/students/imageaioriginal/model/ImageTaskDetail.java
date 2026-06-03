@@ -19,6 +19,8 @@ public record ImageTaskDetail(
         List<ImageTaskKitSpec> kitSpecs,
         Map<String, List<ImageTaskFileView>> files,
         Map<String, String> analysis,
+        List<ImageTaskSceneView> mainScenes,
+        List<ImageTaskSceneView> introScenes,
         String finalMainPrompt,
         String finalIntroPrompt,
         List<ImageTaskResultView> results,

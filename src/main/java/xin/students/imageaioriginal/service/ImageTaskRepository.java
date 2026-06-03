@@ -20,6 +20,7 @@ import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskFileView;
 import xin.students.imageaioriginal.model.ImageTaskPayload;
 import xin.students.imageaioriginal.model.ImageTaskResultView;
+import xin.students.imageaioriginal.model.ImageTaskSceneView;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 
@@ -323,6 +324,19 @@ public class ImageTaskRepository {
         taskMapper.updateById(task);
     }
 
+    public void saveScenePrompts(
+            String taskId,
+            List<ImageScenePromptService.ScenePrompt> mainScenes,
+            List<ImageScenePromptService.ScenePrompt> introScenes
+    ) {
+        ImageTaskEntity task = new ImageTaskEntity();
+        task.setId(taskId);
+        task.setMainScenesJson(toJson(toSceneViews(mainScenes)));
+        task.setIntroScenesJson(toJson(toSceneViews(introScenes)));
+        task.setUpdatedAt(now());
+        taskMapper.updateById(task);
+    }
+
     public void savePartialAnalysis(String taskId, Map<String, String> analysis) {
         ImageTaskEntity task = new ImageTaskEntity();
         task.setId(taskId);
@@ -477,6 +491,8 @@ public class ImageTaskRepository {
                       status varchar(32) not null,
                       payload_json longtext not null,
                       analysis_json longtext null,
+                      main_scenes_json longtext null,
+                      intro_scenes_json longtext null,
                       final_main_prompt longtext null,
                       final_intro_prompt longtext null,
                       thumbnail longblob null,
@@ -492,6 +508,8 @@ public class ImageTaskRepository {
                       completed_at timestamp(3) null
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
+            addColumnIfMissing(connection, "image_tasks", "main_scenes_json", "longtext null");
+            addColumnIfMissing(connection, "image_tasks", "intro_scenes_json", "longtext null");
             statement.executeUpdate("""
                     create table if not exists image_task_files (
                       id bigint primary key auto_increment,
@@ -551,6 +569,8 @@ public class ImageTaskRepository {
                 entity.getPayloadJson(),
                 parsePayload(entity.getPayloadJson()),
                 parseAnalysis(entity.getAnalysisJson()),
+                parseSceneViews(entity.getMainScenesJson()),
+                parseSceneViews(entity.getIntroScenesJson()),
                 entity.getFinalMainPrompt(),
                 entity.getFinalIntroPrompt(),
                 entity.getThumbnail(),
@@ -629,6 +649,8 @@ public class ImageTaskRepository {
                 record.payload().kitSpecs() == null ? List.of() : record.payload().kitSpecs(),
                 listTaskFiles(record.id()),
                 record.analysis(),
+                record.mainScenes(),
+                record.introScenes(),
                 detailFinalPrompt(record, "主图"),
                 detailFinalPrompt(record, "介绍图"),
                 listResults(record.id()),
@@ -876,6 +898,28 @@ public class ImageTaskRepository {
         } catch (JsonProcessingException ex) {
             return new LinkedHashMap<>();
         }
+    }
+
+    private List<ImageTaskSceneView> parseSceneViews(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<ImageTaskSceneView> scenes = objectMapper.readValue(value, new TypeReference<>() {
+            });
+            return scenes == null ? List.of() : scenes;
+        } catch (JsonProcessingException ex) {
+            return List.of();
+        }
+    }
+
+    private List<ImageTaskSceneView> toSceneViews(List<ImageScenePromptService.ScenePrompt> scenes) {
+        if (scenes == null || scenes.isEmpty()) {
+            return List.of();
+        }
+        return scenes.stream()
+                .map(scene -> new ImageTaskSceneView(scene.index(), scene.sceneTitle(), scene.prompt()))
+                .toList();
     }
 
     private ImageTaskPayload parsePayload(String payloadJson) {

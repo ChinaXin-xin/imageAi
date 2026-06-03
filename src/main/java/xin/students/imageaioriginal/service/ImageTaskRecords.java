@@ -1,6 +1,7 @@
 package xin.students.imageaioriginal.service;
 
 import xin.students.imageaioriginal.model.ImageTaskPayload;
+import xin.students.imageaioriginal.model.ImageTaskSceneView;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 
 import java.util.List;
@@ -62,6 +63,8 @@ record TaskRecord(
         String payloadJson,
         ImageTaskPayload payload,
         Map<String, String> analysis,
+        List<ImageTaskSceneView> mainScenes,
+        List<ImageTaskSceneView> introScenes,
         String finalMainPrompt,
         String finalIntroPrompt,
         byte[] thumbnail,
