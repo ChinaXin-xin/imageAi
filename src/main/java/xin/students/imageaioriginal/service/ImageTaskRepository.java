@@ -57,6 +57,7 @@ public class ImageTaskRepository {
     private final ImageTaskMapper taskMapper;
     private final ImageTaskFileMapper fileMapper;
     private final ImageTaskResultMapper resultMapper;
+    private volatile boolean tablesEnsured;
 
     public ImageTaskRepository(
             DataSource dataSource,
