@@ -8,18 +8,20 @@ class ImageGenerationPropertiesTests {
 
     @Test
     void defaultsSupportTenConcurrentImageApiCalls() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(null, null, null, null);
+        ImageGenerationProperties properties = new ImageGenerationProperties(null, null, null, null, null);
 
         assertThat(properties.resolvedMaxImagesPerTask()).isEqualTo(10);
         assertThat(properties.resolvedMaxGlobalImageConcurrency()).isEqualTo(10);
+        assertThat(properties.resolvedOutputDirectory()).isEqualTo("data/image-task-results");
     }
 
     @Test
     void configuredConcurrencyIsStillBounded() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(null, 99, 99, 99);
+        ImageGenerationProperties properties = new ImageGenerationProperties(null, 99, 99, 99, "custom-results");
 
         assertThat(properties.resolvedMaxTaskConcurrency()).isEqualTo(16);
         assertThat(properties.resolvedMaxImagesPerTask()).isEqualTo(12);
         assertThat(properties.resolvedMaxGlobalImageConcurrency()).isEqualTo(32);
+        assertThat(properties.resolvedOutputDirectory()).isEqualTo("custom-results");
     }
 }

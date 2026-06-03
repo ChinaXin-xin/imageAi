@@ -7,7 +7,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -54,14 +53,11 @@ public class ImageTaskDownloadService {
     }
 
     public StoredUploadImage resultReferenceImage(ResultRecord result) {
-        DecodedImage decoded = decodeImageBase64(result.imageBase64());
-        if (decoded.bytes().length == 0) {
-            throw new IllegalStateException("当前结果没有可用于重修的本地图片数据，请选择带有接口返回图片数据的结果");
-        }
+        ImageTaskPreviewFile image = imageTaskRepository.resultImage(result.taskId(), result.id());
         return new StoredUploadImage(
-                result.resultType() + "-" + result.itemIndex() + "-v" + result.versionIndex() + "." + decoded.extension(),
-                decoded.contentType(),
-                decoded.bytes()
+                result.resultType() + "-" + result.itemIndex() + "-v" + result.versionIndex() + "." + imageExtension(image.contentType()),
+                image.contentType(),
+                image.bytes()
         );
     }
 
@@ -93,40 +89,20 @@ public class ImageTaskDownloadService {
 
     private int addResultToZip(ZipOutputStream zipOutput, String folder, ResultRecord result) throws IOException {
         String baseName = sanitizeFileName(result.resultType() + "-" + result.itemIndex() + "-v" + result.versionIndex());
-        DecodedImage decoded = decodeImageBase64(result.imageBase64());
-        if (decoded.bytes().length > 0) {
-            zipOutput.putNextEntry(new ZipEntry(folder + baseName + "." + decoded.extension()));
-            zipOutput.write(decoded.bytes());
+        try {
+            ImageTaskPreviewFile image = imageTaskRepository.resultImage(result.taskId(), result.id());
+            zipOutput.putNextEntry(new ZipEntry(folder + baseName + "." + imageExtension(image.contentType())));
+            zipOutput.write(image.bytes());
             zipOutput.closeEntry();
             return 1;
-        }
-        if (result.imageUrl() != null && !result.imageUrl().isBlank()) {
+        } catch (RuntimeException ex) {
+            if (result.imageUrl() == null || result.imageUrl().isBlank()) {
+                return 0;
+            }
             zipOutput.putNextEntry(new ZipEntry(folder + baseName + "-image-url.txt"));
             zipOutput.write(result.imageUrl().getBytes(StandardCharsets.UTF_8));
             zipOutput.closeEntry();
             return 1;
-        }
-        return 0;
-    }
-
-    private DecodedImage decodeImageBase64(String value) {
-        if (value == null || value.isBlank()) {
-            return new DecodedImage(new byte[0], "image/png", "png");
-        }
-        String contentType = "image/png";
-        String payload = value.trim();
-        int commaIndex = payload.indexOf(',');
-        if (payload.startsWith("data:") && commaIndex > 0) {
-            int typeEnd = payload.indexOf(';');
-            if (typeEnd > 5) {
-                contentType = payload.substring(5, typeEnd);
-            }
-            payload = payload.substring(commaIndex + 1);
-        }
-        try {
-            return new DecodedImage(Base64.getDecoder().decode(payload), contentType, imageExtension(contentType));
-        } catch (IllegalArgumentException ex) {
-            return new DecodedImage(new byte[0], contentType, imageExtension(contentType));
         }
     }
 

@@ -82,7 +82,7 @@ npm run dev
 - 上传图片后的前端展示必须使用缩略图预览，不展示 Element Plus 默认文件名列表；长文本“查看全文”弹窗使用 Markdown 渲染。
 - 前端上传 AVIF 等非常规图片格式时，应优先在浏览器端转成 PNG 后再提交；后端分析图片时遇到 ImageIO 无法解码的图片，要保留原始 data URL 兜底，避免模板上传直接 500。
 - 生图接口需要携带上传原图或额外配件参考图时，后端先将参考图等比压缩为适合 API 传输的图片，避免原始大图导致请求超时。
-- 生图接口响应不能假定一定是 `application/json`；如果返回图片二进制或 `application/octet-stream`，后端要转成 base64 结果保存。
+- 生图接口响应不能假定一定是 `application/json`；如果返回图片二进制、`application/octet-stream` 或 base64，后端要保存为本地图片文件，数据库只保留本地路径/访问 URL，不再把生成图片 base64 长文本作为结果长期保存。
 - 生图任务执行支持并发，需通过 `image-ai.image-generation.max-task-concurrency`、`max-images-per-task`、`max-global-image-concurrency` 控制任务并发、单任务图片并发和全局图片并发；默认单任务图片并发和全局图片 API 并发为 10，不要使用无限制线程池直接打满外部 API。
 - 单张图片生成遇到超时、HTTP 5xx、连接中断、空响应等外部接口临时异常时，后端需自动重试 2 次；同一结果最多尝试 3 次，只有最终失败才写入失败状态。
 - 暂停或删除任务时必须取消该任务正在进行的所有本地生图请求，并确保后续返回结果不会写入已暂停或已删除任务。

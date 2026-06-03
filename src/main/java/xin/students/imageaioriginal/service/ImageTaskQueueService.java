@@ -36,8 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ImageTaskQueueService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
-    private static final int STALE_GENERATION_SECONDS = 15 * 60;
-    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 15 分钟未返回，已自动标记失败，请稍后重试。";
+    private static final int STALE_GENERATION_SECONDS = 60 * 60;
+    private static final String STALE_GENERATION_MESSAGE = "生图接口超过 60 分钟未返回，已自动标记失败，请稍后重试。";
     private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
     private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
     private static final int DEFAULT_IMAGE_SIZE = 1536;
@@ -118,7 +118,7 @@ public class ImageTaskQueueService {
         imageJobExecutor.shutdownNow();
     }
 
-    public ImageTaskDetail createTask(
+    public ImageTaskSummary createTask(
             String payloadJson,
             List<MultipartFile> realPhotoFiles,
             List<MultipartFile> templateFiles,
@@ -135,7 +135,7 @@ public class ImageTaskQueueService {
         files.addAll(imageTaskFileService.toStoredTaskFiles("wallpaper", wallpaperFiles));
         imageTaskRepository.createTask(taskId, payload, files, imageTaskFileService.createThumbnail(files));
         startProcessing(taskId);
-        return getTask(taskId);
+        return imageTaskRepository.getTaskSummary(taskId);
     }
 
     public List<ImageTaskSummary> listTasks() {
@@ -153,6 +153,11 @@ public class ImageTaskQueueService {
     public ImageTaskPreviewFile taskFilePreview(String taskId, long fileId) {
         imageTaskRepository.ensureTables();
         return imageTaskRepository.taskFilePreview(taskId, fileId);
+    }
+
+    public ImageTaskPreviewFile taskResultImage(String taskId, long resultId) {
+        imageTaskRepository.ensureTables();
+        return imageTaskRepository.resultImage(taskId, resultId);
     }
 
     public ImageTaskDetail retryTask(String taskId) {

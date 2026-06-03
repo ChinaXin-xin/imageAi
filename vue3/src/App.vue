@@ -727,6 +727,8 @@ async function addToTaskQueue() {
   ensureProductName();
   normalizeTaskImageSize();
   addingTask.value = true;
+  activePage.value = 'queue';
+  queueLoading.value = true;
   try {
     const createdTask = await createImageTask(snapshotTaskForm(), {
       realPhotoFiles: rawUploadFiles(realPhotoFiles.value),
@@ -734,13 +736,14 @@ async function addToTaskQueue() {
       logoFiles: rawUploadFiles(logoFiles.value),
       wallpaperFiles: rawUploadFiles(wallpaperFiles.value),
     });
-    selectedQueueTask.value = createdTask;
-    activePage.value = 'queue';
+    selectedQueueTask.value = null;
+    taskQueue.value = [createdTask, ...taskQueue.value.filter((task) => task.id !== createdTask.id)];
     await loadTaskQueue(false);
     ElMessage.success(`任务已提交到后端队列：${createdTask.productName}`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
   } finally {
+    queueLoading.value = false;
     addingTask.value = false;
   }
 }

@@ -51,8 +51,16 @@ public class ImageTaskQueueController {
                 .body(file.bytes());
     }
 
+    @GetMapping("/{taskId}/results/{resultId}/image")
+    public ResponseEntity<byte[]> taskResultImage(@PathVariable String taskId, @PathVariable long resultId) {
+        ImageTaskPreviewFile file = imageTaskQueueService.taskResultImage(taskId, resultId);
+        return ResponseEntity.ok()
+                .contentType(imageMediaType(file.contentType()))
+                .body(file.bytes());
+    }
+
     @PostMapping
-    public ImageTaskDetail createTask(
+    public ImageTaskSummary createTask(
             @RequestParam("payload") String payload,
             @RequestParam(value = "realPhotoFiles", required = false) List<MultipartFile> realPhotoFiles,
             @RequestParam(value = "templateFiles", required = false) List<MultipartFile> templateFiles,

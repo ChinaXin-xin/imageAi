@@ -19,6 +19,7 @@ public class ImageTaskResultEntity {
     private String prompt;
     private String imageUrl;
     private String imageBase64;
+    private String imagePath;
     private String revisedPrompt;
     private String rawResponse;
     private String errorMessage;

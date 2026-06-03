@@ -252,7 +252,7 @@ export async function createImageTask(
     logoFiles: File[];
     wallpaperFiles: File[];
   },
-): Promise<ImageTaskDetail> {
+): Promise<ImageTaskSummary> {
   const formData = new FormData();
   formData.append('payload', JSON.stringify(payload));
   const [realPhotoFiles, templateFiles, logoFiles, wallpaperFiles] = await Promise.all([
@@ -273,7 +273,7 @@ export async function createImageTask(
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  return (await response.json()) as ImageTaskDetail;
+  return (await response.json()) as ImageTaskSummary;
 }
 
 async function prepareImageFiles(files: File[]): Promise<File[]> {

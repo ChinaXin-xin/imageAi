@@ -7,7 +7,8 @@ public record ImageGenerationProperties(
         String model,
         Integer maxTaskConcurrency,
         Integer maxImagesPerTask,
-        Integer maxGlobalImageConcurrency
+        Integer maxGlobalImageConcurrency,
+        String outputDirectory
 ) {
     public String resolvedModel() {
         return model == null || model.isBlank() ? "gpt-image-2" : model.trim();
@@ -23,6 +24,12 @@ public record ImageGenerationProperties(
 
     public int resolvedMaxGlobalImageConcurrency() {
         return bounded(maxGlobalImageConcurrency, 10, 1, 32);
+    }
+
+    public String resolvedOutputDirectory() {
+        return outputDirectory == null || outputDirectory.isBlank()
+                ? "data/image-task-results"
+                : outputDirectory.trim();
     }
 
     private int bounded(Integer value, int fallback, int min, int max) {

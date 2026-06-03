@@ -42,6 +42,7 @@ record ResultRecord(
         String prompt,
         String imageUrl,
         String imageBase64,
+        String imagePath,
         String editSuggestion,
         String errorMessage
 ) {

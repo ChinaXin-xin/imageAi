@@ -3,6 +3,7 @@ target/
 node_modules/
 dist/
 logs/
+data/
 *.tsbuildinfo
 .env.local
 .env.*.local

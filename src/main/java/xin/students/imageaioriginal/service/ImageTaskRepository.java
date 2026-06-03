@@ -53,6 +53,7 @@ public class ImageTaskRepository {
     private final ImageTaskFileService imageTaskFileService;
     private final ImageTaskPromptBuilder imageTaskPromptBuilder;
     private final TargetTemplateService targetTemplateService;
+    private final ImageTaskResultStorageService resultStorageService;
     private final ImageTaskMapper taskMapper;
     private final ImageTaskFileMapper fileMapper;
     private final ImageTaskResultMapper resultMapper;
@@ -64,6 +65,7 @@ public class ImageTaskRepository {
             ImageTaskFileService imageTaskFileService,
             ImageTaskPromptBuilder imageTaskPromptBuilder,
             TargetTemplateService targetTemplateService,
+            ImageTaskResultStorageService resultStorageService,
             ImageTaskMapper taskMapper,
             ImageTaskFileMapper fileMapper,
             ImageTaskResultMapper resultMapper
@@ -74,6 +76,7 @@ public class ImageTaskRepository {
         this.imageTaskFileService = imageTaskFileService;
         this.imageTaskPromptBuilder = imageTaskPromptBuilder;
         this.targetTemplateService = targetTemplateService;
+        this.resultStorageService = resultStorageService;
         this.taskMapper = taskMapper;
         this.fileMapper = fileMapper;
         this.resultMapper = resultMapper;
@@ -147,6 +150,14 @@ public class ImageTaskRepository {
             throw new IllegalArgumentException("任务不存在：" + taskId);
         }
         return toDetail(record);
+    }
+
+    public ImageTaskSummary getTaskSummary(String taskId) {
+        TaskRecord record = findTask(taskId);
+        if (record == null) {
+            throw new IllegalArgumentException("任务不存在：" + taskId);
+        }
+        return toSummary(record);
     }
 
     public TaskRecord findTask(String taskId) {
@@ -225,6 +236,20 @@ public class ImageTaskRepository {
 
     public List<ResultRecord> completedResults(String taskId) {
         return resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                        .select(
+                                ImageTaskResultEntity::getId,
+                                ImageTaskResultEntity::getTaskId,
+                                ImageTaskResultEntity::getResultType,
+                                ImageTaskResultEntity::getItemIndex,
+                                ImageTaskResultEntity::getParentResultId,
+                                ImageTaskResultEntity::getVersionIndex,
+                                ImageTaskResultEntity::getStatus,
+                                ImageTaskResultEntity::getPrompt,
+                                ImageTaskResultEntity::getImageUrl,
+                                ImageTaskResultEntity::getImagePath,
+                                ImageTaskResultEntity::getEditSuggestion,
+                                ImageTaskResultEntity::getErrorMessage
+                        )
                         .eq(ImageTaskResultEntity::getTaskId, taskId)
                         .eq(ImageTaskResultEntity::getStatus, "COMPLETED")
                         .orderByAsc(ImageTaskResultEntity::getResultType)
@@ -308,6 +333,7 @@ public class ImageTaskRepository {
     public void clearResults(String taskId) {
         resultMapper.delete(new LambdaQueryWrapper<ImageTaskResultEntity>()
                 .eq(ImageTaskResultEntity::getTaskId, taskId));
+        resultStorageService.deleteTaskImages(taskId);
     }
 
     public long insertResult(String taskId, String resultType, int index, String prompt, String status) {
@@ -349,15 +375,29 @@ public class ImageTaskRepository {
     }
 
     public boolean completeResult(long resultId, ImageGenerationService.GeneratedImage generatedImage) {
+        ImageTaskResultEntity result = resultMapper.selectById(resultId);
+        if (result == null || "PAUSED".equals(result.getStatus())) {
+            return false;
+        }
+        ImageTaskResultStorageService.StoredResultImage storedImage = resultStorageService.saveGeneratedImage(
+                result.getTaskId(),
+                resultId,
+                generatedImage
+        );
+        String imageUrl = storedImage == null
+                ? generatedImage.imageUrl()
+                : resultImageUrl(result.getTaskId(), resultId);
         return resultMapper.update(null, new LambdaUpdateWrapper<ImageTaskResultEntity>()
                 .set(ImageTaskResultEntity::getStatus, "COMPLETED")
-                .set(ImageTaskResultEntity::getImageUrl, generatedImage.imageUrl())
-                .set(ImageTaskResultEntity::getImageBase64, generatedImage.imageBase64())
+                .set(ImageTaskResultEntity::getImageUrl, imageUrl)
+                .set(ImageTaskResultEntity::getImageBase64, null)
+                .set(ImageTaskResultEntity::getImagePath, storedImage == null ? result.getImagePath() : storedImage.relativePath())
                 .set(ImageTaskResultEntity::getRevisedPrompt, generatedImage.revisedPrompt())
                 .set(ImageTaskResultEntity::getRawResponse, generatedImage.rawResponse())
+                .set(ImageTaskResultEntity::getErrorMessage, null)
                 .set(ImageTaskResultEntity::getUpdatedAt, now())
                 .eq(ImageTaskResultEntity::getId, resultId)
-                .eq(ImageTaskResultEntity::getStatus, "GENERATING")) > 0;
+                .ne(ImageTaskResultEntity::getStatus, "PAUSED")) > 0;
     }
 
     public void failResult(long resultId, Exception ex) {
@@ -377,7 +417,10 @@ public class ImageTaskRepository {
         if ("FAILED".equals(status) && "PAUSED".equals(record.status())) {
             return;
         }
-        if (!"FAILED".equals(status) && ("FAILED".equals(record.status()) || "PAUSED".equals(record.status()))) {
+        if ("PAUSED".equals(record.status())) {
+            return;
+        }
+        if (!"FAILED".equals(status) && !"COMPLETED".equals(status) && "FAILED".equals(record.status())) {
             return;
         }
         Timestamp now = now();
@@ -420,6 +463,7 @@ public class ImageTaskRepository {
 
     public void deleteTask(String taskId) {
         taskMapper.deleteById(taskId);
+        resultStorageService.deleteTaskImages(taskId);
     }
 
     public void ensureTables() {
@@ -476,6 +520,7 @@ public class ImageTaskRepository {
                       prompt longtext not null,
                       image_url text null,
                       image_base64 longtext null,
+                      image_path varchar(500) null,
                       revised_prompt longtext null,
                       raw_response longtext null,
                       error_message text null,
@@ -488,6 +533,7 @@ public class ImageTaskRepository {
             addColumnIfMissing(connection, "image_task_results", "parent_result_id", "bigint null");
             addColumnIfMissing(connection, "image_task_results", "version_index", "int not null default 1");
             addColumnIfMissing(connection, "image_task_results", "edit_suggestion", "text null");
+            addColumnIfMissing(connection, "image_task_results", "image_path", "varchar(500) null");
         } catch (SQLException ex) {
             throw new IllegalStateException("初始化任务队列表失败", ex);
         }
@@ -535,6 +581,7 @@ public class ImageTaskRepository {
                 entity.getPrompt(),
                 entity.getImageUrl(),
                 entity.getImageBase64(),
+                entity.getImagePath(),
                 entity.getEditSuggestion(),
                 entity.getErrorMessage()
         );
@@ -611,6 +658,22 @@ public class ImageTaskRepository {
 
     private List<ImageTaskResultView> listResults(String taskId) {
         return resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                        .select(
+                                ImageTaskResultEntity::getId,
+                                ImageTaskResultEntity::getTaskId,
+                                ImageTaskResultEntity::getResultType,
+                                ImageTaskResultEntity::getItemIndex,
+                                ImageTaskResultEntity::getParentResultId,
+                                ImageTaskResultEntity::getVersionIndex,
+                                ImageTaskResultEntity::getStatus,
+                                ImageTaskResultEntity::getPrompt,
+                                ImageTaskResultEntity::getImageUrl,
+                                ImageTaskResultEntity::getImagePath,
+                                ImageTaskResultEntity::getEditSuggestion,
+                                ImageTaskResultEntity::getErrorMessage,
+                                ImageTaskResultEntity::getCreatedAt,
+                                ImageTaskResultEntity::getUpdatedAt
+                        )
                         .eq(ImageTaskResultEntity::getTaskId, taskId)
                         .orderByAsc(ImageTaskResultEntity::getResultType)
                         .orderByAsc(ImageTaskResultEntity::getItemIndex)
@@ -626,8 +689,8 @@ public class ImageTaskRepository {
                         result.getStatus(),
                         statusText(result.getStatus()),
                         result.getPrompt(),
-                        result.getImageUrl(),
-                        result.getImageBase64(),
+                        resultImageUrl(result),
+                        null,
                         null,
                         result.getEditSuggestion(),
                         result.getErrorMessage(),
@@ -668,6 +731,38 @@ public class ImageTaskRepository {
             ));
         }
         return files;
+    }
+
+    public ImageTaskPreviewFile resultImage(String taskId, long resultId) {
+        ImageTaskResultEntity result = resultMapper.selectOne(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                .eq(ImageTaskResultEntity::getTaskId, taskId)
+                .eq(ImageTaskResultEntity::getId, resultId)
+                .last("limit 1"));
+        if (result == null) {
+            throw new IllegalArgumentException("生成结果不存在：" + resultId);
+        }
+        String fileName = resultFileName(result);
+        ImageTaskPreviewFile storedFile = resultStorageService.readStoredImage(result.getImagePath(), fileName);
+        if (storedFile != null) {
+            return storedFile;
+        }
+        DecodedImage decoded = resultStorageService.decodeImageBase64(result.getImageBase64());
+        if (decoded.bytes().length == 0) {
+            throw new IllegalStateException("生成结果没有可用的本地图片文件：" + resultId);
+        }
+        ImageGenerationService.GeneratedImage generatedImage = new ImageGenerationService.GeneratedImage(
+                result.getImageUrl(),
+                result.getImageBase64(),
+                result.getRevisedPrompt(),
+                result.getRawResponse()
+        );
+        ImageTaskResultStorageService.StoredResultImage storedImage = resultStorageService.saveGeneratedImage(taskId, resultId, generatedImage);
+        resultMapper.update(null, new LambdaUpdateWrapper<ImageTaskResultEntity>()
+                .set(ImageTaskResultEntity::getImageUrl, resultImageUrl(taskId, resultId))
+                .set(ImageTaskResultEntity::getImageBase64, null)
+                .set(ImageTaskResultEntity::getImagePath, storedImage.relativePath())
+                .eq(ImageTaskResultEntity::getId, resultId));
+        return new ImageTaskPreviewFile(fileName, decoded.contentType(), decoded.bytes());
     }
 
     private ResultStats progressStats(TaskRecord record) {
@@ -884,6 +979,35 @@ public class ImageTaskRepository {
             return "";
         }
         return "/api/tasks/" + taskId + "/files/" + fileId + "/preview";
+    }
+
+    private String resultImageUrl(ImageTaskResultEntity result) {
+        if (result.getImageUrl() != null && !result.getImageUrl().isBlank() && result.getImagePath() == null) {
+            return result.getImageUrl();
+        }
+        if (result.getId() == null || result.getTaskId() == null || result.getTaskId().isBlank()) {
+            return result.getImageUrl();
+        }
+        if (result.getImagePath() != null && !result.getImagePath().isBlank()) {
+            return resultImageUrl(result.getTaskId(), result.getId());
+        }
+        if (result.getImageBase64() != null && !result.getImageBase64().isBlank()) {
+            return resultImageUrl(result.getTaskId(), result.getId());
+        }
+        return result.getImageUrl();
+    }
+
+    private String resultImageUrl(String taskId, long resultId) {
+        return "/api/tasks/" + taskId + "/results/" + resultId + "/image";
+    }
+
+    private String resultFileName(ImageTaskResultEntity result) {
+        String extension = "png";
+        if (result.getImagePath() != null && result.getImagePath().contains(".")) {
+            extension = result.getImagePath().substring(result.getImagePath().lastIndexOf('.') + 1);
+        }
+        return result.getResultType() + "-" + valueOrZero(result.getItemIndex()) + "-v"
+                + valueOrDefault(result.getVersionIndex(), 1) + "." + extension;
     }
 
     private String statusText(String status) {

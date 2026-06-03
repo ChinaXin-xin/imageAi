@@ -153,7 +153,7 @@ public class ImageGenerationService {
         String imageUrl = text(first, "url");
         String b64Json = text(first, "b64_json", "b64Json");
         String providerRevisedPrompt = text(first, "revised_prompt", "revisedPrompt");
-        String rawResponse = toJson(response);
+        String rawResponse = sanitizedRawResponse(response);
         if ((imageUrl == null || imageUrl.isBlank()) && (b64Json == null || b64Json.isBlank())) {
             throw new IllegalStateException("生图接口未返回图片地址或图片 base64：" + abbreviate(rawResponse, 1000));
         }
@@ -445,6 +445,22 @@ public class ImageGenerationService {
         } catch (Exception ex) {
             return String.valueOf(response);
         }
+    }
+
+    private String sanitizedRawResponse(JsonNode response) {
+        if (response == null) {
+            return "";
+        }
+        JsonNode sanitized = response.deepCopy();
+        JsonNode data = sanitized.path("data");
+        if (data.isArray()) {
+            for (JsonNode item : data) {
+                if (item instanceof ObjectNode objectNode && objectNode.has("b64_json")) {
+                    objectNode.put("b64_json", "[image saved to local file]");
+                }
+            }
+        }
+        return toJson(sanitized);
     }
 
     private String abbreviate(String value, int maxLength) {
