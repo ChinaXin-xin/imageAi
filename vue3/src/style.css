@@ -510,6 +510,19 @@ h1 {
   white-space: pre-wrap;
 }
 
+.clickable-text-preview {
+  cursor: pointer;
+}
+
+.clickable-text-preview:hover {
+  color: #2563eb;
+}
+
+.clickable-text-preview:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
 .upload-section {
   margin-top: 14px;
 }
@@ -920,10 +933,7 @@ h1 {
 }
 
 .accessory-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px auto;
-  gap: 10px;
-  align-items: center;
+  display: block;
   margin-bottom: 12px;
 }
 

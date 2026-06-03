@@ -50,7 +50,7 @@ public class DefaultPromptSettingsService {
             输出请按“图片1、图片2...”分别描述，最后增加“结构锁定要点”小节，用简短明确的生成约束总结孔位、外形和数量。
             """;
     private static final String DEFAULT_TARGET_TEMPLATE_PROMPT = """
-            请作为跨境电商图片视觉风格分析师，只分析这张排版模板图的视觉风格，不要照抄产品内容。
+            请作为跨境电商图片视觉风格分析师，只分析这张参考风格图的视觉风格，不要照抄产品内容。
             请输出适合后续生图使用的中文风格说明，重点包含：
             1. 画面构图和主体摆放方式
             2. 背景材质、颜色氛围和空间层次
@@ -66,6 +66,8 @@ public class DefaultPromptSettingsService {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final DefaultPromptSettingsMapper defaultPromptSettingsMapper;
+    private volatile boolean tableEnsured;
+    private volatile DefaultPromptSettings cachedSettings;
 
     public DefaultPromptSettingsService(
             DataSource dataSource,
@@ -83,18 +85,29 @@ public class DefaultPromptSettingsService {
     }
 
     public DefaultPromptSettings getSettings() {
-        ensureTable();
-        DefaultPromptSettingsEntity entity = defaultPromptSettingsMapper.selectById(SETTINGS_ID);
-        if (entity == null) {
-            return saveSettings(new DefaultPromptSettings(
+        DefaultPromptSettings cached = cachedSettings;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            cached = cachedSettings;
+            if (cached != null) {
+                return cached;
+            }
+            ensureTable();
+            DefaultPromptSettingsEntity entity = defaultPromptSettingsMapper.selectById(SETTINGS_ID);
+            DefaultPromptSettings settings = entity == null
+                    ? saveSettings(new DefaultPromptSettings(
                     DEFAULT_MAIN_PROMPT,
                     DEFAULT_INTRO_PROMPT,
                     DEFAULT_ANALYSIS_PROMPT,
                     DEFAULT_TARGET_TEMPLATE_PROMPT,
                     DEFAULT_CUSTOM_SELLING_POINTS
-            ));
+            ))
+                    : toSettings(entity);
+            cachedSettings = settings;
+            return settings;
         }
-        return toSettings(entity);
     }
 
     public DefaultPromptSettings saveSettings(DefaultPromptSettings settings) {
@@ -118,7 +131,9 @@ public class DefaultPromptSettingsService {
         } else {
             defaultPromptSettingsMapper.updateById(entity);
         }
-        return new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
+        DefaultPromptSettings saved = new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
+        cachedSettings = saved;
+        return saved;
     }
 
     private DefaultPromptSettings toSettings(DefaultPromptSettingsEntity entity) {
@@ -133,9 +148,16 @@ public class DefaultPromptSettingsService {
     }
 
     private void ensureTable() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
+        if (tableEnsured) {
+            return;
+        }
+        synchronized (this) {
+            if (tableEnsured) {
+                return;
+            }
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
                     create table if not exists default_prompt_settings (
                       id bigint primary key,
                       main_prompt text not null,
@@ -146,11 +168,13 @@ public class DefaultPromptSettingsService {
                       updated_at timestamp not null default current_timestamp on update current_timestamp
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-            addColumnIfMissing(connection, "analysis_prompt", "text null");
-            addColumnIfMissing(connection, "target_template_prompt", "text null");
-            addColumnIfMissing(connection, "custom_selling_points", "text null");
-        } catch (SQLException ex) {
-            throw new IllegalStateException("初始化默认提示词表失败", ex);
+                addColumnIfMissing(connection, "analysis_prompt", "text null");
+                addColumnIfMissing(connection, "target_template_prompt", "text null");
+                addColumnIfMissing(connection, "custom_selling_points", "text null");
+                tableEnsured = true;
+            } catch (SQLException ex) {
+                throw new IllegalStateException("初始化默认提示词表失败", ex);
+            }
         }
     }
 

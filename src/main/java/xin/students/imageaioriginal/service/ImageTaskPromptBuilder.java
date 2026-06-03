@@ -317,13 +317,13 @@ public class ImageTaskPromptBuilder {
         }
         String styleAnalysis = normalizeNullable(analysis == null ? null : analysis.get("排版图"));
         if (styleAnalysis.isBlank()) {
-            builder.append("【").append(imageType).append("上传排版图约束】上传排版图已作为低优先级布局参考图传入；必须参考其构图、背景、光影、空间层次和排版风格，但不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
+            builder.append("【").append(imageType).append("上传参考风格图约束】上传参考风格图已作为低优先级布局参考图传入；必须参考其构图、背景、光影、空间层次和排版风格，但不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
             return;
         }
-        builder.append("【").append(imageType).append("上传排版图风格】")
+        builder.append("【").append(imageType).append("上传参考风格图风格】")
                 .append(abbreviate(styleAnalysis, MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("上传排版图约束】上传排版图已作为低优先级布局参考图传入；只应用构图、背景、光影、空间层次和排版风格；不要照抄模板中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
+        builder.append("【").append(imageType).append("上传参考风格图约束】上传参考风格图已作为低优先级布局参考图传入；只应用构图、背景、光影、空间层次和排版风格；不要照抄参考图中的商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓和配件数量。\n");
     }
 
     private void appendTargetTemplateContext(
@@ -334,10 +334,10 @@ public class ImageTaskPromptBuilder {
         if (targetTemplate == null) {
             return;
         }
-        builder.append("【").append(imageType).append("排版模板风格】")
+        builder.append("【").append(imageType).append("参考风格图风格】")
                 .append(abbreviate(normalizeNullable(targetTemplate.styleAnalysis()), MAX_ANALYSIS_PROMPT_CHARS))
                 .append("\n");
-        builder.append("【").append(imageType).append("排版模板约束】排版模板图已作为低优先级布局参考图传入；模板只作构图、背景、光影、空间层次和排版风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
+        builder.append("【").append(imageType).append("参考风格图约束】参考风格图已作为低优先级布局参考图传入；只作构图、背景、光影、空间层次和排版风格参考，不得改变上传图孔位、外轮廓、配件数量和产品结构。\n");
     }
 
     private void appendPerImageSelfAudit(
@@ -356,7 +356,7 @@ public class ImageTaskPromptBuilder {
         appendPromptAssetWhitelist(builder, basePrompt);
         builder.append("。\n");
         builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
-        builder.append("若场景规划、排版模板风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
+        builder.append("若场景规划、参考风格图风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
         appendAccessoryReferenceRule(builder, kitSpecText);
         if (hasLensProtector(payload, basePrompt)) {
             builder.append("镜头膜结构再次自检：按上传图/深析结果锁定当前机型的外轮廓、孔位数量、孔位位置、孔位大小差异，以及一体式片状或分离镜圈形态；不要套用其他手机型号镜头膜结构。\n");

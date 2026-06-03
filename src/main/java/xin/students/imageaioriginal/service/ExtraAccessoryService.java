@@ -41,6 +41,7 @@ public class ExtraAccessoryService {
 
     private final DataSource dataSource;
     private final ExtraAccessoryMapper extraAccessoryMapper;
+    private volatile boolean tableEnsured;
 
     public ExtraAccessoryService(DataSource dataSource, ExtraAccessoryMapper extraAccessoryMapper) {
         this.dataSource = dataSource;
@@ -55,6 +56,17 @@ public class ExtraAccessoryService {
     public List<ExtraAccessoryView> listAccessories() {
         ensureTable();
         return extraAccessoryMapper.selectList(new LambdaQueryWrapper<ExtraAccessoryEntity>()
+                        .select(
+                                ExtraAccessoryEntity::getId,
+                                ExtraAccessoryEntity::getName,
+                                ExtraAccessoryEntity::getFileName,
+                                ExtraAccessoryEntity::getContentType,
+                                ExtraAccessoryEntity::getFileSize,
+                                ExtraAccessoryEntity::getThumbnail,
+                                ExtraAccessoryEntity::getThumbnailContentType,
+                                ExtraAccessoryEntity::getCreatedAt,
+                                ExtraAccessoryEntity::getUpdatedAt
+                        )
                         .orderByDesc(ExtraAccessoryEntity::getCreatedAt)
                         .orderByDesc(ExtraAccessoryEntity::getId))
                 .stream()
@@ -156,9 +168,16 @@ public class ExtraAccessoryService {
     }
 
     private void ensureTable() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
+        if (tableEnsured) {
+            return;
+        }
+        synchronized (this) {
+            if (tableEnsured) {
+                return;
+            }
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
                     create table if not exists extra_accessories (
                       id bigint primary key auto_increment,
                       name varchar(255) not null,
@@ -173,8 +192,10 @@ public class ExtraAccessoryService {
                       index idx_extra_accessories_created (created_at)
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("初始化额外配件表失败", ex);
+                tableEnsured = true;
+            } catch (SQLException ex) {
+                throw new IllegalStateException("初始化额外配件表失败", ex);
+            }
         }
     }
 

@@ -113,10 +113,41 @@ public class ImageGenerationService {
             int height,
             List<StoredUploadImage> referenceImages
     ) {
+        return generateInternal(taskId, resultType, itemIndex, prompt, width, height, referenceImages, false);
+    }
+
+    public GeneratedImage generateWithPreparedReferences(
+            String taskId,
+            String resultType,
+            int itemIndex,
+            String prompt,
+            int width,
+            int height,
+            List<StoredUploadImage> referenceImages
+    ) {
+        return generateInternal(taskId, resultType, itemIndex, prompt, width, height, referenceImages, true);
+    }
+
+    public List<StoredUploadImage> prepareReferenceImagesForGeneration(List<StoredUploadImage> referenceImages) {
+        return prepareReferenceImages(referenceImages);
+    }
+
+    private GeneratedImage generateInternal(
+            String taskId,
+            String resultType,
+            int itemIndex,
+            String prompt,
+            int width,
+            int height,
+            List<StoredUploadImage> referenceImages,
+            boolean referenceImagesPrepared
+    ) {
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         String model = imageGenerationProperties.resolvedModel();
         String size = Math.max(1, width) + "x" + Math.max(1, height);
-        List<StoredUploadImage> preparedReferenceImages = prepareReferenceImages(referenceImages);
+        List<StoredUploadImage> preparedReferenceImages = referenceImagesPrepared
+                ? usableReferenceImages(referenceImages)
+                : prepareReferenceImages(referenceImages);
         int referenceCount = preparedReferenceImages.size();
 
         Map<String, Object> request = new LinkedHashMap<>();
@@ -323,17 +354,24 @@ public class ImageGenerationService {
     }
 
     private List<StoredUploadImage> prepareReferenceImages(List<StoredUploadImage> referenceImages) {
-        if (referenceImages == null || referenceImages.isEmpty()) {
+        List<StoredUploadImage> usableImages = usableReferenceImages(referenceImages);
+        if (usableImages.isEmpty()) {
             return List.of();
         }
-        List<StoredUploadImage> prepared = new ArrayList<>(referenceImages.size());
-        for (StoredUploadImage image : referenceImages) {
-            if (image == null || image.bytes() == null || image.bytes().length == 0) {
-                continue;
-            }
+        List<StoredUploadImage> prepared = new ArrayList<>(usableImages.size());
+        for (StoredUploadImage image : usableImages) {
             prepared.add(compressReferenceImage(image));
         }
         return prepared;
+    }
+
+    private List<StoredUploadImage> usableReferenceImages(List<StoredUploadImage> referenceImages) {
+        if (referenceImages == null || referenceImages.isEmpty()) {
+            return List.of();
+        }
+        return referenceImages.stream()
+                .filter(image -> image != null && image.bytes() != null && image.bytes().length > 0)
+                .toList();
     }
 
     private StoredUploadImage compressReferenceImage(StoredUploadImage image) {

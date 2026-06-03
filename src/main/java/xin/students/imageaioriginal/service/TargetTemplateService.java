@@ -44,6 +44,7 @@ public class TargetTemplateService {
     private final UploadImageAnalysisService uploadImageAnalysisService;
     private final DefaultPromptSettingsService defaultPromptSettingsService;
     private final TargetTemplateMapper targetTemplateMapper;
+    private volatile boolean tableEnsured;
 
     public TargetTemplateService(
             DataSource dataSource,
@@ -65,6 +66,20 @@ public class TargetTemplateService {
     public List<TargetTemplateView> listTemplates() {
         ensureTable();
         return targetTemplateMapper.selectList(new LambdaQueryWrapper<TargetTemplateEntity>()
+                        .select(
+                                TargetTemplateEntity::getId,
+                                TargetTemplateEntity::getTemplateType,
+                                TargetTemplateEntity::getName,
+                                TargetTemplateEntity::getFileName,
+                                TargetTemplateEntity::getContentType,
+                                TargetTemplateEntity::getFileSize,
+                                TargetTemplateEntity::getThumbnail,
+                                TargetTemplateEntity::getThumbnailContentType,
+                                TargetTemplateEntity::getStyleAnalysis,
+                                TargetTemplateEntity::getModel,
+                                TargetTemplateEntity::getCreatedAt,
+                                TargetTemplateEntity::getUpdatedAt
+                        )
                         .orderByAsc(TargetTemplateEntity::getTemplateType)
                         .orderByDesc(TargetTemplateEntity::getCreatedAt)
                         .orderByDesc(TargetTemplateEntity::getId))
@@ -78,7 +93,7 @@ public class TargetTemplateService {
         ensureTable();
         String normalizedType = normalizeType(templateType);
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("请先上传排版图");
+            throw new IllegalArgumentException("请先上传参考风格图");
         }
         try {
             byte[] content = file.getBytes();
@@ -86,7 +101,7 @@ public class TargetTemplateService {
             String contentType = normalizeText(file.getContentType(), "image/jpeg");
             StoredUploadImage storedImage = new StoredUploadImage(fileName, contentType, content);
             UploadImageAnalysis analysis = uploadImageAnalysisService.analyzeStyleStored(
-                    templateTypeText(normalizedType) + "排版模板",
+                    templateTypeText(normalizedType) + "参考风格图",
                     defaultPromptSettingsService.getSettings().targetTemplatePrompt(),
                     List.of(storedImage)
             );
@@ -107,18 +122,18 @@ public class TargetTemplateService {
 
             TargetTemplateRecord record = findRecord(entity.getId());
             if (record == null) {
-                throw new IllegalStateException("保存排版模板后读取失败：" + entity.getId());
+                throw new IllegalStateException("保存参考风格图后读取失败：" + entity.getId());
             }
             return toView(record);
         } catch (IOException ex) {
-            throw new IllegalStateException("读取排版图失败", ex);
+            throw new IllegalStateException("读取参考风格图失败", ex);
         }
     }
 
     public void deleteTemplate(long id) {
         ensureTable();
         if (targetTemplateMapper.deleteById(id) == 0) {
-            throw new IllegalArgumentException("排版模板不存在：" + id);
+            throw new IllegalArgumentException("参考风格图不存在：" + id);
         }
     }
 
@@ -128,6 +143,31 @@ public class TargetTemplateService {
         }
         ensureTable();
         TargetTemplateEntity entity = targetTemplateMapper.selectById(id);
+        return entity == null ? null : toRecord(entity);
+    }
+
+    public TargetTemplateRecord findMetadataRecord(Long id) {
+        if (id == null || id <= 0) {
+            return null;
+        }
+        ensureTable();
+        TargetTemplateEntity entity = targetTemplateMapper.selectOne(new LambdaQueryWrapper<TargetTemplateEntity>()
+                .select(
+                        TargetTemplateEntity::getId,
+                        TargetTemplateEntity::getTemplateType,
+                        TargetTemplateEntity::getName,
+                        TargetTemplateEntity::getFileName,
+                        TargetTemplateEntity::getContentType,
+                        TargetTemplateEntity::getFileSize,
+                        TargetTemplateEntity::getThumbnail,
+                        TargetTemplateEntity::getThumbnailContentType,
+                        TargetTemplateEntity::getStyleAnalysis,
+                        TargetTemplateEntity::getModel,
+                        TargetTemplateEntity::getCreatedAt,
+                        TargetTemplateEntity::getUpdatedAt
+                )
+                .eq(TargetTemplateEntity::getId, id)
+                .last("limit 1"));
         return entity == null ? null : toRecord(entity);
     }
 
@@ -171,9 +211,16 @@ public class TargetTemplateService {
     }
 
     private void ensureTable() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
+        if (tableEnsured) {
+            return;
+        }
+        synchronized (this) {
+            if (tableEnsured) {
+                return;
+            }
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
                     create table if not exists target_templates (
                       id bigint primary key auto_increment,
                       template_type varchar(16) not null,
@@ -191,8 +238,10 @@ public class TargetTemplateService {
                       index idx_target_templates_type_created (template_type, created_at)
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-        } catch (SQLException ex) {
-            throw new IllegalStateException("初始化排版模板表失败", ex);
+                tableEnsured = true;
+            } catch (SQLException ex) {
+                throw new IllegalStateException("初始化参考风格图表失败", ex);
+            }
         }
     }
 
@@ -253,7 +302,7 @@ public class TargetTemplateService {
         if ("MAIN".equals(normalized) || "INTRO".equals(normalized)) {
             return normalized;
         }
-        throw new IllegalArgumentException("排版模板类型只能是 MAIN 或 INTRO");
+        throw new IllegalArgumentException("参考风格图类型只能是 MAIN 或 INTRO");
     }
 
     private String templateTypeText(String value) {
@@ -261,7 +310,7 @@ public class TargetTemplateService {
     }
 
     private String randomTemplateName(String templateType) {
-        String prefix = "INTRO".equals(templateType) ? "介绍图排版" : "主图排版";
+        String prefix = "INTRO".equals(templateType) ? "介绍图参考风格" : "主图参考风格";
         return prefix + "-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 

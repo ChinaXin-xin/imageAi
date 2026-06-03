@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Plus } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import type { ExtraAccessory, ImageTaskKitSpec } from '../types/quota';
 
@@ -17,7 +16,6 @@ const emit = defineEmits<{
 }>();
 
 const selectedAccessoryId = ref<number | null>(null);
-const selectedAccessoryQuantity = ref(1);
 
 const availableAccessories = computed(() => {
   const selectedIds = new Set(
@@ -29,10 +27,6 @@ const availableAccessories = computed(() => {
   return props.accessories.filter((item) => !selectedIds.has(item.id) && !selectedNames.has(item.name));
 });
 
-function selectedAccessory(): ExtraAccessory | null {
-  return props.accessories.find((item) => item.id === selectedAccessoryId.value) ?? null;
-}
-
 function accessoryForKitSpec(item: ImageTaskKitSpec): ExtraAccessory | null {
   return props.accessories.find((accessory) => accessory.id === item.accessoryId || accessory.name === item.name) ?? null;
 }
@@ -41,14 +35,13 @@ function updateSpecs(nextSpecs: ImageTaskKitSpec[]) {
   emit('update:modelValue', nextSpecs);
 }
 
-function addSelectedAccessoryToKit() {
-  const accessory = selectedAccessory();
+function addAccessoryToKit(accessory: ExtraAccessory | null) {
   if (!accessory) {
-    ElMessage.warning('请先选择配件。');
     return;
   }
   if (props.modelValue.some((item) => item.accessoryId === accessory.id || item.name === accessory.name)) {
     ElMessage.warning('该配件已经添加到套餐规格。');
+    selectedAccessoryId.value = null;
     return;
   }
   updateSpecs([
@@ -56,11 +49,14 @@ function addSelectedAccessoryToKit() {
     {
       accessoryId: accessory.id,
       name: accessory.name,
-      quantity: Math.max(1, selectedAccessoryQuantity.value),
+      quantity: 1,
     },
   ]);
   selectedAccessoryId.value = null;
-  selectedAccessoryQuantity.value = 1;
+}
+
+function handleAccessoryChange(accessoryId: number | null) {
+  addAccessoryToKit(props.accessories.find((item) => item.id === accessoryId) ?? null);
 }
 
 function updateQuantity(index: number, delta: number) {
@@ -86,6 +82,7 @@ function removeKitSpec(index: number) {
       clearable
       placeholder="选择额外配件"
       @visible-change="emit('openAccessories', $event)"
+      @change="handleAccessoryChange"
     >
       <el-option
         v-for="accessory in availableAccessories"
@@ -102,10 +99,8 @@ function removeKitSpec(index: number) {
         </div>
       </el-option>
     </el-select>
-    <el-input-number v-model="selectedAccessoryQuantity" :min="1" :max="99" />
-    <el-button type="primary" :icon="Plus" @click="addSelectedAccessoryToKit">添加配件</el-button>
   </div>
-  <p v-if="!accessories.length" class="field-hint">暂无额外配件，请先到“排版模板”页下方添加。</p>
+  <p v-if="!accessories.length" class="field-hint">暂无额外配件，请先到“参考风格图”页下方添加。</p>
 
   <div v-if="modelValue.length" class="kit-grid">
     <div v-for="(item, index) in modelValue" :key="item.accessoryId || item.name" class="kit-item">

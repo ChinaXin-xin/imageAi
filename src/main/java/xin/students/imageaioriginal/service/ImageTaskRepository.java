@@ -107,9 +107,6 @@ public class ImageTaskRepository {
             entity.setContentType(file.contentType());
             entity.setFileSize((long) file.bytes().length);
             entity.setContent(file.bytes());
-            Thumbnail fileThumbnail = imageTaskFileService.createThumbnail(List.of(file));
-            entity.setThumbnail(fileThumbnail.bytes());
-            entity.setThumbnailContentType(fileThumbnail.contentType());
             entity.setSortOrder(file.sortOrder());
             fileMapper.insert(entity);
         }
@@ -183,16 +180,23 @@ public class ImageTaskRepository {
 
     public List<String> staleGeneratingTaskIds(int staleSeconds) {
         Timestamp cutoff = Timestamp.from(Instant.now().minusSeconds(staleSeconds));
-        return resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+        List<String> taskIds = resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
                         .eq(ImageTaskResultEntity::getStatus, "GENERATING")
                         .lt(ImageTaskResultEntity::getUpdatedAt, cutoff))
                 .stream()
                 .map(ImageTaskResultEntity::getTaskId)
                 .distinct()
-                .filter(taskId -> {
-                    TaskRecord task = findTask(taskId);
-                    return task != null && "GENERATING".equals(task.status());
-                })
+                .filter(taskId -> taskId != null && !taskId.isBlank())
+                .toList();
+        if (taskIds.isEmpty()) {
+            return List.of();
+        }
+        return taskMapper.selectList(new LambdaQueryWrapper<ImageTaskEntity>()
+                        .select(ImageTaskEntity::getId)
+                        .in(ImageTaskEntity::getId, taskIds)
+                        .eq(ImageTaskEntity::getStatus, "GENERATING"))
+                .stream()
+                .map(ImageTaskEntity::getId)
                 .toList();
     }
 
@@ -482,9 +486,16 @@ public class ImageTaskRepository {
     }
 
     public void ensureTables() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
+        if (tablesEnsured) {
+            return;
+        }
+        synchronized (this) {
+            if (tablesEnsured) {
+                return;
+            }
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
                     create table if not exists image_tasks (
                       id varchar(64) primary key,
                       product_name varchar(255) not null,
@@ -508,9 +519,9 @@ public class ImageTaskRepository {
                       completed_at timestamp(3) null
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-            addColumnIfMissing(connection, "image_tasks", "main_scenes_json", "longtext null");
-            addColumnIfMissing(connection, "image_tasks", "intro_scenes_json", "longtext null");
-            statement.executeUpdate("""
+                addColumnIfMissing(connection, "image_tasks", "main_scenes_json", "longtext null");
+                addColumnIfMissing(connection, "image_tasks", "intro_scenes_json", "longtext null");
+                statement.executeUpdate("""
                     create table if not exists image_task_files (
                       id bigint primary key auto_increment,
                       task_id varchar(64) not null,
@@ -527,9 +538,9 @@ public class ImageTaskRepository {
                       constraint fk_image_task_files_task foreign key (task_id) references image_tasks(id) on delete cascade
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-            addColumnIfMissing(connection, "image_task_files", "thumbnail", "longblob null");
-            addColumnIfMissing(connection, "image_task_files", "thumbnail_content_type", "varchar(128) null");
-            statement.executeUpdate("""
+                addColumnIfMissing(connection, "image_task_files", "thumbnail", "longblob null");
+                addColumnIfMissing(connection, "image_task_files", "thumbnail_content_type", "varchar(128) null");
+                statement.executeUpdate("""
                     create table if not exists image_task_results (
                       id bigint primary key auto_increment,
                       task_id varchar(64) not null,
@@ -549,12 +560,14 @@ public class ImageTaskRepository {
                       constraint fk_image_task_results_task foreign key (task_id) references image_tasks(id) on delete cascade
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
-            addColumnIfMissing(connection, "image_task_results", "parent_result_id", "bigint null");
-            addColumnIfMissing(connection, "image_task_results", "version_index", "int not null default 1");
-            addColumnIfMissing(connection, "image_task_results", "edit_suggestion", "text null");
-            addColumnIfMissing(connection, "image_task_results", "image_path", "varchar(500) null");
-        } catch (SQLException ex) {
-            throw new IllegalStateException("初始化任务队列表失败", ex);
+                addColumnIfMissing(connection, "image_task_results", "parent_result_id", "bigint null");
+                addColumnIfMissing(connection, "image_task_results", "version_index", "int not null default 1");
+                addColumnIfMissing(connection, "image_task_results", "edit_suggestion", "text null");
+                addColumnIfMissing(connection, "image_task_results", "image_path", "varchar(500) null");
+                tablesEnsured = true;
+            } catch (SQLException ex) {
+                throw new IllegalStateException("初始化任务队列表失败", ex);
+            }
         }
     }
 
@@ -934,12 +947,12 @@ public class ImageTaskRepository {
     }
 
     private TargetTemplateService.TargetTemplateRecord resolveTargetTemplate(Long templateId, String expectedType, String label) {
-        TargetTemplateService.TargetTemplateRecord template = targetTemplateService.findRecord(templateId);
+        TargetTemplateService.TargetTemplateRecord template = targetTemplateService.findMetadataRecord(templateId);
         if (template == null) {
             return null;
         }
         if (!expectedType.equals(template.templateType())) {
-            throw new IllegalArgumentException(label + "只能选择" + label + "排版模板：" + template.name());
+            throw new IllegalArgumentException(label + "只能选择" + label + "参考风格图：" + template.name());
         }
         return template;
     }

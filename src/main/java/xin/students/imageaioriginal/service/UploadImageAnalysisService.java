@@ -42,6 +42,7 @@ public class UploadImageAnalysisService {
     private static final int PRIMARY_MAX_EDGE = 1400;
     private static final int FALLBACK_MAX_EDGE = 1000;
     private static final int TARGET_IMAGE_BYTES = 1_200_000;
+    private static final long API_KEY_CACHE_MILLIS = 5 * 60 * 1000L;
     private static final String DEFAULT_ANALYSIS_PROMPT = """
             请客观深析上传图片，重点输出后续生图必须锁定的真实产品结构，不要编造看不见的信息。
 
@@ -74,6 +75,8 @@ public class UploadImageAnalysisService {
     private final GptProperties gptProperties;
     private final CliProxyProperties cliProxyProperties;
     private final RestClient restClient;
+    private volatile String cachedApiKey;
+    private volatile long cachedApiKeyAtMillis;
 
     public UploadImageAnalysisService(
             GptProperties gptProperties,
@@ -192,6 +195,11 @@ public class UploadImageAnalysisService {
         if (configuredApiKey != null && !configuredApiKey.isBlank()) {
             return configuredApiKey.trim();
         }
+        long currentMillis = System.currentTimeMillis();
+        String cached = cachedApiKey;
+        if (cached != null && !cached.isBlank() && currentMillis - cachedApiKeyAtMillis < API_KEY_CACHE_MILLIS) {
+            return cached;
+        }
 
         JsonNode response = restClient.get()
                 .uri(managementBaseUrl() + "/api-keys")
@@ -206,7 +214,10 @@ public class UploadImageAnalysisService {
         if (apiKeys != null && apiKeys.isArray()) {
             for (JsonNode apiKey : apiKeys) {
                 if (apiKey.isTextual() && !apiKey.asText().isBlank()) {
-                    return apiKey.asText().trim();
+                    String resolved = apiKey.asText().trim();
+                    cachedApiKey = resolved;
+                    cachedApiKeyAtMillis = currentMillis;
+                    return resolved;
                 }
             }
         }

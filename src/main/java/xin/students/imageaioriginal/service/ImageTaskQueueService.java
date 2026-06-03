@@ -37,6 +37,7 @@ public class ImageTaskQueueService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImageTaskQueueService.class);
     private static final int STALE_GENERATION_SECONDS = 60 * 60;
+    private static final long STALE_CHECK_INTERVAL_MILLIS = 30_000;
     private static final String STALE_GENERATION_MESSAGE = "生图接口超过 60 分钟未返回，已自动标记失败，请稍后重试。";
     private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
     private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
@@ -61,6 +62,8 @@ public class ImageTaskQueueService {
     private final ImageGenerationProperties imageGenerationProperties;
     private final ExecutorService taskExecutor;
     private final ExecutorService imageJobExecutor;
+    private final Object staleCheckLock = new Object();
+    private volatile long lastStaleCheckMillis;
 
     public ImageTaskQueueService(
             ObjectMapper objectMapper,
@@ -166,6 +169,7 @@ public class ImageTaskQueueService {
         if ("ANALYZING".equals(record.status()) || "GENERATING".equals(record.status())) {
             throw new IllegalStateException("任务正在执行中，请先暂停或等待完成后再重试。");
         }
+        imageGenerationService.cancelTask(taskId);
         imageTaskRepository.resetTaskForRetry(taskId);
         startProcessing(taskId);
         return getTask(taskId);
@@ -175,6 +179,7 @@ public class ImageTaskQueueService {
         imageTaskRepository.ensureTables();
         requireTask(taskId);
         imageTaskRepository.pauseTask(taskId, MANUAL_PAUSE_MESSAGE);
+        imageGenerationService.cancelTask(taskId);
         return getTask(taskId);
     }
 
@@ -192,6 +197,7 @@ public class ImageTaskQueueService {
     public void deleteTask(String taskId) {
         imageTaskRepository.ensureTables();
         requireTask(taskId);
+        imageGenerationService.cancelTask(taskId);
         imageTaskRepository.deleteTask(taskId);
     }
 
@@ -269,6 +275,17 @@ public class ImageTaskQueueService {
     }
 
     private void failStaleRunningTasks() {
+        long currentMillis = System.currentTimeMillis();
+        if (currentMillis - lastStaleCheckMillis < STALE_CHECK_INTERVAL_MILLIS) {
+            return;
+        }
+        synchronized (staleCheckLock) {
+            currentMillis = System.currentTimeMillis();
+            if (currentMillis - lastStaleCheckMillis < STALE_CHECK_INTERVAL_MILLIS) {
+                return;
+            }
+            lastStaleCheckMillis = currentMillis;
+        }
         try {
             imageTaskRepository.staleGeneratingTaskIds(STALE_GENERATION_SECONDS)
                     .forEach(taskId -> imageTaskRepository.failStaleRunningTask(taskId, STALE_GENERATION_MESSAGE));
@@ -484,12 +501,12 @@ public class ImageTaskQueueService {
     ) {
         imageTaskRepository.markResultGenerating(job.resultId());
         for (int attempt = 1; attempt <= IMAGE_GENERATION_MAX_ATTEMPTS; attempt++) {
-            try {
-                ensureTaskNotPaused(taskId);
-                ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
-                        taskId,
-                        job.resultType(),
-                        job.index(),
+                try {
+                    ensureTaskNotPaused(taskId);
+                    ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generateWithPreparedReferences(
+                            taskId,
+                            job.resultType(),
+                            job.index(),
                         job.prompt(),
                         normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
                         normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
@@ -584,7 +601,7 @@ public class ImageTaskQueueService {
             return null;
         }
         if (!expectedType.equals(template.templateType())) {
-            throw new IllegalArgumentException(label + "只能选择" + label + "排版模板：" + template.name());
+            throw new IllegalArgumentException(label + "只能选择" + label + "参考风格图：" + template.name());
         }
         return template;
     }
@@ -628,15 +645,19 @@ public class ImageTaskQueueService {
                 wallpaperImages,
                 accessoryImages
         );
+        List<StoredUploadImage> preparedMainReferences = imageGenerationService.prepareReferenceImagesForGeneration(mainReferences);
+        List<StoredUploadImage> preparedIntroReferences = imageGenerationService.prepareReferenceImagesForGeneration(introReferences);
         LOG.info(
-                "image.task.references taskId={} mainTotal={} mainNames={} introTotal={} introNames={}",
+                "image.task.references taskId={} mainTotal={} mainBytes={} mainNames={} introTotal={} introBytes={} introNames={}",
                 taskId,
-                mainReferences.size(),
-                mainReferences.stream().map(StoredUploadImage::fileName).toList(),
-                introReferences.size(),
-                introReferences.stream().map(StoredUploadImage::fileName).toList()
+                preparedMainReferences.size(),
+                preparedMainReferences.stream().mapToLong(image -> image.bytes() == null ? 0 : image.bytes().length).sum(),
+                preparedMainReferences.stream().map(StoredUploadImage::fileName).toList(),
+                preparedIntroReferences.size(),
+                preparedIntroReferences.stream().mapToLong(image -> image.bytes() == null ? 0 : image.bytes().length).sum(),
+                preparedIntroReferences.stream().map(StoredUploadImage::fileName).toList()
         );
-        return new GenerationReferences(mainReferences, introReferences);
+        return new GenerationReferences(preparedMainReferences, preparedIntroReferences);
     }
 
     private List<StoredUploadImage> generationReferenceImagesForType(
