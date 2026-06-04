@@ -50,8 +50,8 @@ public class ImageTaskPromptBuilder {
         }
         builder.append("\n");
 
-        builder.append("【手机膜结构规则】\n");
-        builder.append("镜头膜/屏幕膜按上传图的外轮廓、孔位数量、孔位位置、孔位大小生成。若小孔大小不同或结构非对称，必须保留差异；禁止做成等大、等距、分离镜圈或标准圆环。孔洞内不要添加不存在的镜片、金属圈、螺丝、图标或文字。\n\n");
+        // builder.append("【手机膜结构规则】\n");
+        // builder.append("镜头膜/屏幕膜按上传图的外轮廓、孔位数量、孔位位置、孔位大小生成。若小孔大小不同或结构非对称，必须保留差异；禁止做成等大、等距、分离镜圈或标准圆环。孔洞内不要添加不存在的镜片、金属圈、螺丝、图标或文字。\n\n");
         appendCameraProtectorCriticalRules(builder, payload, analysis);
         appendReferenceRoleAndScaleLayoutLock(builder, imageType, payload, uploadMaterialContext);
         appendAllowedObjectsContext(builder, payload, uploadMaterialContext, imageType);
@@ -151,11 +151,12 @@ public class ImageTaskPromptBuilder {
             return;
         }
         builder.append("【镜头膜关键结构智能锁定】\n");
-        builder.append("镜头膜必须按上传图和深析结果识别当前手机型号，不要套用任意其他品牌或型号的通用镜头膜结构。\n");
-        builder.append("必须锁定：一体式片状或分离镜圈形态、外轮廓、异形边缘、缺口/台阶、孔位数量、孔位相对位置、每个孔位大小差异。\n");
-        builder.append("如果深析结果写明某些孔位大小不同、排列不对称或外轮廓有特殊凹凸，必须保留这些差异；不能把不同大小孔做成等大，也不能增加/删除/移动孔位。\n");
-        builder.append("镜头膜比例必须匹配手机后摄区域：只能覆盖镜头模组附近的范围，不能放大到接近半个手机，也不能比手机屏幕膜更大。\n");
-        builder.append("如果画面较小导致看不清，必须放大镜头膜或用近景展示孔位差异；孔洞保持真实贯穿开孔，不填入额外镜片、黑色圆点或装饰圈。\n\n");
+        builder.append("镜头膜必须严格按照上传图和深析结果生成，不得套用其他品牌、型号或电商通用镜头膜结构。\n");
+        builder.append("必须保留：一体式/分离式形态、外轮廓、异形边缘、缺口、台阶、孔位数量、孔位位置、孔位大小差异及相对排列关系。\n");
+        builder.append("若深析结果明确存在大小不同孔位、非对称排列、特殊缺口或异形轮廓，必须完整保留；禁止增加、删除、移动孔位，禁止统一不同大小孔位。\n");
+        builder.append("镜头膜尺寸必须匹配手机后摄区域，仅覆盖镜头模组附近范围；不得放大到接近半个手机，不得大于屏幕膜，不得破坏手机与镜头膜真实比例关系。\n");
+        builder.append("孔位必须保持真实贯穿开孔；禁止填充镜片、黑色圆点、金属圈、装饰圈、螺丝、图标或其他不存在的结构。\n");
+        builder.append("禁止根据手机型号知识、电商常见款式或训练数据中的标准产品自动补全、修改或优化结构；当模型认知与上传图冲突时，必须以上传图和深析结果为准。\n\n");
     }
 
     private void appendReferenceRoleAndScaleLayoutLock(
@@ -172,24 +173,32 @@ public class ImageTaskPromptBuilder {
         String kitSpecText = joinKitSpecs(payload.kitSpecs());
 
         builder.append("【参考图角色、比例与版式硬约束】\n");
+
         if (hasRealPhoto) {
-            builder.append("已上传实拍图会作为产品结构最高参考：外轮廓、孔位、膜片透明度、配件真实形态和相对大小都以实拍图/深析结果为准。\n");
+            builder.append("实拍图是产品结构最高参考：产品外轮廓、孔位数量、孔位位置、孔位大小、膜片透明度、配件真实形态和相对尺寸，均以实拍图和深析结果为准。\n");
         }
+
         if (hasTemplate) {
-            builder.append("已上传排版图会作为当前").append(imageType).append("的版式骨架参考：主体区、配件区、信息区、留白、安全边距、网格/分栏、对齐关系和前后层级必须尽量照排版图执行；排版图优先级高于场景创意和参考风格图，仅在产品结构冲突时让位于实拍图。\n");
-            builder.append("不得把排版图当风格图或商品参考；不要照抄排版图里的示例商品、品牌、文字或图标，但要复用它的区域比例、摆放秩序、边距和裁切方式。\n");
+            builder.append("排版图仅作为当前").append(imageType).append("的版式骨架参考，不作为商品、风格或文字内容参考。\n");
+            builder.append("必须尽量复用排版图的主体区、配件区、信息区、留白、安全边距、网格/分栏、对齐关系、前后层级和裁切方式。\n");
+            builder.append("不得照抄排版图中的示例商品、品牌、文字、图标或装饰元素；只能在排版骨架内替换为本任务的手机、膜片和已选配件。\n");
+            builder.append("若排版图与实拍图产品结构冲突，必须优先保证实拍图结构正确；若排版图与产品比例冲突，必须优先保证手机、屏幕膜、镜头膜和配件的真实比例。\n");
         } else {
-            builder.append("未启用排版图时也必须使用整齐可控的电商陈列：主体居中或按左右分区，配件按一行/一列/网格对齐，禁止自由散落、随机堆叠或杂乱遮挡。\n");
+            builder.append("未启用排版图时，必须使用规整电商陈列：主体居中或左右分区，配件按一行、一列或网格对齐；禁止自由散落、随机堆叠、杂乱遮挡或无规则摆放。\n");
         }
+
         if (hasWallpaper) {
-            builder.append("已上传壁纸图只用于当前类型的手机屏幕/展示区域贴图，不要把壁纸当背景风格重绘。\n");
+            builder.append("壁纸图只允许作为手机屏幕或屏幕展示区域的贴图使用，不得作为背景风格、场景风格或装饰元素重绘。\n");
         }
+
         if (!"未选择".equals(kitSpecText)) {
-            builder.append("已选择配件图会作为配件外观参考，配件必须按原图形状、颜色、材质、标签区域和可见文字等比例缩放后摆入配件区。\n");
+            builder.append("配件图是配件外观参考：已选配件必须按参考图的形状、颜色、材质、标签区域、图案和可见文字等比例缩放后摆放，不得替换为通用配件。\n");
         }
+
         builder.append(SCALE_LOCK_RULE).append("\n");
-        builder.append("手机主体必须完整入画并保留安全边距：主图和套装平铺图不要裁掉手机顶部、底部、边框或膜片边缘；介绍图若做局部细节，也要保留清楚的完整产品关系或提供完整主体区域。\n");
-        builder.append("如果场景规划与本段比例/版式约束冲突，必须忽略场景规划中冲突的摆放方式，优先按比例和排版图版式修正。\n\n");
+        builder.append("手机主体必须完整入画并保留安全边距；主图和套装平铺图不得裁掉手机顶部、底部、边框或膜片边缘。\n");
+        builder.append("介绍图如需局部细节，可以放大局部，但必须保留清楚的产品关系，不能因此改变产品结构、真实比例或配件数量。\n");
+        builder.append("若场景规划、风格特效或排版图与本段规则冲突，必须优先保证：产品结构正确、比例正确、数量正确、主体完整入画。\n\n");
     }
 
     private void appendAllowedObjectsContext(
@@ -199,17 +208,20 @@ public class ImageTaskPromptBuilder {
             String imageType
     ) {
         builder.append("【允许出现物品白名单】\n");
-        builder.append("只允许出现：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的一体式镜头膜");
         String kitSpecText = joinKitSpecs(payload.kitSpecs());
-        if (!"未选择".equals(kitSpecText)) {
+        boolean hasKit = !"未选择".equals(kitSpecText);
+        boolean hasWallpaper = hasUsableWallpaperImage(payload, uploadMaterialContext, imageType);
+        builder.append("仅允许出现以下物品：与机型匹配的手机/手机模型、上传实拍图对应的屏幕膜、上传实拍图对应的镜头膜");
+        if (hasKit) {
             builder.append("、套装配件（").append(kitSpecText).append("）");
         }
-        if (hasUsableWallpaperImage(payload, uploadMaterialContext, imageType)) {
+        if (hasWallpaper) {
             builder.append("、已上传且选择当前类型使用的壁纸图");
         }
         builder.append("。\n");
-        builder.append("客户明确可用产品范围：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；可用配件范围：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。壁纸仅在上方白名单列出时允许出现；未选择、未上传或不在这个范围内的物品都不要出现。\n");
-        builder.append("除上述白名单外，不要生成任何额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸或未上传配件。\n");
+        builder.append("白名单只限制物品种类；产品结构、孔位、比例、数量和版式仍按前文结构锁定、比例锁定、套装规格和排版图规则执行。\n");
+        builder.append("客户允许的产品范围仅限：").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("；允许的配件范围仅限：").append(CUSTOMER_ALLOWED_ACCESSORIES).append("。\n");
+        builder.append("未在白名单中列出的物品一律禁止出现，包括但不限于：额外包装、包装袋、非参考图黑/白小袋、收纳袋、包装盒、纸盒、礼盒、安装卡、说明书、托盘、支架、底座、展示道具、未选择贴纸、未上传配件、额外手机膜或额外配件。\n");
         appendAccessoryReferenceRule(builder, kitSpecText);
         builder.append("\n");
     }
