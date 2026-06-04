@@ -430,6 +430,14 @@ watch(
     if (count > 0 && previousCount === 0) {
       taskForm.value.templateUsages = defaultAssetUsages();
     }
+    clearTargetTemplateUsedByLayout();
+  },
+);
+
+watch(
+  () => taskForm.value.templateUsages.join('|'),
+  () => {
+    clearTargetTemplateUsedByLayout();
   },
 );
 
@@ -757,8 +765,8 @@ function snapshotTaskForm(): ImageTaskPayload {
     language: taskForm.value.language,
     mainPrompt: taskForm.value.mainPrompt,
     introPrompt: taskForm.value.introPrompt,
-    mainTargetTemplateId: taskForm.value.mainTargetTemplateId,
-    introTargetTemplateId: taskForm.value.introTargetTemplateId,
+    mainTargetTemplateId: usesUploadedLayoutForType('MAIN') ? null : taskForm.value.mainTargetTemplateId,
+    introTargetTemplateId: usesUploadedLayoutForType('INTRO') ? null : taskForm.value.introTargetTemplateId,
     templateUsages: [...taskForm.value.templateUsages],
     wallpaperUsages: [...taskForm.value.wallpaperUsages],
     kitSpecs: kitSpecs.value.map((item) => ({ ...item })),
@@ -845,12 +853,30 @@ function selectedTargetTemplate(type: TargetTemplateType): TargetTemplate | null
   return targetTemplates.value.find((template) => template.id === id && template.templateType === type) ?? null;
 }
 
+function usesUploadedLayoutForType(type: TargetTemplateType): boolean {
+  return templateFiles.value.length > 0 && taskForm.value.templateUsages.includes(type);
+}
+
+function clearTargetTemplateUsedByLayout() {
+  if (usesUploadedLayoutForType('MAIN')) {
+    taskForm.value.mainTargetTemplateId = null;
+  }
+  if (usesUploadedLayoutForType('INTRO')) {
+    taskForm.value.introTargetTemplateId = null;
+  }
+}
+
 function targetTemplateDisabledReason(type: TargetTemplateType): string {
   if (type === 'MAIN' && taskForm.value.mainImageCount <= 0) {
     return '主图数量大于 0 后才能选择主图参考风格图';
   }
   if (type === 'INTRO' && taskForm.value.introImageCount <= 0) {
     return '介绍图数量大于 0 后才能选择介绍图参考风格图';
+  }
+  if (usesUploadedLayoutForType(type)) {
+    return type === 'MAIN'
+      ? '排版图已用于主图，不能再选择主图参考风格图'
+      : '排版图已用于介绍图，不能再选择介绍图参考风格图';
   }
   return '';
 }
@@ -889,10 +915,14 @@ async function addTargetTemplate(type: TargetTemplateType) {
     const created = await createTargetTemplate(type, rawFile, targetTemplateNames.value[type] || randomTargetTemplateName(type));
     await loadTargetTemplateList(false);
     if (type === 'MAIN') {
-      taskForm.value.mainTargetTemplateId = created.id;
+      if (!usesUploadedLayoutForType('MAIN')) {
+        taskForm.value.mainTargetTemplateId = created.id;
+      }
       clearTargetTemplateUpload('MAIN');
     } else {
-      taskForm.value.introTargetTemplateId = created.id;
+      if (!usesUploadedLayoutForType('INTRO')) {
+        taskForm.value.introTargetTemplateId = created.id;
+      }
       clearTargetTemplateUpload('INTRO');
     }
     targetTemplateNames.value[type] = '';
@@ -1998,7 +2028,7 @@ function pageSubtitle(): string {
                       v-model="taskForm.mainTargetTemplateId"
                       clearable
                       filterable
-                      :disabled="taskForm.mainImageCount <= 0"
+                      :disabled="Boolean(targetTemplateDisabledReason('MAIN'))"
                       :placeholder="targetTemplateDisabledReason('MAIN') || '选择已上传主图参考风格图'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >
@@ -2045,7 +2075,7 @@ function pageSubtitle(): string {
                       v-model="taskForm.introTargetTemplateId"
                       clearable
                       filterable
-                      :disabled="taskForm.introImageCount <= 0"
+                      :disabled="Boolean(targetTemplateDisabledReason('INTRO'))"
                       :placeholder="targetTemplateDisabledReason('INTRO') || '选择已上传介绍图参考风格图'"
                       @visible-change="handleTargetTemplateSelectVisible"
                     >

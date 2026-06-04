@@ -128,7 +128,7 @@ public class ImageTaskQueueService {
             List<MultipartFile> wallpaperFiles
     ) {
         imageTaskRepository.ensureTables();
-        ImageTaskPayload payload = normalizePayload(parsePayload(payloadJson));
+        ImageTaskPayload payload = normalizePayload(parsePayload(payloadJson), hasUploadedFiles(templateFiles));
         String taskId = UUID.randomUUID().toString();
         List<StoredTaskFile> files = new ArrayList<>();
         files.addAll(imageTaskFileService.toStoredTaskFiles("realPhoto", realPhotoFiles));
@@ -746,10 +746,17 @@ public class ImageTaskQueueService {
         }
     }
 
-    private ImageTaskPayload normalizePayload(ImageTaskPayload payload) {
+    private ImageTaskPayload normalizePayload(ImageTaskPayload payload, boolean hasTemplateFiles) {
         String productName = normalizeText(payload.productName(), randomProductName());
         String ratio = normalizeLegacyRatio(normalizeText(payload.ratio(), "1536:1536"));
         int[] imageSize = normalizeImageSize(ratio, payload.customWidth(), payload.customHeight());
+        List<String> templateUsages = normalizeUsageList(payload.templateUsages());
+        Long mainTargetTemplateId = hasTemplateFiles && templateUsages.contains(USAGE_MAIN)
+                ? null
+                : positiveId(payload.mainTargetTemplateId());
+        Long introTargetTemplateId = hasTemplateFiles && templateUsages.contains(USAGE_INTRO)
+                ? null
+                : positiveId(payload.introTargetTemplateId());
         return new ImageTaskPayload(
                 productName,
                 normalizeNullable(payload.model()),
@@ -772,9 +779,9 @@ public class ImageTaskQueueService {
                 normalizeText(payload.language(), "英文"),
                 normalizeNullable(payload.mainPrompt()),
                 normalizeNullable(payload.introPrompt()),
-                positiveId(payload.mainTargetTemplateId()),
-                positiveId(payload.introTargetTemplateId()),
-                normalizeUsageList(payload.templateUsages()),
+                mainTargetTemplateId,
+                introTargetTemplateId,
+                templateUsages,
                 normalizeUsageList(payload.wallpaperUsages()),
                 normalizeKitSpecs(payload.kitSpecs())
         );
@@ -840,6 +847,10 @@ public class ImageTaskQueueService {
             case "900:600" -> "960:640";
             default -> ratio;
         };
+    }
+
+    private boolean hasUploadedFiles(List<MultipartFile> files) {
+        return files != null && files.stream().anyMatch(file -> file != null && !file.isEmpty());
     }
 
     private int[] normalizeImageSize(String ratio, Integer customWidth, Integer customHeight) {
