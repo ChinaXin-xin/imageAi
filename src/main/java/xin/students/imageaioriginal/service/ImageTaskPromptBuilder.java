@@ -81,10 +81,10 @@ public class ImageTaskPromptBuilder {
         appendFilmTypeLock(builder, payload);
         builder.append("\n【").append(imageType).append("画面要求】\n");
         builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
+        // 参考风格图风格紧跟当前类型的主图/介绍图提示词，避免后面的固定约束把用户选择的风格稀释。
+        appendTargetTemplateContext(builder, imageType, targetTemplate);
         builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
         appendUploadedTemplateContext(builder, imageType, payload, uploadMaterialContext);
-        appendTargetTemplateContext(builder, imageType, targetTemplate);
-        builder.append("【视觉特效】加强玻璃高光、材质反射、柔和阴影和轻微3D纵深，但不能遮挡或改变产品结构。\n");
         builder.append("\n【负面约束】\n");
         builder.append("不要通用款；不要标准化异形镜头膜；不要把不同大小小孔做成同样大小；不要把一体式镜头膜改成分离圆环；不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、水印或装饰文字（参考图配件自身文字除外）。\n");
         builder.append("\n【生成前自检清单】\n");

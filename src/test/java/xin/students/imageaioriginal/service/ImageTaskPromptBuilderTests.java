@@ -89,6 +89,44 @@ class ImageTaskPromptBuilderTests {
                 .doesNotContain("主图场景规划");
     }
 
+    @Test
+    void buildGenerationPromptAppendsReferenceStyleAfterImageTypePrompt() {
+        ImageTaskPayload payload = payload(List.of("MAIN", "INTRO"));
+        TargetTemplateService.TargetTemplateRecord targetTemplate = new TargetTemplateService.TargetTemplateRecord(
+                1L,
+                "MAIN",
+                "主图参考风格",
+                "style.png",
+                "image/png",
+                100L,
+                null,
+                null,
+                null,
+                "深色科技背景，蓝色轮廓光，玻璃边缘高光。",
+                "gpt-test",
+                null,
+                null
+        );
+
+        String prompt = builder.buildGenerationPrompt(
+                "主图",
+                "生成主图：主体居中，排版干净。",
+                payload,
+                Map.of("实拍图", "实拍结构锁定。"),
+                new UploadMaterialContext(true, false, false),
+                targetTemplate
+        );
+
+        assertThat(prompt)
+                .containsSubsequence(
+                        "【主图画面要求】",
+                        "生成主图：主体居中，排版干净。",
+                        "【主图参考风格图风格】深色科技背景，蓝色轮廓光，玻璃边缘高光。",
+                        "【主图参考风格图约束】"
+                )
+                .doesNotContain("【视觉特效】加强玻璃高光");
+    }
+
     private ImageTaskPayload payload(List<String> templateUsages) {
         return new ImageTaskPayload(
                 "测试商品",
