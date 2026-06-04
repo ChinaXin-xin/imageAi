@@ -113,7 +113,7 @@ public class ImageTaskPromptBuilder {
             builder.append("\n【本张图片场景规划】\n");
             builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
-            builder.append("本张图必须与同任务其他图片形成不同场景；只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
+            builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
         }
         appendPerImageSelfAudit(builder, payload, finalPrompt, resultType, index);
         return builder.toString();
