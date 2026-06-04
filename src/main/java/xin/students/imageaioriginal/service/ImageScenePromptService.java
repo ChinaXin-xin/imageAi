@@ -21,7 +21,7 @@ public class ImageScenePromptService {
 
     private static final Logger LOG = LoggerFactory.getLogger("imageai.gpt");
     private static final int MAX_SCENES = 20;
-    private static final int MAX_BASE_PROMPT_CHARS = 6000;
+    private static final int MAX_FINAL_PROMPT_CHARS = 6000;
     private static final int MAX_SCENE_PROMPT_CHARS = 900;
     private static final List<String> FORBIDDEN_OBJECT_TERMS = List.of(
             "小黑包", "黑色小包", "黑色小袋", "无字黑色小袋", "黑色包装", "黑色便携包", "白色小袋", "白色小包", "空白白色小袋", "便携袋", "收纳袋", "布袋", "绒布袋", "软布袋", "防尘袋",
@@ -47,18 +47,19 @@ public class ImageScenePromptService {
         this.objectMapper = objectMapper;
     }
 
-    public List<ScenePrompt> planScenes(String imageType, String basePrompt, int count) {
+    public List<ScenePrompt> planScenes(String imageType, String finalPrompt, int count) {
         int normalizedCount = Math.max(0, Math.min(MAX_SCENES, count));
         if (normalizedCount <= 0) {
             return List.of();
         }
-        boolean requiresLensStructureLock = requiresLensStructureLock(basePrompt);
+        boolean requiresLensStructureLock = requiresLensStructureLock(finalPrompt);
         if (normalizedCount == 1) {
             return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock);
         }
 
         String requestId = UUID.randomUUID().toString().substring(0, 8);
-        String prompt = buildPlannerPrompt(imageType, basePrompt, normalizedCount);
+        // 主图和介绍图会分别传入各自的最终生图提示词，场景规划必须基于当前类型独立生成。
+        String prompt = buildPlannerPrompt(imageType, finalPrompt, normalizedCount);
         LOG.info(
                 "gpt.scene-plan.start id={} type={} count={} model={} promptChars={}",
                 requestId,
@@ -106,10 +107,10 @@ public class ImageScenePromptService {
         }
     }
 
-    private String buildPlannerPrompt(String imageType, String basePrompt, int count) {
-        String safePrompt = abbreviate(basePrompt == null ? "" : basePrompt.trim(), MAX_BASE_PROMPT_CHARS);
+    private String buildPlannerPrompt(String imageType, String finalPrompt, int count) {
+        String safePrompt = abbreviate(finalPrompt == null ? "" : finalPrompt.trim(), MAX_FINAL_PROMPT_CHARS);
         return """
-                请根据下面的最终生图基础提示词，为“%s”规划 %d 个不同场景的图片描述。
+                请根据下面的最终生图提示词，为“%s”规划 %d 个不同场景的图片描述。
 
                 输出必须是 JSON，不要 Markdown，不要解释。格式：
                 {

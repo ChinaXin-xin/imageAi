@@ -98,22 +98,24 @@ public class ImageTaskPromptBuilder {
     }
 
     public String generationItemPrompt(
-            String basePrompt,
+            String finalPrompt,
             String resultType,
             int index,
             int total,
             ImageScenePromptService.ScenePrompt scene,
             ImageTaskPayload payload
     ) {
-        StringBuilder builder = new StringBuilder(basePrompt);
+        // 先保留主图/介绍图各自完整的“最终生图提示词”，后面只追加本张差异化场景规划。
+        StringBuilder builder = new StringBuilder(finalPrompt);
         builder.append("\n\n【当前生成】").append(resultType).append("第 ").append(index).append(" / ").append(total).append(" 张。");
         if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
+            // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n【本张图片场景规划】\n");
             builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
             builder.append("本张图必须与同任务其他图片形成不同场景；只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
         }
-        appendPerImageSelfAudit(builder, payload, basePrompt, resultType, index);
+        appendPerImageSelfAudit(builder, payload, finalPrompt, resultType, index);
         return builder.toString();
     }
 
@@ -366,7 +368,7 @@ public class ImageTaskPromptBuilder {
     private void appendPerImageSelfAudit(
             StringBuilder builder,
             ImageTaskPayload payload,
-            String basePrompt,
+            String finalPrompt,
             String resultType,
             int index
     ) {
@@ -376,12 +378,12 @@ public class ImageTaskPromptBuilder {
         if (!"未选择".equals(kitSpecText)) {
             builder.append("、已选择套装配件（").append(kitSpecText).append("）");
         }
-        appendPromptAssetWhitelist(builder, basePrompt);
+        appendPromptAssetWhitelist(builder, finalPrompt);
         builder.append("。\n");
         builder.append("客户物品范围只包含产品（").append(CUSTOMER_ALLOWED_PRODUCT_TYPES).append("）和配件（").append(CUSTOMER_ALLOWED_ACCESSORIES).append("）；没有选择或上传的同类物品也不要生成。\n");
         builder.append("若场景规划、参考风格图风格或模型联想引入包装盒、包装袋、收纳袋、非参考图黑/白小袋、托盘、卡片、支架、底座、展示道具、未选择贴纸或未选配件，全部视为错误并不要生成。\n");
         appendAccessoryReferenceRule(builder, kitSpecText);
-        if (hasLensProtector(payload, basePrompt)) {
+        if (hasLensProtector(payload, finalPrompt)) {
             builder.append("镜头膜结构再次自检：按上传图/深析结果锁定当前机型的外轮廓、孔位数量、孔位位置、孔位大小差异，以及一体式片状或分离镜圈形态；不要套用其他手机型号镜头膜结构。\n");
         }
         appendPerImageFilmTypeAudit(builder, payload);

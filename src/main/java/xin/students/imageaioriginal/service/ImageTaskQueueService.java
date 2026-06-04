@@ -345,7 +345,9 @@ public class ImageTaskQueueService {
             imageTaskRepository.clearResults(taskId);
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
+            // 主图：基于主图最终生图提示词单独规划场景，后续只拼到主图结果提示词。
             List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes("主图", finalMainPrompt, mainCount);
+            // 介绍图：基于介绍图最终生图提示词单独规划场景，后续只拼到介绍图结果提示词。
             List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes("介绍图", finalIntroPrompt, introCount);
             imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
             List<GenerationJob> jobs = createGenerationJobs(
@@ -473,15 +475,17 @@ public class ImageTaskQueueService {
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
-            long resultId = imageTaskRepository.insertResult(taskId, "主图", index, prompt, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "主图", index, prompt, mainTargetTemplate));
+            // 主图：保留原主图最终生图提示词全文，再把当前主图的场景规划追加到末尾。
+            String mainPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
+            long resultId = imageTaskRepository.insertResult(taskId, "主图", index, mainPromptWithScene, "QUEUED");
+            jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
-            String prompt = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
-            long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, prompt, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "介绍图", index, prompt, introTargetTemplate));
+            // 介绍图：保留原介绍图最终生图提示词全文，再把当前介绍图的场景规划追加到末尾。
+            String introPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
+            long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, introPromptWithScene, "QUEUED");
+            jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate));
         }
         return jobs;
     }

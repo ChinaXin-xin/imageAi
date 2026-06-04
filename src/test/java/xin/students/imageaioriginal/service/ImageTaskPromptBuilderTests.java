@@ -56,6 +56,39 @@ class ImageTaskPromptBuilderTests {
                 .contains("【本张成品自审与修正】");
     }
 
+    @Test
+    void generationItemPromptAppendsMainAndIntroScenesSeparately() {
+        ImageTaskPayload payload = payload(List.of("MAIN", "INTRO"));
+        String finalMainPrompt = "主图最终生图提示词：无文字平台首图，保留主图结构约束。";
+        String finalIntroPrompt = "介绍图最终生图提示词：卖点介绍图，保留介绍图结构约束。";
+        ImageScenePromptService.ScenePrompt mainScene = new ImageScenePromptService.ScenePrompt(
+                1,
+                "主图斜角场景",
+                "主图场景规划：手机与钢化膜左右错位，轮廓光不同。"
+        );
+        ImageScenePromptService.ScenePrompt introScene = new ImageScenePromptService.ScenePrompt(
+                1,
+                "介绍图卖点场景",
+                "介绍图场景规划：按信息区展示卖点层级，产品比例不变。"
+        );
+
+        String mainItemPrompt = builder.generationItemPrompt(finalMainPrompt, "主图", 1, 2, mainScene, payload);
+        String introItemPrompt = builder.generationItemPrompt(finalIntroPrompt, "介绍图", 1, 2, introScene, payload);
+
+        assertThat(mainItemPrompt)
+                .startsWith(finalMainPrompt)
+                .contains("【本张图片场景规划】")
+                .contains("主图场景规划")
+                .doesNotContain(finalIntroPrompt)
+                .doesNotContain("介绍图场景规划");
+        assertThat(introItemPrompt)
+                .startsWith(finalIntroPrompt)
+                .contains("【本张图片场景规划】")
+                .contains("介绍图场景规划")
+                .doesNotContain(finalMainPrompt)
+                .doesNotContain("主图场景规划");
+    }
+
     private ImageTaskPayload payload(List<String> templateUsages) {
         return new ImageTaskPayload(
                 "测试商品",
