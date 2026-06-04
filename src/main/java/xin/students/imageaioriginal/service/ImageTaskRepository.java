@@ -826,14 +826,46 @@ public class ImageTaskRepository {
         }
         int analysisTotal = record.realPhotoCount();
         int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
+        int scenePlanningTotal = scenePlanningTotal(record);
         int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
         int analysisCompleted = analysisCompletedCount(record, analysisTotal);
-        int total = analysisTotal + generationTotal;
-        int completed = analysisCompleted + generationStats.completed();
+        int scenePlanningCompleted = scenePlanningCompletedCount(record);
+        int total = analysisTotal + scenePlanningTotal + generationTotal;
+        int completed = analysisCompleted + scenePlanningCompleted + generationStats.completed();
         if ("COMPLETED".equals(record.status())) {
             completed = total;
         }
         return new ResultStats(Math.min(completed, total), total);
+    }
+
+    private int scenePlanningTotal(TaskRecord record) {
+        if (record == null || record.payload() == null) {
+            return 0;
+        }
+        int total = 0;
+        if (positive(record.payload().mainImageCount()) > 0) {
+            total++;
+        }
+        if (positive(record.payload().introImageCount()) > 0) {
+            total++;
+        }
+        return total;
+    }
+
+    private int scenePlanningCompletedCount(TaskRecord record) {
+        if (record == null || record.payload() == null) {
+            return 0;
+        }
+        int completed = 0;
+        int mainCount = positive(record.payload().mainImageCount());
+        if (mainCount > 0 && record.mainScenes() != null && record.mainScenes().size() >= mainCount) {
+            completed++;
+        }
+        int introCount = positive(record.payload().introImageCount());
+        if (introCount > 0 && record.introScenes() != null && record.introScenes().size() >= introCount) {
+            completed++;
+        }
+        return completed;
     }
 
     private Map<String, ResultStats> generationResultStats(List<String> taskIds) {
