@@ -24,6 +24,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
@@ -234,10 +236,34 @@ public class TargetTemplateService {
                       index idx_target_templates_type_created (template_type, created_at)
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
+                addColumnIfMissing(connection, "template_type", "varchar(16) not null default 'MAIN'");
+                addColumnIfMissing(connection, "name", "varchar(255) not null default ''");
+                addColumnIfMissing(connection, "file_name", "varchar(255) not null default ''");
+                addColumnIfMissing(connection, "content_type", "varchar(128) not null default 'image/jpeg'");
+                addColumnIfMissing(connection, "file_size", "bigint not null default 0");
+                addColumnIfMissing(connection, "content", "longblob null");
+                addColumnIfMissing(connection, "thumbnail", "longblob null");
+                addColumnIfMissing(connection, "thumbnail_content_type", "varchar(128) null");
+                addColumnIfMissing(connection, "style_analysis", "longtext null");
+                addColumnIfMissing(connection, "model", "varchar(128) null");
+                addColumnIfMissing(connection, "created_at", "timestamp(3) not null default current_timestamp(3)");
+                addColumnIfMissing(connection, "updated_at", "timestamp(3) not null default current_timestamp(3) on update current_timestamp(3)");
                 tableEnsured = true;
             } catch (SQLException ex) {
                 throw new IllegalStateException("初始化参考风格图表失败", ex);
             }
+        }
+    }
+
+    private void addColumnIfMissing(Connection connection, String columnName, String definition) throws SQLException {
+        DatabaseMetaData metadata = connection.getMetaData();
+        try (ResultSet columns = metadata.getColumns(connection.getCatalog(), null, "target_templates", columnName)) {
+            if (columns.next()) {
+                return;
+            }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("alter table target_templates add column " + columnName + " " + definition);
         }
     }
 
