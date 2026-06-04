@@ -39,7 +39,7 @@ class ImageTaskPromptBuilderTests {
     @Test
     void generationItemPromptKeepsFullFinalPromptThenAppendsScene() {
         ImageTaskPayload payload = payload(List.of("MAIN", "INTRO"));
-        String finalPrompt = "【最高优先级：结构锁定】完整最终提示词\n【生成要求】保留全部原始约束。";
+        String finalPrompt = "【最高优先级：结构锁定】完整最终提示词\n# 【生成要求】\n保留全部原始约束。";
         ImageScenePromptService.ScenePrompt scene = new ImageScenePromptService.ScenePrompt(
                 7,
                 "第七张场景",
@@ -119,7 +119,7 @@ class ImageTaskPromptBuilderTests {
 
         assertThat(prompt)
                 .containsSubsequence(
-                        "【主图画面要求】",
+                        "# 【主图画面要求】",
                         "生成主图：主体居中，排版干净。",
                         "【主图参考风格图风格】深色科技背景，蓝色轮廓光，玻璃边缘高光。",
                         "【主图参考风格图约束】"
