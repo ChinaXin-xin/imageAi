@@ -605,6 +605,11 @@ function normalizeCustomImageSize() {
 }
 
 async function analyzeUploadImage(type: AnalysisUploadGroup) {
+  const model = taskForm.value.model.trim();
+  if (!model) {
+    ElMessage.warning('请先输入机型，再深析实拍图。');
+    return;
+  }
   const files = uploadFilesFor();
   if (files.length === 0) {
     ElMessage.warning(`请先上传${type}。`);
@@ -613,7 +618,7 @@ async function analyzeUploadImage(type: AnalysisUploadGroup) {
   uploadAnalysis.value[type] = null;
   analysisLoading.value[type] = true;
   try {
-    uploadAnalysis.value[type] = await analyzeUploadedImages(type, files, defaultSettings.value.analysisPrompt);
+    uploadAnalysis.value[type] = await analyzeUploadedImages(type, files, defaultSettings.value.analysisPrompt, model);
     ElMessage.success(`${type}深析完成。`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
@@ -698,13 +703,6 @@ function clearUploadedImagesAndAnalysis() {
   };
 }
 
-function autoRecognizeModel() {
-  if (!taskForm.value.model.trim()) {
-    taskForm.value.model = '自动识别参考图';
-  }
-  ElMessage.success('已启用机型自动识别。');
-}
-
 function autoRecognizeKitSpecs() {
   if (!extraAccessories.value.length) {
     ElMessage.warning('请先在参考风格图页下方添加额外配件。');
@@ -719,6 +717,13 @@ function autoRecognizeKitSpecs() {
 }
 
 async function addToTaskQueue() {
+  const model = taskForm.value.model.trim();
+  if (!model) {
+    ElMessage.warning('请输入机型后再添加任务。');
+    activePage.value = 'task';
+    return;
+  }
+  taskForm.value.model = model;
   ensureProductName();
   normalizeTaskImageSize();
   addingTask.value = true;
@@ -745,7 +750,7 @@ function snapshotTaskForm(): ImageTaskPayload {
   normalizeTaskImageSize();
   return {
     productName: taskForm.value.productName,
-    model: taskForm.value.model,
+    model: taskForm.value.model.trim(),
     platform: taskForm.value.platform,
     ratio: taskForm.value.ratio,
     customWidth: taskForm.value.customWidth,
@@ -1883,10 +1888,7 @@ function pageSubtitle(): string {
                 <div class="choice-grid">
                   <div class="form-row">
                     <label>机型</label>
-                    <div class="inline-fields">
-                      <el-input v-model="taskForm.model" placeholder="不输入时自动识别参考图" />
-                      <el-button @click="autoRecognizeModel">自动识别</el-button>
-                    </div>
+                    <el-input v-model="taskForm.model" placeholder="必填，例如：Samsung S23 Ultra" />
                   </div>
                   <div class="form-row">
                     <label>手机颜色</label>

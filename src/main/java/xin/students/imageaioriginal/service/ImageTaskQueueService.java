@@ -319,7 +319,7 @@ public class ImageTaskQueueService {
                     "INTRO",
                     "介绍图"
             );
-            Map<String, String> analysis = analyzeUploadedFiles(taskId);
+            Map<String, String> analysis = analyzeUploadedFiles(taskId, record.payload());
             UploadMaterialContext uploadMaterialContext = uploadMaterialContext(taskId);
             ensureTaskNotPaused(taskId);
 
@@ -700,10 +700,16 @@ public class ImageTaskQueueService {
         return extraAccessoryService.findRecordByName(spec.name());
     }
 
-    private Map<String, String> analyzeUploadedFiles(String taskId) {
+    private Map<String, String> analyzeUploadedFiles(String taskId, ImageTaskPayload payload) {
         Map<String, String> analysis = new LinkedHashMap<>();
         DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
-        analyzeGroup(taskId, "realPhoto", "实拍图", settings.analysisPrompt(), analysis);
+        analyzeGroup(
+                taskId,
+                "realPhoto",
+                "实拍图",
+                UploadImageAnalysisService.promptWithUserModel(payload.model(), settings.analysisPrompt()),
+                analysis
+        );
         return analysis;
     }
 
@@ -748,6 +754,10 @@ public class ImageTaskQueueService {
 
     private ImageTaskPayload normalizePayload(ImageTaskPayload payload, boolean hasTemplateFiles) {
         String productName = normalizeText(payload.productName(), randomProductName());
+        String model = normalizeNullable(payload.model());
+        if (model.isBlank()) {
+            throw new IllegalArgumentException("请输入机型");
+        }
         String ratio = normalizeLegacyRatio(normalizeText(payload.ratio(), "1536:1536"));
         int[] imageSize = normalizeImageSize(ratio, payload.customWidth(), payload.customHeight());
         List<String> templateUsages = normalizeUsageList(payload.templateUsages());
@@ -759,7 +769,7 @@ public class ImageTaskQueueService {
                 : positiveId(payload.introTargetTemplateId());
         return new ImageTaskPayload(
                 productName,
-                normalizeNullable(payload.model()),
+                model,
                 normalizeText(payload.platform(), "Amazon"),
                 ratio,
                 imageSize[0],

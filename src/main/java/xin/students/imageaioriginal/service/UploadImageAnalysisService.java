@@ -102,6 +102,15 @@ public class UploadImageAnalysisService {
         return analyzeStored(type, prompt, uploadedFiles);
     }
 
+    public static String promptWithUserModel(String model, String prompt) {
+        String normalizedPrompt = prompt == null ? "" : prompt.trim();
+        String normalizedModel = model == null ? "" : model.trim();
+        if (normalizedModel.isBlank()) {
+            return normalizedPrompt;
+        }
+        return "用户输入机型：" + normalizedModel + "\n\n" + normalizedPrompt;
+    }
+
     public UploadImageAnalysis analyzeStored(String type, String prompt, List<StoredUploadImage> files) {
         return analyzeStored(type, prompt, files, true);
     }

@@ -24,8 +24,9 @@ public class TaskAnalysisController {
     public UploadImageAnalysis analyzeUpload(
             @RequestParam String type,
             @RequestParam(value = "prompt", required = false) String prompt,
+            @RequestParam(value = "model", required = false) String model,
             @RequestParam("files") List<MultipartFile> files
     ) {
-        return uploadImageAnalysisService.analyze(type, prompt, files);
+        return uploadImageAnalysisService.analyze(type, UploadImageAnalysisService.promptWithUserModel(model, prompt), files);
     }
 }
