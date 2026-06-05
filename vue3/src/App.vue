@@ -1888,7 +1888,7 @@ function pageSubtitle(): string {
                 <div class="choice-grid">
                   <div class="form-row">
                     <label>机型</label>
-                    <el-input v-model="taskForm.model" placeholder="必填，例如：Samsung S23 Ultra" />
+                    <el-input v-model="taskForm.model" style="width: 80%" placeholder="必填，例如：Samsung S23 Ultra" />
                   </div>
                   <div class="form-row">
                     <label>手机颜色</label>
