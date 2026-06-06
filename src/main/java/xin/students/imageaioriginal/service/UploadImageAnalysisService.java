@@ -106,7 +106,7 @@ public class UploadImageAnalysisService {
         String normalizedPrompt = prompt == null ? "" : prompt.trim();
         String normalizedModel = model == null ? "" : model.trim();
         if (normalizedModel.isBlank()) {
-            return normalizedPrompt;
+            throw new IllegalArgumentException("深析实拍图前必须先输入机型");
         }
         return "用户输入机型：" + normalizedModel + "\n\n" + normalizedPrompt;
     }
