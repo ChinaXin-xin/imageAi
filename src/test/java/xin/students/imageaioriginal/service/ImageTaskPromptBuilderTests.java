@@ -31,7 +31,10 @@ class ImageTaskPromptBuilderTests {
 
         assertThat(prompt)
                 .contains("实拍结构：异形一体式镜头膜")
+                .contains("【主图排版图填充生成要求】")
                 .contains("【主图排版图约束】")
+                .doesNotContain("# 【主图画面要求】")
+                .doesNotContain("生成主图。")
                 .doesNotContain("【主图排版图版式分析】")
                 .doesNotContain("旧版式分析文本");
     }

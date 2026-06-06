@@ -85,11 +85,16 @@ public class ImageTaskPromptBuilder {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
         appendFilmTypeLock(builder, payload);
-        builder.append("\n【").append(imageType).append("画面要求】\n");
-        builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
-        // 参考风格图风格紧跟当前类型的主图/介绍图提示词，避免后面的固定约束把用户选择的风格稀释。
-        appendTargetTemplateContext(builder, imageType, targetTemplate);
-        builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
+        boolean hasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, imageType);
+        if (hasUploadedTemplate) {
+            appendTemplateFillPrompt(builder, imageType);
+        } else {
+            builder.append("\n# 【").append(imageType).append("画面要求】\n");
+            builder.append(normalizeText(basePrompt, "生成跨境电商图片。")).append("\n");
+            // 参考风格图风格紧跟当前类型的主图/介绍图提示词，避免后面的固定约束把用户选择的风格稀释。
+            appendTargetTemplateContext(builder, imageType, targetTemplate);
+            builder.append("画面要求只控制构图、光影和质感，不得改写真实产品结构。\n");
+        }
         appendUploadedTemplateContext(builder, imageType, payload, uploadMaterialContext);
         builder.append("\n# 【负面约束】\n");
         builder.append("不要添加未选配件、额外孔、额外镜片、额外包装、包装袋、包装盒、纸盒、礼盒、收纳袋、非参考图黑/白小袋、卡片、托盘、支架、底座、展示道具、水印或装饰文字（参考图配件自身文字除外）。\n");
@@ -365,14 +370,20 @@ public class ImageTaskPromptBuilder {
             ImageTaskPayload payload,
             UploadMaterialContext uploadMaterialContext
     ) {
-        if (uploadMaterialContext == null
-                || !uploadMaterialContext.hasTemplateImage()
-                || !usesUploadAsset(payload.templateUsages(), imageType)) {
+        if (!hasUploadedTemplateForType(payload, uploadMaterialContext, imageType)) {
             return;
         }
         builder.append("【").append(imageType).append("排版图约束】排版图已作为版式/布局参考图随本张生图请求传入；如当前")
                 .append(imageType)
-                .append("启用排版图，必须直接按排版图的主体区、配件区、信息区、留白、安全边距、网格/分栏、对齐关系、层级和裁切关系填入本任务产品、手机与已选配件。不要分析、重绘、照抄排版图中的示例商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓、产品比例和配件数量；场景规划只能在排版图骨架内调整光影、角度、背景或层次，不能重新散乱摆放。\n");
+                .append("启用排版图，必须直接按排版图的主体区、配件区、信息区、留白、安全边距、网格/分栏、对齐关系、层级和裁切关系填入本任务产品、手机与已选配件。不要分析、重绘、照抄排版图中的示例商品、品牌、文字或图标；不得改变上传实拍图产品结构、孔位、外轮廓、产品比例和配件数量；如排版图与原始主图/介绍图画面要求、场景规划或参考风格图存在版式冲突，以排版图的画面结构、主体位置、配件位置、留白比例和构图关系为最高优先级。\n");
+    }
+
+    private void appendTemplateFillPrompt(StringBuilder builder, String imageType) {
+        builder.append("\n# 【").append(imageType).append("排版图填充生成要求】\n");
+        builder.append("基于排版图填充上传素材并生成完整电商图：严格遵循排版图中的画面结构、主体位置、配件位置、留白比例、构图关系、对齐方式、网格/分栏、前后层级和安全边距。\n");
+        builder.append("将用户上传的实拍产品图、手机膜/镜头膜结构、已选配件图和壁纸图等素材合理填充到排版图对应区域；只替换为本任务素材，不照抄排版图中的示例商品、品牌、文字、图标或装饰元素。\n");
+        builder.append("排版图控制版式和构图，不控制产品结构；产品外轮廓、孔位、数量、比例和配件真实外观仍以上传实拍图、深析结果和已选配件参考图为准。\n");
+        builder.append("如排版图与原始主图/介绍图画面要求或场景规划存在冲突，以排版图为最高版式优先级，必须按排版图区域填充素材并生成完整、规整、成品级电商图。\n");
     }
 
     private void appendTargetTemplateContext(
@@ -436,6 +447,16 @@ public class ImageTaskPromptBuilder {
         return uploadMaterialContext != null
                 && uploadMaterialContext.hasWallpaperImage()
                 && usesUploadAsset(payload.wallpaperUsages(), imageType);
+    }
+
+    private boolean hasUploadedTemplateForType(
+            ImageTaskPayload payload,
+            UploadMaterialContext uploadMaterialContext,
+            String imageType
+    ) {
+        return uploadMaterialContext != null
+                && uploadMaterialContext.hasTemplateImage()
+                && usesUploadAsset(payload.templateUsages(), imageType);
     }
 
     private boolean usesUploadAsset(List<String> usages, String imageType) {
