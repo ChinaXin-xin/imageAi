@@ -116,10 +116,24 @@ public class ImageTaskPromptBuilder {
             ImageScenePromptService.ScenePrompt scene,
             ImageTaskPayload payload
     ) {
-        // 先保留主图/介绍图各自完整的“最终生图提示词”，后面只追加本张差异化场景规划。
+        return generationItemPrompt(finalPrompt, resultType, index, total, scene, payload, false);
+    }
+
+    public String generationItemPrompt(
+            String finalPrompt,
+            String resultType,
+            int index,
+            int total,
+            ImageScenePromptService.ScenePrompt scene,
+            ImageTaskPayload payload,
+            boolean hasUploadedTemplate
+    ) {
+        // 先保留主图/介绍图各自完整的“最终生图提示词”，再按当前类型是否启用排版图追加本张专用约束。
         StringBuilder builder = new StringBuilder(finalPrompt);
         builder.append("\n\n【当前生成】").append(resultType).append("第 ").append(index).append(" / ").append(total).append(" 张。");
-        if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
+        if (hasUploadedTemplate) {
+            appendPerImageTemplateFillPrompt(builder, resultType, index);
+        } else if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
             // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n# 【本张图片场景规划】\n");
             //builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
@@ -129,6 +143,15 @@ public class ImageTaskPromptBuilder {
         }
         appendPerImageSelfAudit(builder, payload, finalPrompt, resultType, index);
         return builder.toString();
+    }
+
+    private void appendPerImageTemplateFillPrompt(StringBuilder builder, String resultType, int index) {
+        builder.append("\n# 【本张图片排版图填充生成要求】\n");
+        builder.append("本张不使用原有场景规划；基于排版图填充上传素材并生成完整电商图。\n");
+        builder.append("排版图/样板图是本次生图接口参考图中的最后一张输入图片，必须把最后一张图片作为版式模板：严格遵循其中的画面结构、主体位置、配件位置、留白比例、构图关系、对齐方式、层级和安全边距。\n");
+        builder.append("将前面输入的用户上传产品图、实拍结构、配件图、壁纸图等素材合理填充到排版图对应区域；只替换为本任务素材，不照抄排版图中的示例商品、品牌、文字、图标或装饰元素。\n");
+        builder.append("如排版图与原始画面排版要求、场景规划或参考风格存在冲突，以排版图为最高版式优先级；但不得改变实拍图产品结构、孔位、真实比例、配件数量和套装规格。\n");
+        builder.append(resultType).append("第 ").append(index).append(" 张必须按最后一张排版图完成素材填充，不要重新散乱摆放。\n");
     }
 
     public String generationBasePrompt(String value, String fallback, String analysisPrompt) {

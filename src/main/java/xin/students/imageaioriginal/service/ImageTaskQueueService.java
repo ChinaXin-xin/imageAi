@@ -358,7 +358,8 @@ public class ImageTaskQueueService {
                     mainTargetTemplate,
                     introTargetTemplate,
                     mainScenes,
-                    introScenes
+                    introScenes,
+                    uploadMaterialContext
             );
             imageTaskRepository.updateTaskState(taskId, "GENERATING", null, false, false);
 
@@ -467,23 +468,26 @@ public class ImageTaskQueueService {
             TargetTemplateService.TargetTemplateRecord mainTargetTemplate,
             TargetTemplateService.TargetTemplateRecord introTargetTemplate,
             List<ImageScenePromptService.ScenePrompt> mainScenes,
-            List<ImageScenePromptService.ScenePrompt> introScenes
+            List<ImageScenePromptService.ScenePrompt> introScenes,
+            UploadMaterialContext uploadMaterialContext
     ) {
         List<GenerationJob> jobs = new ArrayList<>();
         int mainCount = positive(payload.mainImageCount());
         int introCount = positive(payload.introImageCount());
+        boolean mainHasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, "主图");
+        boolean introHasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, "介绍图");
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);
             // 主图：保留原主图最终生图提示词全文，再把当前主图的场景规划追加到末尾。
-            String mainPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload);
+            String mainPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload, mainHasUploadedTemplate);
             long resultId = imageTaskRepository.insertResult(taskId, "主图", index, mainPromptWithScene, "QUEUED");
             jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
             // 介绍图：保留原介绍图最终生图提示词全文，再把当前介绍图的场景规划追加到末尾。
-            String introPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload);
+            String introPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload, introHasUploadedTemplate);
             long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, introPromptWithScene, "QUEUED");
             jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate));
         }
@@ -662,14 +666,24 @@ public class ImageTaskQueueService {
     ) {
         List<StoredUploadImage> referenceImages = new ArrayList<>();
         referenceImages.addAll(realPhotoImages == null ? List.of() : realPhotoImages);
-        if (usesUploadAsset(payload.templateUsages(), imageType)) {
-            referenceImages.addAll(templateImages == null ? List.of() : templateImages);
-        }
         if (usesUploadAsset(payload.wallpaperUsages(), imageType)) {
             referenceImages.addAll(wallpaperImages == null ? List.of() : wallpaperImages);
         }
         referenceImages.addAll(accessoryImages == null ? List.of() : accessoryImages);
+        if (usesUploadAsset(payload.templateUsages(), imageType)) {
+            referenceImages.addAll(templateImages == null ? List.of() : templateImages);
+        }
         return referenceImages;
+    }
+
+    private boolean hasUploadedTemplateForType(
+            ImageTaskPayload payload,
+            UploadMaterialContext uploadMaterialContext,
+            String imageType
+    ) {
+        return uploadMaterialContext != null
+                && uploadMaterialContext.hasTemplateImage()
+                && usesUploadAsset(payload.templateUsages(), imageType);
     }
 
     private List<StoredUploadImage> referencesFor(GenerationReferences references, String resultType) {
