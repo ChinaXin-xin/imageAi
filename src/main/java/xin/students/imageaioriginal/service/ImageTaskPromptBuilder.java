@@ -63,14 +63,11 @@ public class ImageTaskPromptBuilder {
         appendAllowedObjectsContext(builder, payload, uploadMaterialContext, imageType);
 
         appendKitLock(builder, payload);
+        boolean hasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, imageType);
 
         builder.append("# 【任务参数】\n");
         builder.append("【平台】").append(normalizeText(payload.platform(), "Amazon")).append("\n");
-        builder.append("【尺寸】")
-                .append(normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE))
-                .append("x")
-                .append(normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE))
-                .append("\n");
+        builder.append("【尺寸】").append(imageSizeText(payload, imageType, hasUploadedTemplate)).append("\n");
         builder.append("【语言】").append(normalizeText(payload.language(), "英文")).append("\n");
         builder.append("【机型】").append(normalizeText(payload.model(), "根据上传图自动识别")).append("\n");
         builder.append("【手机颜色】").append(normalizeText(payload.phoneColor(), "自动")).append("\n");
@@ -85,7 +82,6 @@ public class ImageTaskPromptBuilder {
             builder.append("【产品类型】").append(productTypeText).append("\n");
         }
         appendFilmTypeLock(builder, payload);
-        boolean hasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, imageType);
         if (hasUploadedTemplate) {
             appendTemplateFillPrompt(builder, imageType);
         } else {
@@ -470,6 +466,18 @@ public class ImageTaskPromptBuilder {
         return uploadMaterialContext != null
                 && uploadMaterialContext.hasWallpaperImage()
                 && usesUploadAsset(payload.wallpaperUsages(), imageType);
+    }
+
+    private String imageSizeText(ImageTaskPayload payload, String imageType, boolean hasUploadedTemplate) {
+        if (hasUploadedTemplate) {
+            return "自动比例（按排版图实际宽高比输出）";
+        }
+        boolean intro = "介绍图".equals(imageType);
+        Integer width = intro ? payload.introCustomWidth() : payload.mainCustomWidth();
+        Integer height = intro ? payload.introCustomHeight() : payload.mainCustomHeight();
+        int normalizedWidth = normalizeImageDimension(width == null ? payload.customWidth() : width, DEFAULT_IMAGE_SIZE);
+        int normalizedHeight = normalizeImageDimension(height == null ? payload.customHeight() : height, DEFAULT_IMAGE_SIZE);
+        return normalizedWidth + "x" + normalizedHeight;
     }
 
     private boolean hasUploadedTemplateForType(

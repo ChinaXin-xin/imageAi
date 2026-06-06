@@ -17,6 +17,10 @@ import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -236,13 +240,14 @@ public class ImageTaskQueueService {
         imageJobExecutor.submit(() -> {
             try {
                 imageTaskRepository.markResultGenerating(editResultId);
+                int[] imageSize = imageSizeForResultType(task.payload(), source.resultType(), List.of(), false);
                 ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generate(
                         task.id(),
                         source.resultType() + "重修",
                         source.itemIndex(),
                         buildEditPrompt(task, source, source.editSuggestion()),
-                        normalizeImageDimension(task.payload().customWidth(), DEFAULT_IMAGE_SIZE),
-                        normalizeImageDimension(task.payload().customHeight(), DEFAULT_IMAGE_SIZE),
+                        imageSize[0],
+                        imageSize[1],
                         List.of(imageTaskDownloadService.resultReferenceImage(source))
                 );
                 if (!imageTaskRepository.completeResult(editResultId, generatedImage)) {
@@ -482,14 +487,14 @@ public class ImageTaskQueueService {
             // 主图：保留原主图最终生图提示词全文，再把当前主图的场景规划追加到末尾。
             String mainPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload, mainHasUploadedTemplate);
             long resultId = imageTaskRepository.insertResult(taskId, "主图", index, mainPromptWithScene, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate));
+            jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate, mainHasUploadedTemplate));
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
             // 介绍图：保留原介绍图最终生图提示词全文，再把当前介绍图的场景规划追加到末尾。
             String introPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload, introHasUploadedTemplate);
             long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, introPromptWithScene, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate));
+            jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate, introHasUploadedTemplate));
         }
         return jobs;
     }
@@ -512,13 +517,14 @@ public class ImageTaskQueueService {
         for (int attempt = 1; attempt <= IMAGE_GENERATION_MAX_ATTEMPTS; attempt++) {
                 try {
                     ensureTaskNotPaused(taskId);
+                    int[] imageSize = imageSizeForResultType(payload, job.resultType(), referenceImages, job.hasUploadedTemplate());
                     ImageGenerationService.GeneratedImage generatedImage = imageGenerationService.generateWithPreparedReferences(
                             taskId,
                             job.resultType(),
                             job.index(),
                         job.prompt(),
-                        normalizeImageDimension(payload.customWidth(), DEFAULT_IMAGE_SIZE),
-                        normalizeImageDimension(payload.customHeight(), DEFAULT_IMAGE_SIZE),
+                        imageSize[0],
+                        imageSize[1],
                         referenceImages
                 );
                 if (!imageTaskRepository.completeResult(job.resultId(), generatedImage)) {
@@ -686,6 +692,71 @@ public class ImageTaskQueueService {
                 && usesUploadAsset(payload.templateUsages(), imageType);
     }
 
+    private int[] imageSizeForResultType(
+            ImageTaskPayload payload,
+            String resultType,
+            List<StoredUploadImage> referenceImages,
+            boolean hasUploadedTemplate
+    ) {
+        if (hasUploadedTemplate) {
+            int[] templateSize = imageSizeFromLastReference(referenceImages);
+            if (templateSize != null) {
+                return templateSize;
+            }
+        }
+        boolean intro = resultType != null && resultType.contains("介绍图");
+        Integer width = intro ? payload.introCustomWidth() : payload.mainCustomWidth();
+        Integer height = intro ? payload.introCustomHeight() : payload.mainCustomHeight();
+        return new int[]{
+                normalizeImageDimension(width == null ? payload.customWidth() : width, DEFAULT_IMAGE_SIZE),
+                normalizeImageDimension(height == null ? payload.customHeight() : height, DEFAULT_IMAGE_SIZE)
+        };
+    }
+
+    private int[] imageSizeFromLastReference(List<StoredUploadImage> referenceImages) {
+        if (referenceImages == null || referenceImages.isEmpty()) {
+            return null;
+        }
+        StoredUploadImage templateImage = referenceImages.get(referenceImages.size() - 1);
+        if (templateImage == null || templateImage.bytes() == null || templateImage.bytes().length == 0) {
+            return null;
+        }
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(templateImage.bytes()));
+            if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+                return null;
+            }
+            return imageSizeFromAspect(image.getWidth(), image.getHeight());
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn(
+                    "image.task.template-size.failed fileName={} bytes={} message={}",
+                    templateImage.fileName(),
+                    templateImage.size(),
+                    ex.getMessage()
+            );
+            return null;
+        }
+    }
+
+    private int[] imageSizeFromAspect(int sourceWidth, int sourceHeight) {
+        double aspect = sourceWidth / (double) sourceHeight;
+        if (aspect >= 1.0d) {
+            return new int[]{
+                    DEFAULT_IMAGE_SIZE,
+                    normalizeTemplateImageDimension((int) Math.round(DEFAULT_IMAGE_SIZE / aspect))
+            };
+        }
+        return new int[]{
+                normalizeTemplateImageDimension((int) Math.round(DEFAULT_IMAGE_SIZE * aspect)),
+                DEFAULT_IMAGE_SIZE
+        };
+    }
+
+    private int normalizeTemplateImageDimension(int value) {
+        int normalized = Math.max(304, value);
+        return Math.max(IMAGE_SIZE_STEP, Math.round((float) normalized / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
+    }
+
     private List<StoredUploadImage> referencesFor(GenerationReferences references, String resultType) {
         if (references == null) {
             return List.of();
@@ -772,9 +843,25 @@ public class ImageTaskQueueService {
         if (model.isBlank()) {
             throw new IllegalArgumentException("请输入机型");
         }
-        String ratio = normalizeLegacyRatio(normalizeText(payload.ratio(), "1536:1536"));
-        int[] imageSize = normalizeImageSize(ratio, payload.customWidth(), payload.customHeight());
         List<String> templateUsages = normalizeUsageList(payload.templateUsages());
+        String legacyRatio = normalizeLegacyRatio(normalizeText(payload.ratio(), "1536:1536"));
+        int[] legacyImageSize = normalizeImageSize(legacyRatio, payload.customWidth(), payload.customHeight());
+        NormalizedImageSpec mainImageSpec = normalizeImageSpec(
+                payload.mainRatio(),
+                payload.mainCustomWidth(),
+                payload.mainCustomHeight(),
+                legacyRatio,
+                legacyImageSize,
+                hasTemplateFiles && templateUsages.contains(USAGE_MAIN)
+        );
+        NormalizedImageSpec introImageSpec = normalizeImageSpec(
+                payload.introRatio(),
+                payload.introCustomWidth(),
+                payload.introCustomHeight(),
+                legacyRatio,
+                legacyImageSize,
+                hasTemplateFiles && templateUsages.contains(USAGE_INTRO)
+        );
         Long mainTargetTemplateId = hasTemplateFiles && templateUsages.contains(USAGE_MAIN)
                 ? null
                 : positiveId(payload.mainTargetTemplateId());
@@ -785,9 +872,15 @@ public class ImageTaskQueueService {
                 productName,
                 model,
                 normalizeText(payload.platform(), "Amazon"),
-                ratio,
-                imageSize[0],
-                imageSize[1],
+                mainImageSpec.ratio(),
+                mainImageSpec.width(),
+                mainImageSpec.height(),
+                mainImageSpec.ratio(),
+                mainImageSpec.width(),
+                mainImageSpec.height(),
+                introImageSpec.ratio(),
+                introImageSpec.width(),
+                introImageSpec.height(),
                 normalizeText(payload.phoneColor(), "自动"),
                 normalizeText(payload.customColor(), "#2563eb"),
                 normalizeNullable(payload.wallpaperName()),
@@ -896,12 +989,43 @@ public class ImageTaskQueueService {
         };
     }
 
+    private NormalizedImageSpec normalizeImageSpec(
+            String ratio,
+            Integer customWidth,
+            Integer customHeight,
+            String fallbackRatio,
+            int[] fallbackSize,
+            boolean forceAutoRatio
+    ) {
+        if (forceAutoRatio) {
+            return new NormalizedImageSpec(
+                    "自动比例",
+                    fallbackSize == null || fallbackSize.length < 2 ? DEFAULT_IMAGE_SIZE : fallbackSize[0],
+                    fallbackSize == null || fallbackSize.length < 2 ? DEFAULT_IMAGE_SIZE : fallbackSize[1]
+            );
+        }
+        String normalizedRatio = normalizeLegacyRatio(normalizeText(ratio, fallbackRatio));
+        int[] imageSize = normalizeImageSize(
+                normalizedRatio,
+                customWidth == null && fallbackSize != null && fallbackSize.length >= 2 ? fallbackSize[0] : customWidth,
+                customHeight == null && fallbackSize != null && fallbackSize.length >= 2 ? fallbackSize[1] : customHeight
+        );
+        return new NormalizedImageSpec(normalizedRatio, imageSize[0], imageSize[1]);
+    }
+
     private int normalizeImageDimension(Integer value, int fallback) {
         int normalized = positiveOrDefault(value, fallback);
         if (normalized < 300) {
             normalized = fallback;
         }
         return Math.max(IMAGE_SIZE_STEP, Math.round((float) normalized / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
+    }
+
+    private record NormalizedImageSpec(
+            String ratio,
+            int width,
+            int height
+    ) {
     }
 
     private boolean usesUploadAsset(List<String> usages, String imageType) {

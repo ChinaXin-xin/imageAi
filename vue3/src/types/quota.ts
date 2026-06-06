@@ -98,6 +98,12 @@ export interface ImageTaskPayload {
   ratio: string;
   customWidth: number;
   customHeight: number;
+  mainRatio?: string;
+  mainCustomWidth?: number;
+  mainCustomHeight?: number;
+  introRatio?: string;
+  introCustomWidth?: number;
+  introCustomHeight?: number;
   phoneColor: string;
   customColor: string;
   wallpaperName: string;

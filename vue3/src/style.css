@@ -848,6 +848,33 @@ h1 {
   width: 132px;
 }
 
+.ratio-type-panel {
+  padding: 10px 0;
+  border-top: 1px solid #edf2f7;
+}
+
+.ratio-type-panel:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ratio-type-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ratio-type-header small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .kit-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -28,7 +28,8 @@ record GenerationJob(
         String resultType,
         int index,
         String prompt,
-        TargetTemplateService.TargetTemplateRecord targetTemplate
+        TargetTemplateService.TargetTemplateRecord targetTemplate,
+        boolean hasUploadedTemplate
 ) {
 }
 

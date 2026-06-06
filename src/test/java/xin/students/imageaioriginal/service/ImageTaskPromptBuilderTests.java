@@ -80,7 +80,7 @@ class ImageTaskPromptBuilderTests {
 
         assertThat(mainItemPrompt)
                 .startsWith(finalMainPrompt)
-                .contains("【本张图片场景规划】")
+                .contains("# 【本张图片场景规划】")
                 .contains("主图场景规划")
                 .doesNotContain(finalIntroPrompt)
                 .doesNotContain("介绍图场景规划");
@@ -135,6 +135,12 @@ class ImageTaskPromptBuilderTests {
                 "测试商品",
                 "三星S23U",
                 "Amazon",
+                "1536:1536",
+                1536,
+                1536,
+                "1536:1536",
+                1536,
+                1536,
                 "1536:1536",
                 1536,
                 1536,

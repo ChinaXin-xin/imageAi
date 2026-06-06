@@ -233,6 +233,12 @@ const taskForm = ref({
   ratio: '1536:1536',
   customWidth: DEFAULT_IMAGE_SIZE,
   customHeight: DEFAULT_IMAGE_SIZE,
+  mainRatio: '1536:1536',
+  mainCustomWidth: DEFAULT_IMAGE_SIZE,
+  mainCustomHeight: DEFAULT_IMAGE_SIZE,
+  introRatio: '1536:1536',
+  introCustomWidth: DEFAULT_IMAGE_SIZE,
+  introCustomHeight: DEFAULT_IMAGE_SIZE,
   phoneColor: '自动',
   customColor: '#2563eb',
   wallpaperName: '',
@@ -431,6 +437,7 @@ watch(
       taskForm.value.templateUsages = defaultAssetUsages();
     }
     clearTargetTemplateUsedByLayout();
+    normalizeTaskImageSize();
   },
 );
 
@@ -438,6 +445,7 @@ watch(
   () => taskForm.value.templateUsages.join('|'),
   () => {
     clearTargetTemplateUsedByLayout();
+    normalizeTaskImageSize();
   },
 );
 
@@ -499,18 +507,55 @@ function normalizeLegacyRatio(ratio: string): string {
   return ratio;
 }
 
-function normalizeTaskImageSize() {
-  taskForm.value.ratio = normalizeLegacyRatio(taskForm.value.ratio);
-  if (taskForm.value.ratio !== '自定义') {
-    const [width, height] = taskForm.value.ratio.split(':').map((value) => Number(value));
+function imageRatioForType(type: TargetTemplateType): string {
+  return type === 'MAIN' ? taskForm.value.mainRatio : taskForm.value.introRatio;
+}
+
+function imageWidthForType(type: TargetTemplateType): number {
+  return type === 'MAIN' ? taskForm.value.mainCustomWidth : taskForm.value.introCustomWidth;
+}
+
+function imageHeightForType(type: TargetTemplateType): number {
+  return type === 'MAIN' ? taskForm.value.mainCustomHeight : taskForm.value.introCustomHeight;
+}
+
+function setImageSizeForType(type: TargetTemplateType, ratio: string, width: number, height: number) {
+  if (type === 'MAIN') {
+    taskForm.value.mainRatio = ratio;
+    taskForm.value.mainCustomWidth = width;
+    taskForm.value.mainCustomHeight = height;
+    taskForm.value.ratio = ratio;
+    taskForm.value.customWidth = width;
+    taskForm.value.customHeight = height;
+    return;
+  }
+  taskForm.value.introRatio = ratio;
+  taskForm.value.introCustomWidth = width;
+  taskForm.value.introCustomHeight = height;
+}
+
+function normalizeImageSizeForType(type: TargetTemplateType) {
+  if (usesUploadedLayoutForType(type)) {
+    setImageSizeForType(type, '自动比例', imageWidthForType(type), imageHeightForType(type));
+    return;
+  }
+  let ratio = normalizeLegacyRatio(imageRatioForType(type));
+  if (ratio === '自动比例') {
+    ratio = '1536:1536';
+  }
+  if (ratio !== '自定义') {
+    const [width, height] = ratio.split(':').map((value) => Number(value));
     if (Number.isFinite(width) && Number.isFinite(height)) {
-      taskForm.value.customWidth = width;
-      taskForm.value.customHeight = height;
+      setImageSizeForType(type, ratio, width, height);
       return;
     }
   }
-  taskForm.value.customWidth = normalizeImageDimension(taskForm.value.customWidth);
-  taskForm.value.customHeight = normalizeImageDimension(taskForm.value.customHeight);
+  setImageSizeForType(type, '自定义', normalizeImageDimension(imageWidthForType(type)), normalizeImageDimension(imageHeightForType(type)));
+}
+
+function normalizeTaskImageSize() {
+  normalizeImageSizeForType('MAIN');
+  normalizeImageSizeForType('INTRO');
 }
 
 function randomProductName(): string {
@@ -538,13 +583,22 @@ function selectPlatform(platform: string) {
   }
 }
 
-function selectRatio(ratio: string) {
-  taskForm.value.ratio = ratio;
+function selectImageRatio(type: TargetTemplateType, ratio: string) {
+  if (usesUploadedLayoutForType(type)) {
+    normalizeImageSizeForType(type);
+    return;
+  }
   const [width, height] = ratio.split(':').map((value) => Number(value));
   if (Number.isFinite(width) && Number.isFinite(height)) {
-    taskForm.value.customWidth = width;
-    taskForm.value.customHeight = height;
+    setImageSizeForType(type, ratio, width, height);
+  } else {
+    setImageSizeForType(type, ratio, imageWidthForType(type), imageHeightForType(type));
   }
+}
+
+function selectRatio(ratio: string) {
+  selectImageRatio('MAIN', ratio);
+  selectImageRatio('INTRO', ratio);
 }
 
 async function loadPromptSettings() {
@@ -599,9 +653,17 @@ function uploadFilesFor(): File[] {
   return realPhotoFiles.value.flatMap((file) => (file.raw ? [file.raw as unknown as File] : []));
 }
 
-function normalizeCustomImageSize() {
-  taskForm.value.ratio = '自定义';
-  normalizeTaskImageSize();
+function normalizeCustomImageSize(type: TargetTemplateType) {
+  if (usesUploadedLayoutForType(type)) {
+    normalizeImageSizeForType(type);
+    return;
+  }
+  if (type === 'MAIN') {
+    taskForm.value.mainRatio = '自定义';
+  } else {
+    taskForm.value.introRatio = '自定义';
+  }
+  normalizeImageSizeForType(type);
 }
 
 async function analyzeUploadImage(type: AnalysisUploadGroup) {
@@ -755,6 +817,12 @@ function snapshotTaskForm(): ImageTaskPayload {
     ratio: taskForm.value.ratio,
     customWidth: taskForm.value.customWidth,
     customHeight: taskForm.value.customHeight,
+    mainRatio: taskForm.value.mainRatio,
+    mainCustomWidth: taskForm.value.mainCustomWidth,
+    mainCustomHeight: taskForm.value.mainCustomHeight,
+    introRatio: taskForm.value.introRatio,
+    introCustomWidth: taskForm.value.introCustomWidth,
+    introCustomHeight: taskForm.value.introCustomHeight,
     phoneColor: taskForm.value.phoneColor,
     customColor: taskForm.value.customColor,
     wallpaperName: taskForm.value.wallpaperName,
@@ -860,6 +928,16 @@ function selectedTargetTemplate(type: TargetTemplateType): TargetTemplate | null
 
 function usesUploadedLayoutForType(type: TargetTemplateType): boolean {
   return templateFiles.value.length > 0 && taskForm.value.templateUsages.includes(type);
+}
+
+function taskImageSizeText(form: ImageTaskPayload, type: TargetTemplateType): string {
+  const ratio = type === 'MAIN' ? form.mainRatio : form.introRatio;
+  if (ratio === '自动比例') {
+    return '自动比例';
+  }
+  const width = type === 'MAIN' ? (form.mainCustomWidth ?? form.customWidth) : (form.introCustomWidth ?? form.customWidth);
+  const height = type === 'MAIN' ? (form.mainCustomHeight ?? form.customHeight) : (form.introCustomHeight ?? form.customHeight);
+  return `${width} x ${height}`;
 }
 
 function clearTargetTemplateUsedByLayout() {
@@ -1414,6 +1492,12 @@ function resetTaskForm() {
     ratio: '1536:1536',
     customWidth: DEFAULT_IMAGE_SIZE,
     customHeight: DEFAULT_IMAGE_SIZE,
+    mainRatio: '1536:1536',
+    mainCustomWidth: DEFAULT_IMAGE_SIZE,
+    mainCustomHeight: DEFAULT_IMAGE_SIZE,
+    introRatio: '1536:1536',
+    introCustomWidth: DEFAULT_IMAGE_SIZE,
+    introCustomHeight: DEFAULT_IMAGE_SIZE,
     phoneColor: '自动',
     customColor: '#2563eb',
     wallpaperName: '',
@@ -1854,33 +1938,95 @@ function pageSubtitle(): string {
                         </p>
                       </el-popover>
                     </div>
-                    <div class="segmented-list">
-                      <button
-                        v-for="ratio in ratioOptions"
-                        :key="ratio"
-                        type="button"
-                        :class="{ selected: taskForm.ratio === ratio }"
-                        @click="selectRatio(ratio)"
-                      >
-                        {{ ratio }}
-                      </button>
+                    <div class="ratio-type-panel">
+                      <div class="ratio-type-header">
+                        <span>主图比例</span>
+                        <small v-if="usesUploadedLayoutForType('MAIN')">按排版图自动</small>
+                      </div>
+                      <div class="segmented-list">
+                        <button
+                          v-if="usesUploadedLayoutForType('MAIN')"
+                          type="button"
+                          class="selected"
+                          @click="normalizeImageSizeForType('MAIN')"
+                        >
+                          自动比例
+                        </button>
+                        <button
+                          v-for="ratio in ratioOptions"
+                          v-else
+                          :key="`main-${ratio}`"
+                          type="button"
+                          :class="{ selected: taskForm.mainRatio === ratio }"
+                          @click="selectImageRatio('MAIN', ratio)"
+                        >
+                          {{ ratio }}
+                        </button>
+                      </div>
+                      <div class="ratio-inputs">
+                        <el-input-number
+                          v-model="taskForm.mainCustomWidth"
+                          :min="304"
+                          :step="16"
+                          :disabled="usesUploadedLayoutForType('MAIN')"
+                          controls-position="right"
+                          @change="normalizeCustomImageSize('MAIN')"
+                        />
+                        <span>×</span>
+                        <el-input-number
+                          v-model="taskForm.mainCustomHeight"
+                          :min="304"
+                          :step="16"
+                          :disabled="usesUploadedLayoutForType('MAIN')"
+                          controls-position="right"
+                          @change="normalizeCustomImageSize('MAIN')"
+                        />
+                      </div>
                     </div>
-                    <div class="ratio-inputs">
-                      <el-input-number
-                        v-model="taskForm.customWidth"
-                        :min="304"
-                        :step="16"
-                        controls-position="right"
-                        @change="normalizeCustomImageSize"
-                      />
-                      <span>×</span>
-                      <el-input-number
-                        v-model="taskForm.customHeight"
-                        :min="304"
-                        :step="16"
-                        controls-position="right"
-                        @change="normalizeCustomImageSize"
-                      />
+                    <div class="ratio-type-panel">
+                      <div class="ratio-type-header">
+                        <span>介绍图比例</span>
+                        <small v-if="usesUploadedLayoutForType('INTRO')">按排版图自动</small>
+                      </div>
+                      <div class="segmented-list">
+                        <button
+                          v-if="usesUploadedLayoutForType('INTRO')"
+                          type="button"
+                          class="selected"
+                          @click="normalizeImageSizeForType('INTRO')"
+                        >
+                          自动比例
+                        </button>
+                        <button
+                          v-for="ratio in ratioOptions"
+                          v-else
+                          :key="`intro-${ratio}`"
+                          type="button"
+                          :class="{ selected: taskForm.introRatio === ratio }"
+                          @click="selectImageRatio('INTRO', ratio)"
+                        >
+                          {{ ratio }}
+                        </button>
+                      </div>
+                      <div class="ratio-inputs">
+                        <el-input-number
+                          v-model="taskForm.introCustomWidth"
+                          :min="304"
+                          :step="16"
+                          :disabled="usesUploadedLayoutForType('INTRO')"
+                          controls-position="right"
+                          @change="normalizeCustomImageSize('INTRO')"
+                        />
+                        <span>×</span>
+                        <el-input-number
+                          v-model="taskForm.introCustomHeight"
+                          :min="304"
+                          :step="16"
+                          :disabled="usesUploadedLayoutForType('INTRO')"
+                          controls-position="right"
+                          @change="normalizeCustomImageSize('INTRO')"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2222,7 +2368,7 @@ function pageSubtitle(): string {
                       <h2>{{ task.productName }}</h2>
                       <el-tag :type="taskStatusTagType(task.status)" effect="plain">{{ task.statusText }}</el-tag>
                     </div>
-                    <p>{{ task.form.platform }} / {{ task.form.customWidth }} x {{ task.form.customHeight }} / {{ task.form.language }}</p>
+                    <p>{{ task.form.platform }} / 主图 {{ taskImageSizeText(task.form, 'MAIN') }} / 介绍图 {{ taskImageSizeText(task.form, 'INTRO') }} / {{ task.form.language }}</p>
                     <div class="queue-tags">
                       <span>实拍图 {{ fileCount(task, '实拍图') }}</span>
                       <span>排版图 {{ fileCount(task, '排版图') }}</span>
@@ -2689,7 +2835,7 @@ function pageSubtitle(): string {
             </div>
             <div class="queue-tags">
               <span>{{ selectedQueueTask.form.platform }}</span>
-              <span>{{ selectedQueueTask.form.customWidth }} x {{ selectedQueueTask.form.customHeight }}</span>
+              <span>主图 {{ taskImageSizeText(selectedQueueTask.form, 'MAIN') }} / 介绍图 {{ taskImageSizeText(selectedQueueTask.form, 'INTRO') }}</span>
               <span>{{ selectedQueueTask.form.language }}</span>
               <span>进度 {{ selectedQueueTask.completedCount }} / {{ selectedQueueTask.totalCount }}</span>
             </div>
