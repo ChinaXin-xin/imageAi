@@ -37,11 +37,12 @@ public class ImageTaskPromptBuilder {
     ) {
         StringBuilder builder = new StringBuilder();
         builder.append("# 【最高优先级：结构与真实安装关系锁定】\n");
+        builder.append("如果生成摄像头禁止漏生成摄像头（超级重点！！），同一张图内如果多个手机厚度大小要相同");
         builder.append("上传参考图 > 深析结果 > 套装数量 > 任务参数 > 模板风格。先还原真实产品结构和真实安装关系，再做电商美化。\n");
-        builder.append("手机型号必须与任务参数一致；手机、屏幕膜、镜头膜和配件必须保持真实比例、统一透视、统一光照和合理空间关系。\n");
+        builder.append("手机型号必须与任务参数一致；手机、屏幕膜、镜头膜和配件必须保持真实比例，手机屏幕与手机膜大小必须一致、统一透视、统一光照和合理空间关系。\n");
         builder.append("屏幕膜必须匹配手机屏幕长宽比和覆盖尺寸；若悬浮在手机上方，必须与屏幕平行、中心对齐、距离合理，不得旋转、错位、过大或过小。\n");
-        builder.append("镜头膜必须匹配后摄模组尺寸和位置；若与手机同画面出现，如果下面提示词中没有特殊要求，默认直接安装到镜头上（注意）！保持真实安装关系，不得放大、缩小、偏移到无关区域。\n");
-        builder.append("如果画面生成手机背面或后置摄像头，后摄模组的摄像头数量、孔位布局、大小关系和整体位置必须目标机型一致；不得少摄像头、漏生成后摄模组、改成其他机型模组或生成无摄像头背板。\n");
+        builder.append("镜头膜必须匹配后摄模组尺寸和位置；若与手机同画面出现，如果下面提示词中没有特殊要求，默认直接安装到镜头上（注意）！，镜头/闪光灯/传感器从镜头膜孔中露出，镜头膜不是替代摄像头，而是覆盖在摄像头外侧的保护件。保持真实安装关系，不得放大、缩小、偏移到无关区域。\n");
+        builder.append("如果画面生成手机背面或后置摄像头，后摄模组的摄像头数量、孔位布局、大小关系和整体位置必须与目标机型一致；不得少摄像头、漏生成后摄模组、改成其他机型模组或生成无摄像头背板。\n");
         builder.append("不得改成通用款；不得统一大小不同的孔位；不得增加、删除、移动或遮挡孔位、缺口、外轮廓和配件。\n");
         builder.append("排版必须规整清晰，主体区、配件区和留白关系稳定；不得散乱摆放、遮挡主体、裁切手机或破坏安全边距。\n\n");
 
@@ -116,7 +117,8 @@ public class ImageTaskPromptBuilder {
         if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
             // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n# 【本张图片场景规划】\n");
-            builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
+            //builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
+            builder.append("场景标题：").append(normalizeText("", "场景" + index)).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
             builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
         }
@@ -156,20 +158,17 @@ public class ImageTaskPromptBuilder {
             return;
         }
         builder.append("# 【镜头膜安装关系锁定】\n");
-        builder.append("镜头膜属于手机后摄模组专用保护件，不是独立展示物。\n");
-        builder.append("当镜头膜与手机同时出现时，必须与对应后摄模组建立明确安装关系，用户应能一眼判断其对应当前手机镜头区域。\n");
-        builder.append("镜头膜展示位置必须位于后摄模组附近，不得出现在手机正面、中部、底部或与后摄区域无关的位置。\n");
-        builder.append("镜头膜不得远离后摄模组单独漂浮展示。\n");
+        builder.append("""
+                镜头膜属于手机后摄模组专用保护件，不是独立展示物；
+                不得远离后摄模组单独漂浮展示，也不得出现在手机正面、中部、底部、另一侧或任何与后摄区域无关的位置。
+                """);
+        builder.append("""
+                若场景明确要求悬浮安装展示：镜头膜必须位于后摄模组正上方，与后摄模组中心基本重合；
+                镜头膜与后摄模组保持平行，开孔方向一致，不得旋转、镜像、倒置或明显偏移；边界偏差不得超过一个镜头孔直径。
+                如果“主图/介绍图 画面要求”或则“主图/介绍图 参考风格图风格中没有要求镜头膜的位置，默认必须安装到手机镜头上，而且要注意生成的手机背面一定不能把某个镜头漏掉！”
+                """);
+        builder.append("若场景明确要求分开展示：镜头膜必须位于后摄区域旁侧，并保持真实安装逻辑；不得移动到手机另一侧。\n\n");
 
-        builder.append("若采用悬浮安装展示：\n");
-        builder.append("镜头膜必须位于后摄模组正上方，与后摄模组中心位置基本重合。\n");
-        builder.append("镜头膜与后摄模组保持平行，开孔方向一致。\n");
-        builder.append("不得旋转、镜像、倒置或明显偏移。\n");
-        builder.append("镜头膜与后摄模组边界偏差不得超过一个镜头孔直径。\n");
-
-        builder.append("若采用分开展示：\n");
-        builder.append("镜头膜必须位于后摄区域旁侧，并保持真实安装逻辑。\n");
-        builder.append("镜头膜与后摄模组距离不得超过手机宽度的25%，不得移动到手机另一侧。\n\n");
     }
 
     private void appendReferenceRoleAndScaleLayoutLock(

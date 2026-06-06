@@ -110,24 +110,27 @@ public class ImageScenePromptService {
     private String buildPlannerPrompt(String imageType, String finalPrompt, int count) {
         String safePrompt = abbreviate(finalPrompt == null ? "" : finalPrompt.trim(), MAX_FINAL_PROMPT_CHARS);
         return """
-            请根据下面的最终生图提示词，为“%s”规划 %d 个不同场景的图片描述。
+        请根据下面的最终生图提示词，为“%s”规划 %d 个不同场景的图片描述。
 
-            输出必须是 JSON，不要 Markdown，不要解释。格式：
-            {
-              "scenes": [
-                {"index": 1, "sceneTitle": "场景短标题", "prompt": "本张图的场景描述"}
-              ]
-            }
+        输出必须是 JSON，不要 Markdown，不要解释。格式：
+        {
+          "scenes": [
+            {"index": 1, "sceneTitle": "", "prompt": "本张图的场景描述"}
+          ]
+        }
 
-            要求：
-            1. scenes 数量必须等于 %d，index 从 1 到 %d。
-            2. 每个 prompt 控制在 300 个中文字符以内，只写本张图相对基础提示词需要变化的场景规划，不要重复完整基础提示词。
-            3. 每张图必须在场景、构图、背景、光影、角度或卖点表达上明显不同；多张图至少包含：3D立体斜角/悬浮分层图、平铺图、近景细节图；数量不足3时优先保证立体斜角和平铺。。
-            4. 每个场景都必须继承基础提示词中的产品结构、真实比例、安装关系、配件数量、禁改项和负面约束，不得因简写场景而改变或省略硬规则。
-            5. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用局部放大模块、边缘高光或旁侧特写表达。
-            基础提示词：
-            %s
-            """.formatted(imageType, count, count, count, safePrompt);
+        要求：
+        0. 返回的json中不要说与第几张图不同。
+        1. scenes 数量必须等于 %d，index 从 1 到 %d。
+        2. 每个 prompt 控制在 300 个中文字符以内，只写本张图相对基础提示词需要变化的场景规划，不要重复完整基础提示词。
+        3. 每张图必须在场景、构图、背景、光影、角度或卖点表达上明显不同；多张图至少包含：3D立体斜角安装态展示图、规整平铺图、近景细节图；数量不足3时优先保证立体斜角安装态和平铺。
+        4. 每个场景都必须继承基础提示词中的产品结构、真实比例、安装关系、配件数量、禁改项和负面约束，不得因简写场景而改变或省略硬规则。
+        5. 禁止规划镜头膜悬浮在后摄模组上方、后方或遮挡摄像头的场景；如果镜头膜与后摄手机同框展示，只允许两种关系：已精准安装到手机后摄镜头模组上，且孔内必须露出真实摄像头玻璃、闪光灯和传感器；或按真实比例平铺在手机旁边（注意镜头膜与手机的比例），不得挡住、盖住或替代摄像头、闪光灯、传感器。
+        6. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用旁侧局部放大模块、边缘高光或局部特写表达，不得改变安装关系、孔位数量、孔位大小或配件数量。
+        7. 不得规划膜片位于摄像模组后方、手机中部、手机底部、手机另一侧无关区域，或任何会遮挡后摄镜头、闪光灯、传感器的位置。
+        基础提示词：
+        %s
+        """.formatted(imageType, count, count, count, safePrompt);
     }
 
     private List<ScenePrompt> parseScenes(String text) throws Exception {
@@ -230,7 +233,7 @@ public class ImageScenePromptService {
             directive = "本张必须是平铺/俯拍场景，与第 1 张立体斜角图形成明显区别，手机与钢化膜左右位置互换且比例一致，严格禁止额外包装或未选配件。";
         }
         if ("主图".equals(imageType)) {
-            directive = directive + " 主图必须无文字、无图标、无角标、无卖点标签、无水印。";
+            //directive = directive + " 主图必须无文字、无图标、无角标、无卖点标签、无水印。";
         }
         String structureLock = "";
         String lensStructureLock = requiresLensStructureLock
