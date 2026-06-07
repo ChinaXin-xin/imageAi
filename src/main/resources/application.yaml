@@ -15,11 +15,11 @@ spring:
     
 image-ai:
   cli-proxy:
-    base-url: http://43.160.192.2:8317
-    management-key: mgmt-7508074bf946346ac147485c40d97db3
+    base-url: http://43.160.192.2:53245
+    management-key: 190045f7a0e3fccf3c24a90a66ca4738
   gpt:
-    base-url: ${IMAGE_AI_GPT_BASE_URL:http://43.160.192.2:8317}
-    api-key: ${IMAGE_AI_GPT_API_KEY:}
+    base-url: ${IMAGE_AI_GPT_BASE_URL:http://43.160.192.2:53245}
+    api-key: ${IMAGE_AI_GPT_API_KEY:sk-ObzONEyKLK9aZKyzoPv1BfyYEF2cwTsds5nJb6ygsZMrd}
     model: ${IMAGE_AI_GPT_MODEL:gpt-5.5}
   image-generation:
     model: ${IMAGE_AI_IMAGE_MODEL:gpt-image-2}

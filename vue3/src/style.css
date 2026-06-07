@@ -853,14 +853,16 @@ h1 {
   width: 132px;
 }
 
-.ratio-type-panel {
-  padding: 10px 0;
+.ratio-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding-top: 14px;
   border-top: 1px solid #edf2f7;
 }
 
-.ratio-type-panel:first-of-type {
-  border-top: 0;
-  padding-top: 0;
+.ratio-type-panel {
+  min-width: 0;
 }
 
 .ratio-type-header {
@@ -878,6 +880,12 @@ h1 {
   color: #64748b;
   font-size: 12px;
   font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .ratio-type-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .kit-grid {
@@ -1381,6 +1389,10 @@ h1 {
 
 .queue-error-text {
   color: #b91c1c !important;
+}
+
+.queue-error-text.manual-pause-text {
+  color: #7c3aed !important;
 }
 
 .queue-side {

@@ -289,8 +289,8 @@ const stats = computed<DashboardStats>(() => {
   return {
     totalAccounts: accounts.value.length,
     activeAccounts: accounts.value.filter((account) => account.status === 'active').length,
-    fiveHourImages: accounts.value.reduce((sum, account) => sum + (account.fiveHourImages ?? 0), 0),
-    weeklyImages: accounts.value.reduce((sum, account) => sum + (account.weeklyImages ?? 0), 0),
+    fiveHourImages: accounts.value.reduce((sum, account) => sum + quotaDisplayImages(account.fiveHourImages), 0),
+    weeklyImages: accounts.value.reduce((sum, account) => sum + quotaDisplayImages(account.weeklyImages), 0),
     averageFiveHourPercent: average(fiveHourValues),
     averageWeeklyPercent: average(weeklyValues),
   };
@@ -305,8 +305,12 @@ function formatPercent(value: number | null): string {
   return typeof value === 'number' ? `${Math.round(value)}%` : '--';
 }
 
-function formatNumber(value: number | null): string {
-  return typeof value === 'number' ? value.toLocaleString() : '--';
+function quotaDisplayImages(value: number | null): number {
+  return typeof value === 'number' ? Math.max(0, Math.floor(value / 1.5)) : 0;
+}
+
+function formatQuotaImages(value: number | null): string {
+  return typeof value === 'number' ? quotaDisplayImages(value).toLocaleString() : '--';
 }
 
 function progressColor(value: number | null): string {
@@ -1268,6 +1272,10 @@ function taskProgress(task: ImageTaskSummary | ImageTaskDetail): number {
   return Math.min(100, Math.max(0, Math.round((task.completedCount / task.totalCount) * 100)));
 }
 
+function isManualPauseMessage(message: string | null | undefined): boolean {
+  return typeof message === 'string' && message.includes('任务已暂停，不会自动请求后端');
+}
+
 function fileCount(task: ImageTaskSummary | ImageTaskDetail, type: UploadGroup): number {
   return task.fileSummary?.[type] ?? 0;
 }
@@ -1938,98 +1946,102 @@ function pageSubtitle(): string {
                         </p>
                       </el-popover>
                     </div>
-                    <div class="ratio-type-panel">
-                      <div class="ratio-type-header">
-                        <span>主图比例</span>
-                        <small v-if="usesUploadedLayoutForType('MAIN')">按排版图自动</small>
+                    <div class="ratio-type-grid">
+                      <div class="ratio-type-panel">
+                        <div class="ratio-type-header">
+                          <span>主图比例</span>
+                          <small v-if="usesUploadedLayoutForType('MAIN')">按排版图自动</small>
+                        </div>
+                        <div class="segmented-list">
+                          <button
+                            v-if="usesUploadedLayoutForType('MAIN')"
+                            type="button"
+                            class="selected"
+                            @click="normalizeImageSizeForType('MAIN')"
+                          >
+                            自动比例
+                          </button>
+                          <button
+                            v-for="ratio in ratioOptions"
+                            v-else
+                            :key="`main-${ratio}`"
+                            type="button"
+                            :class="{ selected: taskForm.mainRatio === ratio }"
+                            @click="selectImageRatio('MAIN', ratio)"
+                          >
+                            {{ ratio }}
+                          </button>
+                        </div>
+                        <div class="ratio-inputs">
+                          <el-input-number
+                            v-model="taskForm.mainCustomWidth"
+                            :min="304"
+                            :step="16"
+                            :disabled="usesUploadedLayoutForType('MAIN')"
+                            controls-position="right"
+                            @change="normalizeCustomImageSize('MAIN')"
+                          />
+                          <span>×</span>
+                          <el-input-number
+                            v-model="taskForm.mainCustomHeight"
+                            :min="304"
+                            :step="16"
+                            :disabled="usesUploadedLayoutForType('MAIN')"
+                            controls-position="right"
+                            @change="normalizeCustomImageSize('MAIN')"
+                          />
+                        </div>
                       </div>
-                      <div class="segmented-list">
-                        <button
-                          v-if="usesUploadedLayoutForType('MAIN')"
-                          type="button"
-                          class="selected"
-                          @click="normalizeImageSizeForType('MAIN')"
-                        >
-                          自动比例
-                        </button>
-                        <button
-                          v-for="ratio in ratioOptions"
-                          v-else
-                          :key="`main-${ratio}`"
-                          type="button"
-                          :class="{ selected: taskForm.mainRatio === ratio }"
-                          @click="selectImageRatio('MAIN', ratio)"
-                        >
-                          {{ ratio }}
-                        </button>
-                      </div>
-                      <div class="ratio-inputs">
-                        <el-input-number
-                          v-model="taskForm.mainCustomWidth"
-                          :min="304"
-                          :step="16"
-                          :disabled="usesUploadedLayoutForType('MAIN')"
-                          controls-position="right"
-                          @change="normalizeCustomImageSize('MAIN')"
-                        />
-                        <span>×</span>
-                        <el-input-number
-                          v-model="taskForm.mainCustomHeight"
-                          :min="304"
-                          :step="16"
-                          :disabled="usesUploadedLayoutForType('MAIN')"
-                          controls-position="right"
-                          @change="normalizeCustomImageSize('MAIN')"
-                        />
-                      </div>
-                    </div>
-                    <div class="ratio-type-panel">
-                      <div class="ratio-type-header">
-                        <span>介绍图比例</span>
-                        <small v-if="usesUploadedLayoutForType('INTRO')">按排版图自动</small>
-                      </div>
-                      <div class="segmented-list">
-                        <button
-                          v-if="usesUploadedLayoutForType('INTRO')"
-                          type="button"
-                          class="selected"
-                          @click="normalizeImageSizeForType('INTRO')"
-                        >
-                          自动比例
-                        </button>
-                        <button
-                          v-for="ratio in ratioOptions"
-                          v-else
-                          :key="`intro-${ratio}`"
-                          type="button"
-                          :class="{ selected: taskForm.introRatio === ratio }"
-                          @click="selectImageRatio('INTRO', ratio)"
-                        >
-                          {{ ratio }}
-                        </button>
-                      </div>
-                      <div class="ratio-inputs">
-                        <el-input-number
-                          v-model="taskForm.introCustomWidth"
-                          :min="304"
-                          :step="16"
-                          :disabled="usesUploadedLayoutForType('INTRO')"
-                          controls-position="right"
-                          @change="normalizeCustomImageSize('INTRO')"
-                        />
-                        <span>×</span>
-                        <el-input-number
-                          v-model="taskForm.introCustomHeight"
-                          :min="304"
-                          :step="16"
-                          :disabled="usesUploadedLayoutForType('INTRO')"
-                          controls-position="right"
-                          @change="normalizeCustomImageSize('INTRO')"
-                        />
+                      <div class="ratio-type-panel">
+                        <div class="ratio-type-header">
+                          <span>介绍图比例</span>
+                          <small v-if="usesUploadedLayoutForType('INTRO')">按排版图自动</small>
+                        </div>
+                        <div class="segmented-list">
+                          <button
+                            v-if="usesUploadedLayoutForType('INTRO')"
+                            type="button"
+                            class="selected"
+                            @click="normalizeImageSizeForType('INTRO')"
+                          >
+                            自动比例
+                          </button>
+                          <button
+                            v-for="ratio in ratioOptions"
+                            v-else
+                            :key="`intro-${ratio}`"
+                            type="button"
+                            :class="{ selected: taskForm.introRatio === ratio }"
+                            @click="selectImageRatio('INTRO', ratio)"
+                          >
+                            {{ ratio }}
+                          </button>
+                        </div>
+                        <div class="ratio-inputs">
+                          <el-input-number
+                            v-model="taskForm.introCustomWidth"
+                            :min="304"
+                            :step="16"
+                            :disabled="usesUploadedLayoutForType('INTRO')"
+                            controls-position="right"
+                            @change="normalizeCustomImageSize('INTRO')"
+                          />
+                          <span>×</span>
+                          <el-input-number
+                            v-model="taskForm.introCustomHeight"
+                            :min="304"
+                            :step="16"
+                            :disabled="usesUploadedLayoutForType('INTRO')"
+                            controls-position="right"
+                            @change="normalizeCustomImageSize('INTRO')"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                <el-divider />
 
                 <div class="choice-grid">
                   <div class="form-row">
@@ -2059,7 +2071,7 @@ function pageSubtitle(): string {
                     </div>
                   </div>
                 </div>
-
+                <el-divider />
                 <div class="choice-grid">
                   <div class="form-row">
                     <label>设计风格</label>
@@ -2383,7 +2395,12 @@ function pageSubtitle(): string {
                       :show-text="false"
                       :status="task.status === 'FAILED' ? 'exception' : task.status === 'COMPLETED' ? 'success' : undefined"
                     />
-                    <p v-if="task.errorMessage" class="queue-error-text">{{ task.errorMessage }}</p>
+                    <p
+                      v-if="task.errorMessage"
+                      :class="['queue-error-text', { 'manual-pause-text': isManualPauseMessage(task.errorMessage) }]"
+                    >
+                      {{ task.errorMessage }}
+                    </p>
                   </div>
                   <div class="queue-side">
                     <span>{{ task.createdAt }}</span>
@@ -2755,7 +2772,7 @@ function pageSubtitle(): string {
                       <span class="quota-label">5 小时额度</span>
                       <strong>{{ formatPercent(account.fiveHour.remainingPercent) }}</strong>
                     </div>
-                    <div class="image-count">{{ formatNumber(account.fiveHourImages) }} 张</div>
+                    <div class="image-count">{{ formatQuotaImages(account.fiveHourImages) }} 张</div>
                   </div>
                   <el-progress
                     :percentage="account.fiveHour.remainingPercent ?? 0"
@@ -2774,7 +2791,7 @@ function pageSubtitle(): string {
                       <span class="quota-label">每周额度</span>
                       <strong>{{ formatPercent(account.weekly.remainingPercent) }}</strong>
                     </div>
-                    <div class="image-count">{{ formatNumber(account.weeklyImages) }} 张</div>
+                    <div class="image-count">{{ formatQuotaImages(account.weeklyImages) }} 张</div>
                   </div>
                   <el-progress
                     :percentage="account.weekly.remainingPercent ?? 0"
@@ -2859,7 +2876,9 @@ function pageSubtitle(): string {
             {{ selectedQueueTask.form.sellingPoints.join('、') || '未选择' }}
           </el-descriptions-item>
           <el-descriptions-item v-if="selectedQueueTask.errorMessage" label="错误信息" :span="4">
-            <span class="queue-error-text">{{ selectedQueueTask.errorMessage }}</span>
+            <span :class="['queue-error-text', { 'manual-pause-text': isManualPauseMessage(selectedQueueTask.errorMessage) }]">
+              {{ selectedQueueTask.errorMessage }}
+            </span>
           </el-descriptions-item>
         </el-descriptions>
 
