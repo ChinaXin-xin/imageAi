@@ -1912,7 +1912,7 @@ function pageSubtitle(): string {
                 </div>
 
                 <div class="choice-grid">
-                  <div class="form-row">
+                  <div class="form-row platform-choice-row">
                     <label>平台选择</label>
                     <div class="segmented-list">
                       <button
@@ -1926,7 +1926,7 @@ function pageSubtitle(): string {
                       </button>
                     </div>
                   </div>
-                  <div class="form-row">
+                  <div class="form-row image-ratio-row">
                     <div class="label-help-row">
                       <label>图片比例</label>
                       <el-popover placement="top" width="320" trigger="hover">
