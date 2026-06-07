@@ -351,9 +351,19 @@ public class ImageTaskQueueService {
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
             // 主图：基于主图最终生图提示词单独规划场景，后续只拼到主图结果提示词。
-            List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes("主图", finalMainPrompt, mainCount);
+            List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes(
+                    "主图",
+                    finalMainPrompt,
+                    mainCount,
+                    settings.scenePrompt()
+            );
             // 介绍图：基于介绍图最终生图提示词单独规划场景，后续只拼到介绍图结果提示词。
-            List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes("介绍图", finalIntroPrompt, introCount);
+            List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes(
+                    "介绍图",
+                    finalIntroPrompt,
+                    introCount,
+                    settings.scenePrompt()
+            );
             imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
             List<GenerationJob> jobs = createGenerationJobs(
                     taskId,

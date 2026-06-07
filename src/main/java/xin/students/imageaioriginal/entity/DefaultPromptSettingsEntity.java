@@ -16,6 +16,7 @@ public class DefaultPromptSettingsEntity {
     private String introPrompt;
     private String analysisPrompt;
     private String targetTemplatePrompt;
+    private String scenePrompt;
     private String customSellingPoints;
     private Timestamp updatedAt;
 }

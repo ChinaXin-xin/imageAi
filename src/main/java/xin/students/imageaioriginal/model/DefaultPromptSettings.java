@@ -7,6 +7,7 @@ public record DefaultPromptSettings(
         String introPrompt,
         String analysisPrompt,
         String targetTemplatePrompt,
+        String scenePrompt,
         List<String> customSellingPoints
 ) {
 }

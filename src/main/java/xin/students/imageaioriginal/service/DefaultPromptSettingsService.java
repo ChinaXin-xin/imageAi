@@ -86,6 +86,15 @@ public class DefaultPromptSettingsService {
 
             只描述风格和画面语言，不要要求生成模板里的具体商品，不要编造品牌。
             """;
+    private static final String DEFAULT_SCENE_PROMPT = """
+            1. 3D立体斜角安装态：手机完整入画，屏幕膜/钢化膜与手机分层错位展示，有厚度、阴影和空间纵深。
+            2. 规整平铺套装图：俯拍或45度俯拍，手机、膜片和已选配件按真实比例整齐分区，突出套装完整度。
+            3. 近景结构细节图：保留主商品整体关系，用旁侧局部放大或边缘高光展示膜片边缘、镜头膜孔位和贴合细节。
+            4. 防窥卖点图：仅在任务选择防窥膜时使用深色防窥质感和侧视隐私效果，未选择防窥时改为屏幕保护结构展示。
+            5. 高清透亮卖点图：突出透明清亮玻璃质感、屏幕显示清晰度和高光反射，不改变手机型号和产品结构。
+            6. 防指纹/疏油卖点图：用干净反光、少量水滴或指纹对比表达洁净效果，不添加文字、包装或未选配件。
+            7. 易安装步骤感图：展示屏幕膜与手机的对位关系和已选择的清洁/安装辅助配件，所有配件按参考图数量和比例出现。
+            """;
     private static final List<String> DEFAULT_CUSTOM_SELLING_POINTS =
             List.of("高清透亮", "9H硬度", "防指纹", "全屏覆盖", "易安装", "镜头保护");
 
@@ -128,6 +137,7 @@ public class DefaultPromptSettingsService {
                     DEFAULT_INTRO_PROMPT,
                     DEFAULT_ANALYSIS_PROMPT,
                     DEFAULT_TARGET_TEMPLATE_PROMPT,
+                    DEFAULT_SCENE_PROMPT,
                     DEFAULT_CUSTOM_SELLING_POINTS
             ))
                     : toSettings(entity);
@@ -143,6 +153,7 @@ public class DefaultPromptSettingsService {
         ensureTable();
         String analysisPrompt = normalizeAnalysisPrompt(settings.analysisPrompt());
         String targetTemplatePrompt = normalize(settings.targetTemplatePrompt(), DEFAULT_TARGET_TEMPLATE_PROMPT);
+        String scenePrompt = normalize(settings.scenePrompt(), DEFAULT_SCENE_PROMPT);
         String mainPrompt = normalizeGenerationPrompt(settings.mainPrompt(), DEFAULT_MAIN_PROMPT, analysisPrompt);
         String introPrompt = normalizeGenerationPrompt(settings.introPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt);
         List<String> customSellingPoints = normalizeSellingPoints(settings.customSellingPoints());
@@ -153,6 +164,7 @@ public class DefaultPromptSettingsService {
         entity.setIntroPrompt(introPrompt);
         entity.setAnalysisPrompt(analysisPrompt);
         entity.setTargetTemplatePrompt(targetTemplatePrompt);
+        entity.setScenePrompt(scenePrompt);
         entity.setCustomSellingPoints(toJson(customSellingPoints));
 
         if (defaultPromptSettingsMapper.selectById(SETTINGS_ID) == null) {
@@ -160,7 +172,7 @@ public class DefaultPromptSettingsService {
         } else {
             defaultPromptSettingsMapper.updateById(entity);
         }
-        DefaultPromptSettings saved = new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, customSellingPoints);
+        DefaultPromptSettings saved = new DefaultPromptSettings(mainPrompt, introPrompt, analysisPrompt, targetTemplatePrompt, scenePrompt, customSellingPoints);
         cachedSettings = saved;
         return saved;
     }
@@ -172,6 +184,7 @@ public class DefaultPromptSettingsService {
                 normalizeGenerationPrompt(entity.getIntroPrompt(), DEFAULT_INTRO_PROMPT, analysisPrompt),
                 analysisPrompt,
                 normalize(entity.getTargetTemplatePrompt(), DEFAULT_TARGET_TEMPLATE_PROMPT),
+                normalize(entity.getScenePrompt(), DEFAULT_SCENE_PROMPT),
                 parseSellingPoints(entity.getCustomSellingPoints())
         );
     }
@@ -180,7 +193,8 @@ public class DefaultPromptSettingsService {
         return !sameText(entity.getMainPrompt(), settings.mainPrompt())
                 || !sameText(entity.getIntroPrompt(), settings.introPrompt())
                 || !sameText(entity.getAnalysisPrompt(), settings.analysisPrompt())
-                || !sameText(entity.getTargetTemplatePrompt(), settings.targetTemplatePrompt());
+                || !sameText(entity.getTargetTemplatePrompt(), settings.targetTemplatePrompt())
+                || !sameText(entity.getScenePrompt(), settings.scenePrompt());
     }
 
     private void ensureTable() {
@@ -200,12 +214,14 @@ public class DefaultPromptSettingsService {
                       intro_prompt text not null,
                       analysis_prompt text not null,
                       target_template_prompt text null,
+                      scene_prompt text null,
                       custom_selling_points text not null,
                       updated_at timestamp not null default current_timestamp on update current_timestamp
                     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
                     """);
                 addColumnIfMissing(connection, "analysis_prompt", "text null");
                 addColumnIfMissing(connection, "target_template_prompt", "text null");
+                addColumnIfMissing(connection, "scene_prompt", "text null");
                 addColumnIfMissing(connection, "custom_selling_points", "text null");
                 tableEnsured = true;
             } catch (SQLException ex) {
