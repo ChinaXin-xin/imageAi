@@ -575,12 +575,16 @@ function randomProductName(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
 }
 
+function isRandomProductName(name: string): boolean {
+  return /^[A-Za-z0-9]{8}$/.test(name.trim());
+}
+
 function randomTargetTemplateName(type: TargetTemplateType): string {
   return `${type === 'MAIN' ? '主图' : '介绍图'}参考风格-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
 function ensureProductName() {
-  if (!taskForm.value.productName.trim()) {
+  if (!taskForm.value.productName.trim() || isRandomProductName(taskForm.value.productName)) {
     taskForm.value.productName = randomProductName();
   }
 }
