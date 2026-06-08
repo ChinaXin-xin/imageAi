@@ -86,7 +86,7 @@ class ImageTaskPromptBuilderTests {
                 .doesNotContain("介绍图场景规划");
         assertThat(introItemPrompt)
                 .startsWith(finalIntroPrompt)
-                .contains("【本张图片场景规划】")
+                .contains("# 【本张图片场景规划】")
                 .contains("介绍图场景规划")
                 .doesNotContain(finalMainPrompt)
                 .doesNotContain("主图场景规划");
