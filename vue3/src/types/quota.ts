@@ -120,6 +120,7 @@ export interface ImageTaskPayload {
   language: string;
   mainPrompt: string;
   introPrompt: string;
+  scenePrompt: string;
   mainTargetTemplateId?: number | null;
   introTargetTemplateId?: number | null;
   templateUsages: ImageAssetUsage[];

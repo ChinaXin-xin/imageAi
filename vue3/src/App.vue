@@ -263,6 +263,7 @@ const taskForm = ref({
   language: '英文',
   mainPrompt: '',
   introPrompt: '',
+  scenePrompt: DEFAULT_SCENE_PROMPT,
   mainTargetTemplateId: null as number | null,
   introTargetTemplateId: null as number | null,
   templateUsages: defaultAssetUsages(),
@@ -629,6 +630,7 @@ async function loadPromptSettings() {
     defaultSettings.value = normalizedSettings;
     taskForm.value.mainPrompt = normalizedSettings.mainPrompt;
     taskForm.value.introPrompt = normalizedSettings.introPrompt;
+    taskForm.value.scenePrompt = normalizedSettings.scenePrompt;
     if (normalizedSettings.customSellingPoints.length > 0) {
       taskForm.value.sellingPoints = [...normalizedSettings.customSellingPoints];
     }
@@ -654,6 +656,7 @@ async function savePromptSettings() {
     };
     taskForm.value.mainPrompt = defaultSettings.value.mainPrompt;
     taskForm.value.introPrompt = defaultSettings.value.introPrompt;
+    taskForm.value.scenePrompt = defaultSettings.value.scenePrompt;
     taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
     ElMessage.success('默认提示词已保存。');
   } catch (error) {
@@ -852,6 +855,7 @@ function snapshotTaskForm(): ImageTaskPayload {
     language: taskForm.value.language,
     mainPrompt: taskForm.value.mainPrompt,
     introPrompt: taskForm.value.introPrompt,
+    scenePrompt: taskForm.value.scenePrompt,
     mainTargetTemplateId: usesUploadedLayoutForType('MAIN') ? null : taskForm.value.mainTargetTemplateId,
     introTargetTemplateId: usesUploadedLayoutForType('INTRO') ? null : taskForm.value.introTargetTemplateId,
     templateUsages: [...taskForm.value.templateUsages],
@@ -1532,6 +1536,7 @@ function resetTaskForm() {
     language: '英文',
     mainPrompt: '',
     introPrompt: '',
+    scenePrompt: defaultSettings.value.scenePrompt || DEFAULT_SCENE_PROMPT,
     mainTargetTemplateId: null,
     introTargetTemplateId: null,
     templateUsages: defaultAssetUsages(),
@@ -1543,6 +1548,7 @@ function resetTaskForm() {
   if (defaultSettings.value.introPrompt) {
     taskForm.value.introPrompt = defaultSettings.value.introPrompt;
   }
+  taskForm.value.scenePrompt = defaultSettings.value.scenePrompt || DEFAULT_SCENE_PROMPT;
   taskForm.value.sellingPoints = [...defaultSettings.value.customSellingPoints];
   kitSpecs.value = [];
   clearUploadedImagesAndAnalysis();
@@ -2311,6 +2317,17 @@ function pageSubtitle(): string {
                       placeholder="输入介绍图提示词，描述展示内容和风格"
                     />
                   </div>
+                </div>
+                <div class="form-row">
+                  <label>场景图提示词</label>
+                  <el-input
+                    v-model="taskForm.scenePrompt"
+                    type="textarea"
+                    :rows="6"
+                    maxlength="3000"
+                    show-word-limit
+                    placeholder="默认使用默认设置中的场景图提示词；留空时后端会自动规划多张图的场景和卖点"
+                  />
                 </div>
               </section>
 

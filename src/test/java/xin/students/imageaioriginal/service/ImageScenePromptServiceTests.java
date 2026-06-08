@@ -55,11 +55,11 @@ class ImageScenePromptServiceTests {
 
         assertThat(scenes).hasSize(5);
         assertThat(scenes)
-                .anySatisfy(scene -> assertThat(scene.prompt()).contains("3D立体斜角"))
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("套装合集主图"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("平铺"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("近景结构细节"));
         assertThat(scenes)
-                .anySatisfy(scene -> assertThat(scene.prompt()).contains("手机完整入画"))
+                .anySatisfy(scene -> assertThat(scene.prompt()).contains("主体完整入画"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).contains("真实比例"))
                 .anySatisfy(scene -> assertThat(scene.prompt()).containsAnyOf("已选配件", "整齐"));
         assertThat(scenes).allSatisfy(scene -> {
@@ -74,7 +74,7 @@ class ImageScenePromptServiceTests {
 
     @Test
     void fallbackScenesUseConfiguredSceneLines() {
-        var scenes = service.fallbackScenes("主图", 3, false, """
+        var scenes = service.fallbackScenes("介绍图", 3, false, """
                 第一张展示高清透亮卖点
                 第二张展示防指纹疏油卖点
                 第三张展示易安装步骤感
@@ -84,5 +84,16 @@ class ImageScenePromptServiceTests {
         assertThat(scenes.get(0).prompt()).contains("展示高清透亮卖点");
         assertThat(scenes.get(1).prompt()).contains("展示防指纹疏油卖点");
         assertThat(scenes.get(2).prompt()).contains("展示易安装步骤感");
+    }
+
+    @Test
+    void firstMainFallbackSceneShowsFullBundleWhenMultipleMainImages() {
+        var scenes = service.fallbackScenes("主图", 3, false, "");
+
+        assertThat(scenes).hasSize(3);
+        assertThat(scenes.get(0).prompt())
+                .contains("套装合集主图")
+                .contains("所有已选择配件");
+        assertThat(scenes.get(1).prompt()).contains("规整平铺");
     }
 }

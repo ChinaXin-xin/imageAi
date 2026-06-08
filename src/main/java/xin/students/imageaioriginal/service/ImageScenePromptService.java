@@ -49,6 +49,10 @@ public class ImageScenePromptService {
     }
 
     public List<ScenePrompt> planScenes(String imageType, String finalPrompt, int count, String scenePrompt) {
+        return planScenes(imageType, finalPrompt, count, scenePrompt, false);
+    }
+
+    public List<ScenePrompt> planScenes(String imageType, String finalPrompt, int count, String scenePrompt, boolean hasUploadedTemplate) {
         int normalizedCount = Math.max(0, Math.min(MAX_SCENES, count));
         if (normalizedCount <= 0) {
             return List.of();
@@ -56,12 +60,12 @@ public class ImageScenePromptService {
         boolean requiresLensStructureLock = requiresLensStructureLock(finalPrompt);
         String normalizedScenePrompt = normalizeScenePrompt(scenePrompt);
         if (normalizedCount == 1) {
-            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock, normalizedScenePrompt);
+            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock, normalizedScenePrompt, hasUploadedTemplate);
         }
 
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         // 主图和介绍图会分别传入各自的最终生图提示词，场景规划必须基于当前类型独立生成。
-        String prompt = buildPlannerPrompt(imageType, finalPrompt, normalizedCount, normalizedScenePrompt);
+        String prompt = buildPlannerPrompt(imageType, finalPrompt, normalizedCount, normalizedScenePrompt, hasUploadedTemplate);
         LOG.info(
                 "gpt.scene-plan.start id={} type={} count={} model={} promptChars={}",
                 requestId,
@@ -92,7 +96,8 @@ public class ImageScenePromptService {
                     imageType,
                     normalizedCount,
                     requiresLensStructureLock,
-                    normalizedScenePrompt
+                    normalizedScenePrompt,
+                    hasUploadedTemplate
             );
             LOG.info(
                     "gpt.scene-plan.response id={} type={} count={} parsedCount={} result={}",
@@ -111,13 +116,19 @@ public class ImageScenePromptService {
                     normalizedCount,
                     ex.getMessage()
             );
-            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock, normalizedScenePrompt);
+            return fallbackScenes(imageType, normalizedCount, requiresLensStructureLock, normalizedScenePrompt, hasUploadedTemplate);
         }
     }
 
-    private String buildPlannerPrompt(String imageType, String finalPrompt, int count, String scenePrompt) {
+    private String buildPlannerPrompt(String imageType, String finalPrompt, int count, String scenePrompt, boolean hasUploadedTemplate) {
         String safePrompt = abbreviate(finalPrompt == null ? "" : finalPrompt.trim(), MAX_FINAL_PROMPT_CHARS);
         String safeScenePrompt = abbreviate(scenePrompt, MAX_SCENE_SETTING_CHARS);
+        String scenePromptMode = safeScenePrompt.isBlank()
+                ? "用户未输入场景图提示词：请你基于基础提示词、卖点、套装规格和平台要求自动规划不同场景。"
+                : "用户输入了场景图提示词：必须在用户给定范围内规划，不要越出用户指定的场景/卖点方向。";
+        String layoutMode = hasUploadedTemplate
+                ? "当前类型启用了排版图：场景规划只作为轻量构图/光影参考，不能突破排版图主体区、配件区、留白、安全边距和对齐关系。"
+                : "当前类型未启用排版图：除主图第 1 张全配件合集外，其它主图或介绍图可按场景卖点从已选配件中自动选择部分配件展示，不要求每张都把配件全展示完；只能从已选配件中选择，未选配件禁止出现。";
         return """
         请根据下面的最终生图提示词，为“%s”规划 %d 个不同场景的图片描述。
 
@@ -132,18 +143,20 @@ public class ImageScenePromptService {
         0. 返回的json中不要说与第几张图不同。
         1. scenes 数量必须等于 %d，index 从 1 到 %d。
         2. 每个 prompt 控制在 300 个中文字符以内，只写本张图相对基础提示词需要变化的场景规划，不要重复完整基础提示词。
-        3. 优先按“用户手动输入的场景图要求”逐条分配到每张图；如果场景图要求少于图片数量，请基于已有场景继续扩展不同卖点、构图、背景、光影或角度，避免多张图同一造型。
-        4. 每个场景都必须继承基础提示词中的产品结构、真实比例、安装关系、配件数量、禁改项和负面约束，不得因简写场景而改变或省略硬规则。
-        5. 禁止规划镜头膜悬浮在后摄模组上方、后方或遮挡摄像头的场景；如果镜头膜与后摄手机同框展示，只允许两种关系：已精准安装到手机后摄镜头模组上，且孔内必须露出真实摄像头玻璃、闪光灯和传感器；或按真实比例平铺在手机旁边（注意镜头膜与手机的比例），不得挡住、盖住或替代摄像头、闪光灯、传感器。
-        6. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用旁侧局部放大模块、边缘高光或局部特写表达，不得改变安装关系、孔位数量、孔位大小或配件数量。
-        7. 不得规划膜片位于摄像模组后方、手机中部、手机底部、手机另一侧无关区域，或任何会遮挡后摄镜头、闪光灯、传感器的位置。
+        3. %s
+        4. %s
+        5. 如果“%s”为主图且数量大于 1，index=1 必须是套装合集图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示。
+        6. 每个场景都必须继承基础提示词中的产品结构、真实比例、安装关系、禁改项和负面约束；如果某张只展示部分已选配件，也不得改变已展示配件的真实形态和数量。
+        7. 禁止规划镜头膜悬浮在后摄模组上方、后方或遮挡摄像头的场景；如果镜头膜与后摄手机同框展示，只允许两种关系：已精准安装到手机后摄镜头模组上，且孔内必须露出真实摄像头玻璃、闪光灯和传感器；或按真实比例平铺在手机旁边（注意镜头膜与手机的比例），不得挡住、盖住或替代摄像头、闪光灯、传感器。
+        8. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用旁侧局部放大模块、边缘高光或局部特写表达，不得改变安装关系、孔位数量、孔位大小或配件数量。
+        9. 不得规划膜片位于摄像模组后方、手机中部、手机底部、手机另一侧无关区域，或任何会遮挡后摄镜头、闪光灯、传感器的位置。
 
-        用户手动输入的场景图要求：
+        场景图提示词：
         %s
 
         基础提示词：
         %s
-        """.formatted(imageType, count, count, count, safeScenePrompt, safePrompt);
+        """.formatted(imageType, count, count, count, scenePromptMode, layoutMode, imageType, safeScenePrompt, safePrompt);
     }
 
     private List<ScenePrompt> parseScenes(String text) throws Exception {
@@ -179,9 +192,10 @@ public class ImageScenePromptService {
             String imageType,
             int count,
             boolean requiresLensStructureLock,
-            String scenePrompt
+            String scenePrompt,
+            boolean hasUploadedTemplate
     ) {
-        List<ScenePrompt> fallback = fallbackScenes(imageType, count, requiresLensStructureLock, scenePrompt);
+        List<ScenePrompt> fallback = fallbackScenes(imageType, count, requiresLensStructureLock, scenePrompt, hasUploadedTemplate);
         List<ScenePrompt> normalized = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             ScenePrompt parsed = i < parsedScenes.size() ? parsedScenes.get(i) : null;
@@ -191,7 +205,7 @@ public class ImageScenePromptService {
                 normalized.add(new ScenePrompt(
                         i + 1,
                         normalizeTitle(parsed.sceneTitle(), i + 1),
-                        appendConfiguredSceneDirective(parsed.prompt().trim(), imageType, i, requiresLensStructureLock, scenePrompt)
+                        appendConfiguredSceneDirective(parsed.prompt().trim(), imageType, i, count, requiresLensStructureLock, scenePrompt)
                 ));
             }
         }
@@ -204,20 +218,32 @@ public class ImageScenePromptService {
     }
 
     List<ScenePrompt> fallbackScenes(String imageType, int count, boolean requiresLensStructureLock, String scenePrompt) {
+        return fallbackScenes(imageType, count, requiresLensStructureLock, scenePrompt, false);
+    }
+
+    List<ScenePrompt> fallbackScenes(String imageType, int count, boolean requiresLensStructureLock, String scenePrompt, boolean hasUploadedTemplate) {
         String cameraHoleLock = requiresLensStructureLock
                 ? "镜头膜必须按上传图/深析结果保持对应机型的外轮廓、孔位数量、位置和大小差异，不套用其他手机型号。"
                 : "产品结构按上传图/深析结果保持外轮廓、数量、位置和大小差异。";
         List<String> source = sceneDirectives(scenePrompt);
+        if (source.isEmpty()) {
+            source = autoSceneDirectives();
+        }
         List<ScenePrompt> scenes = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            String scene = i < source.size()
+            String scene = "主图".equals(imageType) && count > 1 && i == 0
+                    ? "套装合集主图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示，主体完整入画，配件分区对齐。"
+                    : i < source.size()
                     ? source.get(i)
                     : "基于基础提示词和已配置场景继续扩展新的卖点、构图、背景、光影或角度，不要重复已有图片造型。";
             String typeLock = "主图".equals(imageType) ? "主图必须无文字、无图标、无角标、无卖点标签、无水印。" : "";
+            String accessoryMode = hasUploadedTemplate
+                    ? "按排版图区域展示配件。"
+                    : "除主图第1张合集外，本张可按卖点只展示部分已选配件，未选配件禁止出现。";
             scenes.add(new ScenePrompt(
                     i + 1,
                     "场景" + (i + 1),
-                    abbreviate(scene + " " + typeLock + " " + cameraHoleLock, MAX_SCENE_PROMPT_CHARS)
+                    abbreviate(scene + " " + typeLock + " " + accessoryMode + " " + cameraHoleLock, MAX_SCENE_PROMPT_CHARS)
             ));
         }
         return scenes;
@@ -227,10 +253,14 @@ public class ImageScenePromptService {
             String prompt,
             String imageType,
             int zeroBasedIndex,
+            int total,
             boolean requiresLensStructureLock,
             String scenePrompt
     ) {
         String directive = sceneDirectiveForIndex(scenePrompt, zeroBasedIndex);
+        if ("主图".equals(imageType) && total > 1 && zeroBasedIndex == 0) {
+            directive = "套装合集主图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示，主体完整入画，配件分区对齐。 " + directive;
+        }
         String typeLock = "主图".equals(imageType)
                 ? "主图必须无文字、无图标、无角标、无卖点标签、无水印。"
                 : "";
@@ -238,6 +268,18 @@ public class ImageScenePromptService {
                 ? "不改变孔位数量、位置、大小差异和一体式/分离式形态。"
                 : "";
         return abbreviate(prompt + " " + directive + " " + typeLock + " " + lensStructureLock, MAX_SCENE_PROMPT_CHARS);
+    }
+
+    private List<String> autoSceneDirectives() {
+        return List.of(
+                "3D立体斜角安装态：手机完整入画，屏幕膜/钢化膜与手机分层错位展示，有厚度、阴影和空间纵深。",
+                "规整平铺套装图：俯拍或45度俯拍，手机、膜片和与当前卖点相关的已选配件按真实比例整齐分区。",
+                "近景结构细节图：保留主商品整体关系，用旁侧局部放大或边缘高光展示膜片边缘、镜头膜孔位和贴合细节。",
+                "防窥卖点图：仅在任务选择防窥膜时使用深色防窥质感和侧视隐私效果，未选择防窥时改为屏幕保护结构展示。",
+                "高清透亮卖点图：突出透明清亮玻璃质感、屏幕显示清晰度和高光反射，不改变手机型号和产品结构。",
+                "防指纹/疏油卖点图：用干净反光、少量水滴或指纹对比表达洁净效果，不添加文字、包装或未选配件。",
+                "易安装步骤感图：展示屏幕膜与手机的对位关系和必要的已选择清洁/安装辅助配件，配件按参考图数量和比例出现。"
+        );
     }
 
     private String normalizeScenePrompt(String scenePrompt) {
@@ -265,7 +307,7 @@ public class ImageScenePromptService {
                 directives.add(directive);
             }
         }
-        if (directives.isEmpty() && !containsForbiddenObject(normalized)) {
+        if (directives.isEmpty() && !normalized.isBlank() && !containsForbiddenObject(normalized)) {
             directives.add(normalized);
         }
         return directives;

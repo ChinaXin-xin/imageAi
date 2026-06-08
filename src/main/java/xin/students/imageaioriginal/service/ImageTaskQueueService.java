@@ -350,19 +350,24 @@ public class ImageTaskQueueService {
             imageTaskRepository.clearResults(taskId);
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
+            String scenePrompt = scenePromptForTask(record.payload(), settings);
+            boolean mainHasUploadedTemplate = hasUploadedTemplateForType(record.payload(), uploadMaterialContext, "主图");
+            boolean introHasUploadedTemplate = hasUploadedTemplateForType(record.payload(), uploadMaterialContext, "介绍图");
             // 主图：基于主图最终生图提示词单独规划场景，后续只拼到主图结果提示词。
             List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes(
                     "主图",
                     finalMainPrompt,
                     mainCount,
-                    settings.scenePrompt()
+                    scenePrompt,
+                    mainHasUploadedTemplate
             );
             // 介绍图：基于介绍图最终生图提示词单独规划场景，后续只拼到介绍图结果提示词。
             List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes(
                     "介绍图",
                     finalIntroPrompt,
                     introCount,
-                    settings.scenePrompt()
+                    scenePrompt,
+                    introHasUploadedTemplate
             );
             imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
             List<GenerationJob> jobs = createGenerationJobs(
@@ -507,6 +512,13 @@ public class ImageTaskQueueService {
             jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate, introHasUploadedTemplate));
         }
         return jobs;
+    }
+
+    private String scenePromptForTask(ImageTaskPayload payload, DefaultPromptSettings settings) {
+        if (payload.scenePrompt() != null) {
+            return payload.scenePrompt().trim();
+        }
+        return settings.scenePrompt();
     }
 
     private ImageScenePromptService.ScenePrompt sceneAt(List<ImageScenePromptService.ScenePrompt> scenes, int index) {
@@ -906,6 +918,7 @@ public class ImageTaskQueueService {
                 normalizeText(payload.language(), "英文"),
                 normalizeNullable(payload.mainPrompt()),
                 normalizeNullable(payload.introPrompt()),
+                normalizeNullable(payload.scenePrompt()),
                 mainTargetTemplateId,
                 introTargetTemplateId,
                 templateUsages,

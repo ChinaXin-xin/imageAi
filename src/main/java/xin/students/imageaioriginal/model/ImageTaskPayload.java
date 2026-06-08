@@ -30,6 +30,7 @@ public record ImageTaskPayload(
         String language,
         String mainPrompt,
         String introPrompt,
+        String scenePrompt,
         Long mainTargetTemplateId,
         Long introTargetTemplateId,
         List<String> templateUsages,

@@ -93,6 +93,26 @@ class ImageTaskPromptBuilderTests {
     }
 
     @Test
+    void generationItemPromptForcesFirstMainBundleAndAllowsPartialAccessoriesLater() {
+        ImageTaskPayload payload = payload(List.of("MAIN", "INTRO"));
+        ImageScenePromptService.ScenePrompt scene = new ImageScenePromptService.ScenePrompt(
+                1,
+                "高清卖点",
+                "突出高清透亮玻璃质感。"
+        );
+
+        String firstMain = builder.generationItemPrompt("主图最终提示词。", "主图", 1, 7, scene, payload, false);
+        String secondMain = builder.generationItemPrompt("主图最终提示词。", "主图", 2, 7, scene, payload, false);
+
+        assertThat(firstMain)
+                .contains("本张必须是套装合集图")
+                .contains("全部同框整齐展示");
+        assertThat(secondMain)
+                .contains("只从已选择配件中挑选相关配件展示")
+                .doesNotContain("本张必须是套装合集图");
+    }
+
+    @Test
     void buildGenerationPromptAppendsReferenceStyleAfterImageTypePrompt() {
         ImageTaskPayload payload = payload(List.of("MAIN", "INTRO"));
         TargetTemplateService.TargetTemplateRecord targetTemplate = new TargetTemplateService.TargetTemplateRecord(
@@ -159,6 +179,7 @@ class ImageTaskPromptBuilderTests {
                 "英文",
                 "生成主图。",
                 "生成介绍图。",
+                "1. 套装合集图\n2. 高清透亮卖点图",
                 null,
                 null,
                 templateUsages,

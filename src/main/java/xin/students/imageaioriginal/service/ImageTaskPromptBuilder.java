@@ -140,8 +140,9 @@ public class ImageTaskPromptBuilder {
             builder.append("\n# 【本张图片场景规划】\n");
             builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
-            builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
+            builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位和已展示配件真实外观；如果本张只展示部分已选配件，不得加入未选配件或生成错误数量；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
         }
+        appendPerImageAccessoryDisplayRule(builder, payload, resultType, index, total, hasUploadedTemplate);
         appendPerImageSelfAudit(builder, payload, finalPrompt, resultType, index);
         return builder.toString();
     }
@@ -153,6 +154,34 @@ public class ImageTaskPromptBuilder {
         builder.append("将前面输入的用户上传产品图、实拍结构、配件图、壁纸图等素材合理填充到排版图对应区域；只替换为本任务素材，不照抄排版图中的示例商品、品牌、文字、图标或装饰元素。\n");
         builder.append("如排版图与原始画面排版要求、场景规划或参考风格存在冲突，以排版图为最高版式优先级；但不得改变实拍图产品结构、孔位、真实比例、配件数量和套装规格。\n");
         builder.append(resultType).append("第 ").append(index).append(" 张必须按最后一张排版图完成素材填充，不要重新散乱摆放。\n");
+    }
+
+    private void appendPerImageAccessoryDisplayRule(
+            StringBuilder builder,
+            ImageTaskPayload payload,
+            String resultType,
+            int index,
+            int total,
+            boolean hasUploadedTemplate
+    ) {
+        String kitSpecText = joinKitSpecs(payload.kitSpecs());
+        boolean hasKit = !"未选择".equals(kitSpecText);
+        if ("主图".equals(resultType) && total > 1 && index == 1) {
+            builder.append("\n# 【本张配件展示规则】\n");
+            builder.append("本张必须是套装合集图：手机、膜片/镜头膜");
+            if (hasKit) {
+                builder.append("和所有已选择套装配件（").append(kitSpecText).append("）");
+            } else {
+                builder.append("和任务中已选择/上传的相关配件");
+            }
+            builder.append("全部同框整齐展示，按真实比例分区摆放，主体完整入画；不得遗漏已选择配件，不得加入未选择配件。\n");
+            return;
+        }
+        if (!hasUploadedTemplate) {
+            builder.append("\n# 【本张配件展示规则】\n");
+            builder.append("本张可根据当前场景卖点，只从已选择配件中挑选相关配件展示，不要求把所有配件一次性展示完；");
+            builder.append("若展示某个已选配件，必须按参考图外观、真实比例和该场景需要的数量准确出现；未选择配件禁止出现。\n");
+        }
     }
 
     public String generationBasePrompt(String value, String fallback, String analysisPrompt) {
@@ -372,7 +401,7 @@ public class ImageTaskPromptBuilder {
             return;
         }
         builder.append("# 【套装规格数量锁定】\n").append(kitSpecText).append("\n");
-        builder.append("套装规格里的每一种配件都必须按数量准确出现，未选择的配件不要出现。\n");
+        builder.append("套装规格是本任务允许使用的配件白名单和全配件合集数量锁定：主图数量大于 1 时，主图第 1 张必须把所有已选择配件按数量准确展示；未启用排版图的其它主图或介绍图可按场景卖点只选择部分已选配件，不要求每张都全量展示；无论部分或全部展示，未选择的配件都不要出现。\n");
         appendAccessoryReferenceContext(builder, payload.kitSpecs());
         builder.append("\n");
     }
@@ -385,7 +414,7 @@ public class ImageTaskPromptBuilder {
         }
         builder.append("【配件参考图】已将以下配件图片作为生图参考图传入：")
                 .append(String.join("、", accessories.stream().map(ExtraAccessoryService.ExtraAccessoryRecord::name).toList()))
-                .append("。生成时必须参考对应配件图片的形状、颜色、材质、封边/标签区域、图案和可见文字，并按套装规格数量准确摆放；可见文字不要省略、改字或替换成空白块。\n");
+                .append("。生成时必须参考对应配件图片的形状、颜色、材质、封边/标签区域、图案和可见文字；当本张场景展示某个配件时必须保持其真实外观和数量要求，全配件合集图必须按套装规格数量准确摆放；可见文字不要省略、改字或替换成空白块。\n");
     }
 
     private void appendUploadedTemplateContext(

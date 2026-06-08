@@ -61,6 +61,7 @@ class ImageTaskPromptBuilderTemplateFillTests {
                 "英文",
                 "生成主图。",
                 "生成介绍图。",
+                "1. 套装合集图\n2. 高清透亮卖点图",
                 null,
                 null,
                 List.of("MAIN", "INTRO"),
