@@ -491,7 +491,7 @@ public class ImageTaskRepository {
         try {
             updateTaskState(taskId, "FAILED", abbreviate(ex.getMessage(), 4000), false, true);
         } catch (Exception sqlEx) {
-            LOG.error("image.task.fail-state.failed taskId={}", taskId, sqlEx);
+            LOG.error("更新任务失败状态失败：任务ID={}", taskId, sqlEx);
         }
     }
 
@@ -977,7 +977,7 @@ public class ImageTaskRepository {
             return List.of();
         }
         return scenes.stream()
-                .map(scene -> new ImageTaskSceneView(scene.index(), scene.sceneTitle(), scene.prompt()))
+                .map(scene -> new ImageTaskSceneView(scene.index(), "场景" + scene.index(), scene.prompt()))
                 .toList();
     }
 

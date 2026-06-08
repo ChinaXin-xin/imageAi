@@ -54,7 +54,8 @@ class ImageTaskPromptBuilderTests {
         assertThat(itemPrompt)
                 .startsWith(finalPrompt)
                 .contains("【当前生成】主图第 7 / 7 张")
-                .contains("场景标题：第七张场景")
+                .contains("场景标题：场景7")
+                .doesNotContain("第七张场景")
                 .contains("场景 7：按排版图主体区摆放")
                 .contains("【本张成品自审与修正】");
     }

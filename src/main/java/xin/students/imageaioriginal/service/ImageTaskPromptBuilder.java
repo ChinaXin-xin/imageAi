@@ -138,7 +138,7 @@ public class ImageTaskPromptBuilder {
         } else if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
             // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n# 【本张图片场景规划】\n");
-            builder.append("场景标题：").append(normalizeText(scene.sceneTitle(), "场景" + index)).append("\n");
+            builder.append("场景标题：场景").append(index).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
             builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位和已展示配件真实外观；如果本张只展示部分已选配件，不得加入未选配件或生成错误数量；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
         }

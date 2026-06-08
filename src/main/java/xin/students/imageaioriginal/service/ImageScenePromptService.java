@@ -67,7 +67,7 @@ public class ImageScenePromptService {
         // 主图和介绍图会分别传入各自的最终生图提示词，场景规划必须基于当前类型独立生成。
         String prompt = buildPlannerPrompt(imageType, finalPrompt, normalizedCount, normalizedScenePrompt, hasUploadedTemplate);
         LOG.info(
-                "gpt.scene-plan.start id={} type={} count={} model={} promptChars={}",
+                "场景规划开始：请求ID={}，图片类型={}，规划数量={}，模型={}，提示词字符数={}",
                 requestId,
                 imageType,
                 normalizedCount,
@@ -100,7 +100,7 @@ public class ImageScenePromptService {
                     hasUploadedTemplate
             );
             LOG.info(
-                    "gpt.scene-plan.response id={} type={} count={} parsedCount={} result={}",
+                    "场景规划响应：请求ID={}，图片类型={}，规划数量={}，解析数量={}，返回内容={}",
                     requestId,
                     imageType,
                     normalizedCount,
@@ -110,7 +110,7 @@ public class ImageScenePromptService {
             return scenes;
         } catch (Exception ex) {
             LOG.warn(
-                    "gpt.scene-plan.failed id={} type={} count={} message={}",
+                    "场景规划失败：请求ID={}，图片类型={}，规划数量={}，错误={}",
                     requestId,
                     imageType,
                     normalizedCount,
@@ -129,7 +129,7 @@ public class ImageScenePromptService {
         String layoutMode = hasUploadedTemplate
                 ? "当前类型启用了排版图：场景规划只作为轻量构图/光影参考，不能突破排版图主体区、配件区、留白、安全边距和对齐关系。"
                 : "当前类型未启用排版图：除主图第 1 张全配件合集外，其它主图或介绍图可按场景卖点从已选配件中自动选择部分配件展示，不要求每张都把配件全展示完；只能从已选配件中选择，未选配件禁止出现。";
-        return """
+        String prompt = """
         请根据下面的最终生图提示词，为“%s”规划 %d 个不同场景的图片描述。
 
         输出必须是 JSON，不要 Markdown，不要解释。格式：
@@ -157,6 +157,10 @@ public class ImageScenePromptService {
         基础提示词：
         %s
         """.formatted(imageType, count, count, count, scenePromptMode, layoutMode, imageType, safeScenePrompt, safePrompt);
+
+        LOG.info("场景规划提示词：{}", prompt);
+
+        return prompt;
     }
 
     private List<ScenePrompt> parseScenes(String text) throws Exception {
@@ -350,7 +354,7 @@ public class ImageScenePromptService {
     }
 
     private String normalizeTitle(String value, int index) {
-        return value == null || value.isBlank() ? "场景" + index : abbreviate(value.trim(), 80);
+        return "场景" + index;
     }
 
     private String abbreviate(String value, int maxLength) {

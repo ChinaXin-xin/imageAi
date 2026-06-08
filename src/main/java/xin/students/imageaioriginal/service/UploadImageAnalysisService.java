@@ -140,7 +140,7 @@ public class UploadImageAnalysisService {
 
         String finalPrompt = buildPrompt(prompt, appendStructureRequirements);
         LOG.info(
-                "gpt.analysis.start id={} type={} model={} uploadedCount={} analyzedCount={} prompt={}",
+                "图片深析开始：请求ID={}，类型={}，模型={}，上传图片数={}，参与分析图片数={}，提示词={}",
                 requestId,
                 type,
                 gptProperties.resolvedModel(),
@@ -158,7 +158,7 @@ public class UploadImageAnalysisService {
         for (StoredUploadImage file : analysisFiles) {
             EncodedImage encodedImage = toDataUrl(file);
             LOG.info(
-                    "gpt.analysis.image id={} fileName={} contentType={} originalBytes={} encodedBytes={} width={} height={}",
+                    "图片深析参考图：请求ID={}，文件名={}，内容类型={}，原始字节数={}，编码后字节数={}，宽度={}，高度={}",
                     requestId,
                     safeValue(file.fileName()),
                     safeValue(file.contentType()),
@@ -191,7 +191,7 @@ public class UploadImageAnalysisService {
 
         String result = extractText(response);
         LOG.info(
-                "gpt.analysis.response id={} model={} result={}",
+                "图片深析响应：请求ID={}，模型={}，结果={}",
                 requestId,
                 gptProperties.resolvedModel(),
                 result
@@ -274,7 +274,7 @@ public class UploadImageAnalysisService {
                 String contentType = normalizeImageContentType(file);
                 String base64 = Base64.getEncoder().encodeToString(file.bytes());
                 LOG.info(
-                        "gpt.analysis.image.raw fileName={} contentType={} bytes={}",
+                        "图片深析使用原始图片数据：文件名={}，内容类型={}，字节数={}",
                         safeValue(file.fileName()),
                         contentType,
                         file.size()

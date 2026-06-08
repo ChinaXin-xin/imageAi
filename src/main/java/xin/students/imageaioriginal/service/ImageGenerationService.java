@@ -98,7 +98,7 @@ public class ImageGenerationService {
         for (Map.Entry<String, Future<?>> entry : taskRequests.entrySet()) {
             Future<?> future = entry.getValue();
             if (future != null) {
-                LOG.info("gpt.image.cancel taskId={} requestKey={}", taskId, entry.getKey());
+                LOG.info("取消生图请求：任务ID={}，请求键={}", taskId, entry.getKey());
                 future.cancel(true);
             }
         }
@@ -157,7 +157,7 @@ public class ImageGenerationService {
         request.put("size", size);
 
         LOG.info(
-                "gpt.image.start id={} taskId={} type={} index={} model={} size={} references={} referenceBytes={} referenceNames={} promptChars={} prompt={}",
+                "生图请求开始：请求ID={}，任务ID={}，图片类型={}，序号={}，模型={}，尺寸={}，参考图数量={}，参考图字节数={}，参考图文件名={}，提示词字符数={}，提示词={}",
                 requestId,
                 taskId,
                 resultType,
@@ -191,7 +191,7 @@ public class ImageGenerationService {
         }
 
         LOG.info(
-                "gpt.image.response id={} taskId={} type={} index={} model={} imageUrl={} b64Bytes={} revisedPrompt={}",
+                "生图接口响应：请求ID={}，任务ID={}，图片类型={}，序号={}，模型={}，图片地址={}，base64字符数={}，接口修订提示词={}",
                 requestId,
                 taskId,
                 resultType,
@@ -219,7 +219,7 @@ public class ImageGenerationService {
         } catch (TimeoutException ex) {
             future.cancel(true);
             LOG.warn(
-                    "gpt.image.timeout id={} taskId={} type={} index={} timeoutSeconds={}",
+                    "生图请求超时：请求ID={}，任务ID={}，图片类型={}，序号={}，超时秒数={}",
                     requestId,
                     taskId,
                     resultType,
@@ -324,7 +324,7 @@ public class ImageGenerationService {
             return objectMapper.readTree(payload);
         } catch (Exception parseError) {
             if (isImageContentType(contentType) || isOctetStream(contentType)) {
-                LOG.info("gpt.image.binary-response contentType={} bytes={}", contentType, payload.length);
+                LOG.info("生图接口返回二进制图片：内容类型={}，字节数={}", contentType, payload.length);
                 return binaryImageResponse(payload);
             }
             throw new IllegalStateException("生图接口返回内容不是 JSON：" + responseSnippet(payload), parseError);
@@ -404,7 +404,7 @@ public class ImageGenerationService {
             }
             return new StoredUploadImage(jpegFileName(image.fileName()), MediaType.IMAGE_JPEG_VALUE, compressed);
         } catch (IOException | RuntimeException ex) {
-            LOG.warn("gpt.image.reference.compress.failed fileName={} bytes={} message={}",
+            LOG.warn("参考图压缩失败：文件名={}，字节数={}，错误={}",
                     image.fileName(),
                     image.bytes().length,
                     ex.getMessage()

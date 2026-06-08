@@ -44,7 +44,7 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         HttpServletRequest requestToUse = multipart ? request : new ContentCachingRequestWrapper(request);
         ContentCachingResponseWrapper responseToUse = captureResponseBody ? new ContentCachingResponseWrapper(response) : null;
         LOG.info(
-                "api.request id={} method={} uri={} query={} remote={} contentType={} payload={}",
+                "接口请求：请求ID={}，方法={}，地址={}，查询参数={}，来源IP={}，内容类型={}，请求摘要={}",
                 requestId,
                 request.getMethod(),
                 request.getRequestURI(),
@@ -59,18 +59,18 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         } finally {
             long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
             LOG.info(
-                    "api.response id={} method={} uri={} status={} elapsedMs={} contentType={} requestBody={}",
+                    "接口响应：请求ID={}，方法={}，地址={}，状态码={}，耗时毫秒={}，内容类型={}，请求体={}",
                     requestId,
                     request.getMethod(),
                     request.getRequestURI(),
                     captureResponseBody ? responseToUse.getStatus() : response.getStatus(),
                     elapsedMs,
                     safeValue(captureResponseBody ? responseToUse.getContentType() : response.getContentType()),
-                    multipart ? "[multipart skipped]" : bodySummary((ContentCachingRequestWrapper) requestToUse)
+                    multipart ? "[跳过 multipart 请求体]" : bodySummary((ContentCachingRequestWrapper) requestToUse)
             );
             if (captureResponseBody) {
                 LOG.debug(
-                        "api.response.body id={} method={} uri={} responseBody={}",
+                        "接口响应体：请求ID={}，方法={}，地址={}，响应体={}",
                         requestId,
                         request.getMethod(),
                         request.getRequestURI(),
@@ -106,7 +106,7 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
             return "-";
         }
         String sanitizedBody = sanitizeBody(new String(body, charset(request.getCharacterEncoding())));
-        return largeBodySummary(body.length, sanitizedBody, "request");
+        return largeBodySummary(body.length, sanitizedBody, "请求体");
     }
 
     private String bodySummary(ContentCachingResponseWrapper response) {
@@ -115,7 +115,7 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
             return "-";
         }
         String sanitizedBody = sanitizeBody(new String(body, responseCharset(response)));
-        return largeBodySummary(body.length, sanitizedBody, "response");
+        return largeBodySummary(body.length, sanitizedBody, "响应体");
     }
 
     private Charset charset(String encoding) {
@@ -157,7 +157,7 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
 
     private String largeBodySummary(int byteLength, String sanitizedBody, String bodyType) {
         if (byteLength > LARGE_BODY_BYTES && sanitizedBody.length() > MAX_BODY_LOG_LENGTH) {
-            return "[%s omitted: %dB, too large for log]".formatted(bodyType, byteLength);
+            return "[%s 已省略：%dB，内容过大不写入日志]".formatted(bodyType, byteLength);
         }
         return abbreviate(sanitizedBody, MAX_BODY_LOG_LENGTH);
     }

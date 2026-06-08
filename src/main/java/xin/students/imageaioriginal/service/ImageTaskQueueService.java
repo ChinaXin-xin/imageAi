@@ -108,7 +108,7 @@ public class ImageTaskQueueService {
     @PostConstruct
     public void initialize() {
         LOG.info(
-                "image.task.concurrency maxTaskConcurrency={} maxImagesPerTask={} maxGlobalImageConcurrency={}",
+                "生图任务并发配置：最大任务并发={}，单任务最大图片并发={}，全局最大图片并发={}",
                 imageGenerationProperties.resolvedMaxTaskConcurrency(),
                 imageGenerationProperties.resolvedMaxImagesPerTask(),
                 imageGenerationProperties.resolvedMaxGlobalImageConcurrency()
@@ -254,7 +254,7 @@ public class ImageTaskQueueService {
                     throw new IllegalStateException("重修图片结果保存失败，请重试");
                 }
             } catch (Exception ex) {
-                LOG.error("image.task.edit.failed taskId={} resultId={} message={}", task.id(), editResultId, ex.getMessage(), ex);
+                LOG.error("重修图片失败：任务ID={}，结果ID={}，错误={}", task.id(), editResultId, ex.getMessage(), ex);
                 imageTaskRepository.failResult(editResultId, ex);
             }
         });
@@ -298,7 +298,7 @@ public class ImageTaskQueueService {
             imageTaskRepository.staleGeneratingTaskIds(STALE_GENERATION_SECONDS)
                     .forEach(taskId -> imageTaskRepository.failStaleRunningTask(taskId, STALE_GENERATION_MESSAGE));
         } catch (Exception ex) {
-            LOG.warn("mark stale image tasks failed", ex);
+            LOG.warn("标记超时生图任务失败", ex);
         }
     }
 
@@ -390,19 +390,19 @@ public class ImageTaskQueueService {
             generateJobsConcurrently(taskId, jobs, record.payload(), referenceImages);
 
             if (jobs.isEmpty()) {
-                LOG.info("image.task.no-generation taskId={}", taskId);
+                LOG.info("任务无需生成图片：任务ID={}", taskId);
             }
             if (isTaskPausedOrDeleted(taskId)) {
-                LOG.info("image.task.skip-complete taskId={} reason=paused-or-deleted", taskId);
+                LOG.info("跳过任务完成状态更新：任务ID={}，原因=任务已暂停或已删除", taskId);
                 return;
             }
             imageTaskRepository.updateTaskState(taskId, "COMPLETED", null, false, true);
         } catch (Exception ex) {
             if (isTaskPausedOrDeleted(taskId)) {
-                LOG.info("image.task.stopped taskId={} message={}", taskId, ex.getMessage());
+                LOG.info("任务已停止：任务ID={}，原因={}", taskId, ex.getMessage());
                 return;
             }
-            LOG.error("image.task.failed taskId={} message={}", taskId, ex.getMessage(), ex);
+            LOG.error("任务执行失败：任务ID={}，错误={}", taskId, ex.getMessage(), ex);
             imageTaskRepository.failTask(taskId, ex);
         }
     }
@@ -562,7 +562,7 @@ public class ImageTaskQueueService {
                     throw ex;
                 }
                 LOG.warn(
-                        "image.task.image.retry taskId={} resultId={} type={} index={} attempt={} nextAttempt={} message={}",
+                        "单张图片生成将重试：任务ID={}，结果ID={}，图片类型={}，序号={}，当前尝试={}，下次尝试={}，错误={}",
                         taskId,
                         job.resultId(),
                         job.resultType(),
@@ -672,7 +672,7 @@ public class ImageTaskQueueService {
         List<StoredUploadImage> preparedMainReferences = imageGenerationService.prepareReferenceImagesForGeneration(mainReferences);
         List<StoredUploadImage> preparedIntroReferences = imageGenerationService.prepareReferenceImagesForGeneration(introReferences);
         LOG.info(
-                "image.task.references taskId={} mainTotal={} mainBytes={} mainNames={} introTotal={} introBytes={} introNames={}",
+                "任务生图参考图：任务ID={}，主图参考图数量={}，主图参考图字节数={}，主图参考图文件名={}，介绍图参考图数量={}，介绍图参考图字节数={}，介绍图参考图文件名={}",
                 taskId,
                 preparedMainReferences.size(),
                 preparedMainReferences.stream().mapToLong(image -> image.bytes() == null ? 0 : image.bytes().length).sum(),
@@ -751,7 +751,7 @@ public class ImageTaskQueueService {
             return imageSizeFromAspect(image.getWidth(), image.getHeight());
         } catch (IOException | RuntimeException ex) {
             LOG.warn(
-                    "image.task.template-size.failed fileName={} bytes={} message={}",
+                    "读取排版图尺寸失败：文件名={}，字节数={}，错误={}",
                     templateImage.fileName(),
                     templateImage.size(),
                     ex.getMessage()
