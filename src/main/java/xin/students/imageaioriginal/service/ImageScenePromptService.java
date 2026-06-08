@@ -123,6 +123,9 @@ public class ImageScenePromptService {
     private String buildPlannerPrompt(String imageType, String finalPrompt, int count, String scenePrompt, boolean hasUploadedTemplate) {
         String safePrompt = abbreviate(finalPrompt == null ? "" : finalPrompt.trim(), MAX_FINAL_PROMPT_CHARS);
         String safeScenePrompt = abbreviate(scenePrompt, MAX_SCENE_SETTING_CHARS);
+        String userRequirement = safeScenePrompt.isBlank()
+                ? "用户未输入场景图提示词，请根据基础提示词、卖点、套装规格和平台要求自动规划不同场景。"
+                : safeScenePrompt;
         String scenePromptMode = safeScenePrompt.isBlank()
                 ? "用户未输入场景图提示词：请你基于基础提示词、卖点、套装规格和平台要求自动规划不同场景。"
                 : "用户输入了场景图提示词：必须在用户给定范围内规划，不要越出用户指定的场景/卖点方向。";
@@ -151,12 +154,14 @@ public class ImageScenePromptService {
         8. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用旁侧局部放大模块、边缘高光或局部特写表达，不得改变安装关系、孔位数量、孔位大小或配件数量。
         9. 不得规划膜片位于摄像模组后方、手机中部、手机底部、手机另一侧无关区域，或任何会遮挡后摄镜头、闪光灯、传感器的位置。
 
-        场景图提示词：
+        用户要求：
+        %s
+        %s
         %s
 
         基础提示词：
         %s
-        """.formatted(imageType, count, count, count, scenePromptMode, layoutMode, imageType, safeScenePrompt, safePrompt);
+        """.formatted(imageType, count, count, count, scenePromptMode, layoutMode, imageType, userRequirement, scenePromptMode, layoutMode, safePrompt);
 
         LOG.info("场景规划提示词：{}", prompt);
 

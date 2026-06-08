@@ -3121,6 +3121,30 @@ function pageSubtitle(): string {
               </article>
             </div>
           </section>
+
+          <section class="detail-block detail-wide">
+            <h3>提交提示词</h3>
+            <div class="prompt-preview-grid">
+              <article>
+                <strong>主图提示词</strong>
+                <p @click="openFullTextDialog('提交的主图提示词', selectedQueueTask.form.mainPrompt || '未填写')">
+                  {{ analysisPreview(selectedQueueTask.form.mainPrompt || '未填写') }}
+                </p>
+              </article>
+              <article>
+                <strong>介绍图提示词</strong>
+                <p @click="openFullTextDialog('提交的介绍图提示词', selectedQueueTask.form.introPrompt || '未填写')">
+                  {{ analysisPreview(selectedQueueTask.form.introPrompt || '未填写') }}
+                </p>
+              </article>
+              <article>
+                <strong>场景提示词</strong>
+                <p @click="openFullTextDialog('提交的场景提示词', selectedQueueTask.form.scenePrompt || '未填写')">
+                  {{ analysisPreview(selectedQueueTask.form.scenePrompt || '未填写') }}
+                </p>
+              </article>
+            </div>
+          </section>
         </div>
 
         <div class="dialog-actions">
