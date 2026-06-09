@@ -37,14 +37,14 @@ public class ImageTaskPromptBuilder {
     ) {
         StringBuilder builder = new StringBuilder();
         builder.append("# 【最高优先级：结构与真实安装关系锁定】\n");
-        builder.append("如果生成摄像头，禁止漏生成摄像头（超级重点！！）；同一张图内如果多个手机，厚度和大小要保持一致，手机膜大小要与手机保持一致（超级重点！！！）。\n");
+        builder.append("如果生成摄像头，禁止漏生成摄像头（超级重点！！）；同一张图内如果是手机的正反面，厚度和长宽高要保持一致，手机膜宽高要与手机大小保持一致（超级重点！！！）。\n");
         builder.append("上传参考图 > 深析结果 > 套装数量 > 任务参数 > 模板风格。先还原真实产品结构和真实安装关系，再做电商美化。\n");
-        builder.append("手机型号必须与任务参数一致；手机、屏幕膜、镜头膜和配件必须保持真实比例，手机屏幕与手机膜大小必须一致，统一透视、统一光照和合理空间关系。\n");
+        builder.append("手机型号必须与任务参数一致；手机、屏幕膜、镜头膜和配件必须保持真实比例，统一透视（手机膜的透明度）、统一光照和合理空间关系。\n");
         builder.append("镜头膜必须匹配后摄模组尺寸和位置；若与手机同画面出现，如果下面提示词中没有特殊要求，默认直接精准安装到后摄镜头模组上。镜头膜不是替代摄像头；保持真实安装关系，不得放大、缩小、偏移到无关区域。\n");
 
         builder.append("后摄模组的摄像头数量、孔位布局、大小关系和整体位置必须与目标机型一致；不得少摄像头、漏生成后摄模组。\n");
         builder.append("不得改成通用款；不得统一大小不同的孔位；\n");
-        builder.append("排版必须规整清晰，主体区、配件区和留白关系稳定；不得散乱摆放、遮挡主体、裁切手机或破坏安全边距。\n\n");
+        builder.append("排版必须规整清晰，主体区、配件区和留白关系稳定；不得散乱摆放、遮挡主体、裁切手机或破坏安全边距，显示手机必须显示全！\n\n");
 
         builder.append("镜头膜上的所有圆孔必须是镂空贯穿开孔，不是透明膜片、不是灰色圆片、" +
                 "不是实心圆、孔内不能有任何额外薄膜、必须先生成完整手机原生后摄模组，" +
@@ -138,9 +138,9 @@ public class ImageTaskPromptBuilder {
         } else if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
             // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n# 【本张图片场景规划】\n");
-            builder.append("场景标题：场景").append(index).append("\n");
+            //builder.append("场景标题：场景").append(index).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
-            builder.append("只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位和已展示配件真实外观；如果本张只展示部分已选配件，不得加入未选配件或生成错误数量；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。");
+            builder.append("");
         }
         appendPerImageAccessoryDisplayRule(builder, payload, resultType, index, total, hasUploadedTemplate);
         appendPerImageSelfAudit(builder, payload, finalPrompt, resultType, index);

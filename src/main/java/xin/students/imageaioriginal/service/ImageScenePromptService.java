@@ -143,16 +143,11 @@ public class ImageScenePromptService {
         }
 
         要求：
-        0. 返回的json中不要说与第几张图不同。
-        1. scenes 数量必须等于 %d，index 从 1 到 %d。
-        2. 每个 prompt 控制在 300 个中文字符以内，只写本张图相对基础提示词需要变化的场景规划，不要重复完整基础提示词。
-        3. %s
-        4. %s
-        5. 如果“%s”为主图且数量大于 1，index=1 必须是套装合集图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示。
-        6. 每个场景都必须继承基础提示词中的产品结构、真实比例、安装关系、禁改项和负面约束；如果某张只展示部分已选配件，也不得改变已展示配件的真实形态和数量。
-        7. 禁止规划镜头膜悬浮在后摄模组上方、后方或遮挡摄像头的场景；如果镜头膜与后摄手机同框展示，只允许两种关系：已精准安装到手机后摄镜头模组上，且孔内必须露出真实摄像头玻璃、闪光灯和传感器；或按真实比例平铺在手机旁边（注意镜头膜与手机的比例），不得挡住、盖住或替代摄像头、闪光灯、传感器。
-        8. 近景或细节场景不能裁掉主商品整体关系；需要局部细节时，用旁侧局部放大模块、边缘高光或局部特写表达，不得改变安装关系、孔位数量、孔位大小或配件数量。
-        9. 不得规划膜片位于摄像模组后方、手机中部、手机底部、手机另一侧无关区域，或任何会遮挡后摄镜头、闪光灯、传感器的位置。
+        a. 返回的json中不要说与第几张图不同。
+        b. scenes 数量必须等于 %d，index 从 1 到 %d。
+        c. %s
+        d. %s
+        如果“%s”为主图且数量大于 1，index=1 必须是套装合集图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示。
 
         用户要求：
         %s
@@ -259,7 +254,8 @@ public class ImageScenePromptService {
                     : i < source.size()
                     ? source.get(i)
                     : "基于基础提示词和已配置场景继续扩展新的卖点、构图、背景、光影或角度，不要重复已有图片造型。";
-            String typeLock = "主图".equals(imageType) ? "主图必须无文字、无图标、无角标、无卖点标签、无水印。" : "";
+            //String typeLock = "主图".equals(imageType) ? "主图必须无介绍性文字、无图标、无角标、无卖点标签、无水印。" : "";
+            String typeLock = "";
             String accessoryMode = hasUploadedTemplate
                     ? "按排版图区域展示配件。"
                     : "除主图第1张合集外，本张可按卖点只展示部分已选配件，未选配件禁止出现。";
@@ -285,10 +281,11 @@ public class ImageScenePromptService {
             directive = "套装合集主图：手机、膜片/镜头膜和所有已选择配件按真实比例同框整齐展示，主体完整入画，配件分区对齐。 " + directive;
         }
         String typeLock = "主图".equals(imageType)
-                ? "主图必须无文字、无图标、无角标、无卖点标签、无水印。"
+                ? " "
                 : "";
         String lensStructureLock = requiresLensStructureLock
-                ? "不改变孔位数量、位置、大小差异和一体式/分离式形态。"
+                //? "不改变孔位数量、位置、大小差异和一体式/分离式形态。"
+                ? " "
                 : "";
         return abbreviate(prompt + " " + directive + " " + typeLock + " " + lensStructureLock, MAX_SCENE_PROMPT_CHARS);
     }

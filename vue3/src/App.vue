@@ -1319,9 +1319,9 @@ function sceneFinalPrompt(imageType: '主图' | '介绍图', scene: ImageTaskSce
   return `${finalPrompt}
 
 # 【本张图片场景规划】
-场景标题：场景${scene.index}
+场景标题：${scene.sceneTitle || `场景${scene.index}`}
 场景描述：${scene.prompt}
-只允许改变构图、背景、光影、展示角度或卖点表达，不得改变上传图产品结构、孔位、配件数量和套装规格；如果场景与排版图版式、手机完整入画或产品比例约束冲突，必须按排版图和比例约束修正。`;
+`;
 }
 
 function escapeHtml(value: string): string {
@@ -3022,7 +3022,7 @@ function pageSubtitle(): string {
                 />
                 <div v-else class="scene-list">
                   <div v-for="scene in selectedQueueTask.mainScenes" :key="`main-${scene.index}`" class="scene-item">
-                    <strong>主图 #{{ scene.index }} 场景{{ scene.index }}</strong>
+                    <strong>主图 #{{ scene.index }} {{ scene.sceneTitle }}</strong>
                     <p
                       :class="{ clickable: isLongText(sceneFinalPrompt('主图', scene)) }"
                       @click="openFullTextDialog(`主图场景 #${scene.index}`, sceneFinalPrompt('主图', scene))"
@@ -3051,7 +3051,7 @@ function pageSubtitle(): string {
                 />
                 <div v-else class="scene-list">
                   <div v-for="scene in selectedQueueTask.introScenes" :key="`intro-${scene.index}`" class="scene-item">
-                    <strong>介绍图 #{{ scene.index }} 场景{{ scene.index }}</strong>
+                    <strong>介绍图 #{{ scene.index }} {{ scene.sceneTitle }}</strong>
                     <p
                       :class="{ clickable: isLongText(sceneFinalPrompt('介绍图', scene)) }"
                       @click="openFullTextDialog(`介绍图场景 #${scene.index}`, sceneFinalPrompt('介绍图', scene))"

@@ -977,7 +977,7 @@ public class ImageTaskRepository {
             return List.of();
         }
         return scenes.stream()
-                .map(scene -> new ImageTaskSceneView(scene.index(), "场景" + scene.index(), scene.prompt()))
+                .map(scene -> new ImageTaskSceneView(scene.index(), scene.sceneTitle(), scene.prompt()))
                 .toList();
     }
 
