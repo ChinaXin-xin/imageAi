@@ -13,6 +13,7 @@ import xin.students.imageaioriginal.model.DefaultPromptSettings;
 import xin.students.imageaioriginal.model.ImageTaskDetail;
 import xin.students.imageaioriginal.model.ImageTaskKitSpec;
 import xin.students.imageaioriginal.model.ImageTaskPayload;
+import xin.students.imageaioriginal.model.ImageTaskSceneView;
 import xin.students.imageaioriginal.model.ImageTaskSummary;
 import xin.students.imageaioriginal.model.StoredUploadImage;
 import xin.students.imageaioriginal.model.UploadImageAnalysis;
@@ -43,8 +44,8 @@ public class ImageTaskQueueService {
     private static final int STALE_GENERATION_SECONDS = 60 * 60;
     private static final long STALE_CHECK_INTERVAL_MILLIS = 30_000;
     private static final String STALE_GENERATION_MESSAGE = "生图接口超过 60 分钟未返回，已自动标记失败，请稍后重试。";
-    private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将重新生成。";
-    private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将重新生成。";
+    private static final String MANUAL_PAUSE_MESSAGE = "任务已暂停，不会自动请求后端；点击继续后将只生成未完成的图片。";
+    private static final String STARTUP_PAUSE_MESSAGE = "服务上次关闭时任务仍在执行，已自动暂停；点击继续后将只生成未完成的图片。";
     private static final int DEFAULT_IMAGE_SIZE = 1536;
     private static final int IMAGE_SIZE_STEP = 16;
     private static final int IMAGE_GENERATION_MAX_ATTEMPTS = 3;
@@ -196,7 +197,7 @@ public class ImageTaskQueueService {
         if (!"PAUSED".equals(record.status())) {
             return getTask(taskId);
         }
-        imageTaskRepository.resetTaskForRetry(taskId);
+        imageTaskRepository.resumePausedTask(taskId);
         startProcessing(taskId);
         return getTask(taskId);
     }
@@ -324,52 +325,70 @@ public class ImageTaskQueueService {
                     "INTRO",
                     "介绍图"
             );
-            Map<String, String> analysis = analyzeUploadedFiles(taskId, record.payload());
+            String storedMainPrompt = normalizeNullable(record.finalMainPrompt());
+            String storedIntroPrompt = normalizeNullable(record.finalIntroPrompt());
+            boolean hasStoredFinalPrompts = !storedMainPrompt.isBlank() && !storedIntroPrompt.isBlank();
+            Map<String, String> analysis = hasStoredFinalPrompts && record.analysis() != null
+                    ? record.analysis()
+                    : analyzeUploadedFiles(taskId, record.payload());
             UploadMaterialContext uploadMaterialContext = uploadMaterialContext(taskId);
             ensureTaskNotPaused(taskId);
 
             DefaultPromptSettings settings = defaultPromptSettingsService.getSettings();
-            String finalMainPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
-                    "主图",
-                    imageTaskPromptBuilder.generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
-                    record.payload(),
-                    analysis,
-                    uploadMaterialContext,
-                    mainTargetTemplate
-            );
-            String finalIntroPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
-                    "介绍图",
-                    imageTaskPromptBuilder.generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
-                    record.payload(),
-                    analysis,
-                    uploadMaterialContext,
-                    introTargetTemplate
-            );
-            imageTaskRepository.saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
+            String finalMainPrompt = storedMainPrompt;
+            String finalIntroPrompt = storedIntroPrompt;
+            if (!hasStoredFinalPrompts) {
+                finalMainPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
+                        "主图",
+                        imageTaskPromptBuilder.generationBasePrompt(record.payload().mainPrompt(), settings.mainPrompt(), settings.analysisPrompt()),
+                        record.payload(),
+                        analysis,
+                        uploadMaterialContext,
+                        mainTargetTemplate
+                );
+                finalIntroPrompt = imageTaskPromptBuilder.buildGenerationPrompt(
+                        "介绍图",
+                        imageTaskPromptBuilder.generationBasePrompt(record.payload().introPrompt(), settings.introPrompt(), settings.analysisPrompt()),
+                        record.payload(),
+                        analysis,
+                        uploadMaterialContext,
+                        introTargetTemplate
+                );
+                imageTaskRepository.saveAnalysisAndPrompts(taskId, analysis, finalMainPrompt, finalIntroPrompt);
+            }
             ensureTaskNotPaused(taskId);
-            imageTaskRepository.clearResults(taskId);
             int mainCount = positive(record.payload().mainImageCount());
             int introCount = positive(record.payload().introImageCount());
             String scenePrompt = scenePromptForTask(record.payload(), settings);
             boolean mainHasUploadedTemplate = hasUploadedTemplateForType(record.payload(), uploadMaterialContext, "主图");
             boolean introHasUploadedTemplate = hasUploadedTemplateForType(record.payload(), uploadMaterialContext, "介绍图");
-            // 主图：基于主图最终生图提示词单独规划场景，后续只拼到主图结果提示词。
-            List<ImageScenePromptService.ScenePrompt> mainScenes = imageScenePromptService.planScenes(
-                    "主图",
-                    finalMainPrompt,
-                    mainCount,
-                    scenePrompt,
-                    mainHasUploadedTemplate
-            );
-            // 介绍图：基于介绍图最终生图提示词单独规划场景，后续只拼到介绍图结果提示词。
-            List<ImageScenePromptService.ScenePrompt> introScenes = imageScenePromptService.planScenes(
-                    "介绍图",
-                    finalIntroPrompt,
-                    introCount,
-                    scenePrompt,
-                    introHasUploadedTemplate
-            );
-            imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
+            List<ImageScenePromptService.ScenePrompt> mainScenes = savedScenePrompts(record.mainScenes(), mainCount);
+            List<ImageScenePromptService.ScenePrompt> introScenes = savedScenePrompts(record.introScenes(), introCount);
+            boolean needsMainScenePlanning = mainScenes.size() < mainCount;
+            boolean needsIntroScenePlanning = introScenes.size() < introCount;
+            if (needsMainScenePlanning) {
+                // 主图：基于主图最终生图提示词单独规划场景，后续只拼到主图结果提示词。
+                mainScenes = imageScenePromptService.planScenes(
+                        "主图",
+                        finalMainPrompt,
+                        mainCount,
+                        scenePrompt,
+                        mainHasUploadedTemplate
+                );
+            }
+            if (needsIntroScenePlanning) {
+                // 介绍图：基于介绍图最终生图提示词单独规划场景，后续只拼到介绍图结果提示词。
+                introScenes = imageScenePromptService.planScenes(
+                        "介绍图",
+                        finalIntroPrompt,
+                        introCount,
+                        scenePrompt,
+                        introHasUploadedTemplate
+                );
+            }
+            if (needsMainScenePlanning || needsIntroScenePlanning) {
+                imageTaskRepository.saveScenePrompts(taskId, mainScenes, introScenes);
+            }
             List<GenerationJob> jobs = createGenerationJobs(
                     taskId,
                     finalMainPrompt,
@@ -496,22 +515,61 @@ public class ImageTaskQueueService {
         int introCount = positive(payload.introImageCount());
         boolean mainHasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, "主图");
         boolean introHasUploadedTemplate = hasUploadedTemplateForType(payload, uploadMaterialContext, "介绍图");
+        Map<String, ResultRecord> existingResults = existingBaseResultMap(taskId);
         ensureTaskNotPaused(taskId);
         for (int index = 1; index <= mainCount; index++) {
             ensureTaskNotPaused(taskId);
             // 主图：保留原主图最终生图提示词全文，再把当前主图的场景规划追加到末尾。
             String mainPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalMainPrompt, "主图", index, mainCount, sceneAt(mainScenes, index), payload, mainHasUploadedTemplate);
-            long resultId = imageTaskRepository.insertResult(taskId, "主图", index, mainPromptWithScene, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate, mainHasUploadedTemplate));
+            long resultId = queueOrInsertGenerationResult(taskId, "主图", index, mainPromptWithScene, existingResults);
+            if (resultId > 0) {
+                jobs.add(new GenerationJob(resultId, "主图", index, mainPromptWithScene, mainTargetTemplate, mainHasUploadedTemplate));
+            }
         }
         for (int index = 1; index <= introCount; index++) {
             ensureTaskNotPaused(taskId);
             // 介绍图：保留原介绍图最终生图提示词全文，再把当前介绍图的场景规划追加到末尾。
             String introPromptWithScene = imageTaskPromptBuilder.generationItemPrompt(finalIntroPrompt, "介绍图", index, introCount, sceneAt(introScenes, index), payload, introHasUploadedTemplate);
-            long resultId = imageTaskRepository.insertResult(taskId, "介绍图", index, introPromptWithScene, "QUEUED");
-            jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate, introHasUploadedTemplate));
+            long resultId = queueOrInsertGenerationResult(taskId, "介绍图", index, introPromptWithScene, existingResults);
+            if (resultId > 0) {
+                jobs.add(new GenerationJob(resultId, "介绍图", index, introPromptWithScene, introTargetTemplate, introHasUploadedTemplate));
+            }
         }
         return jobs;
+    }
+
+    private Map<String, ResultRecord> existingBaseResultMap(String taskId) {
+        Map<String, ResultRecord> results = new LinkedHashMap<>();
+        for (ResultRecord result : imageTaskRepository.baseResults(taskId)) {
+            String key = resultKey(result.resultType(), result.itemIndex());
+            ResultRecord current = results.get(key);
+            if (current == null || (!"COMPLETED".equals(current.status()) && "COMPLETED".equals(result.status()))) {
+                results.put(key, result);
+            }
+        }
+        return results;
+    }
+
+    private long queueOrInsertGenerationResult(
+            String taskId,
+            String resultType,
+            int index,
+            String prompt,
+            Map<String, ResultRecord> existingResults
+    ) {
+        ResultRecord existing = existingResults.get(resultKey(resultType, index));
+        if (existing != null && "COMPLETED".equals(existing.status())) {
+            return 0;
+        }
+        if (existing != null) {
+            imageTaskRepository.queueResultForGeneration(existing.id(), prompt);
+            return existing.id();
+        }
+        return imageTaskRepository.insertResult(taskId, resultType, index, prompt, "QUEUED");
+    }
+
+    private String resultKey(String resultType, int index) {
+        return (resultType == null ? "" : resultType) + "#" + index;
     }
 
     private String scenePromptForTask(ImageTaskPayload payload, DefaultPromptSettings settings) {
@@ -527,6 +585,26 @@ public class ImageTaskQueueService {
         }
         int position = Math.max(0, Math.min(scenes.size() - 1, index - 1));
         return scenes.get(position);
+    }
+
+    private List<ImageScenePromptService.ScenePrompt> savedScenePrompts(List<ImageTaskSceneView> scenes, int count) {
+        if (count <= 0) {
+            return List.of();
+        }
+        if (scenes == null || scenes.size() < count) {
+            return List.of();
+        }
+        List<ImageScenePromptService.ScenePrompt> prompts = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            ImageTaskSceneView scene = scenes.get(i);
+            if (scene == null || normalizeNullable(scene.prompt()).isBlank()) {
+                return List.of();
+            }
+            int index = scene.index() == null || scene.index() <= 0 ? i + 1 : scene.index();
+            String sceneTitle = normalizeText(scene.sceneTitle(), "场景" + index);
+            prompts.add(new ImageScenePromptService.ScenePrompt(index, sceneTitle, scene.prompt()));
+        }
+        return prompts;
     }
 
     private void generateOne(

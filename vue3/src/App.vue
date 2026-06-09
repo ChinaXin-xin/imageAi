@@ -1162,7 +1162,7 @@ async function retryQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
 async function pauseQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
   try {
     await ElMessageBox.confirm(
-      `确定暂停任务「${task.productName}」吗？暂停后不会继续请求后端，点击继续会重新生成。`,
+      `确定暂停任务「${task.productName}」吗？暂停后不会继续请求后端，点击继续只会生成未完成的图片。`,
       '暂停任务',
       {
         confirmButtonText: '确定暂停',
@@ -1182,7 +1182,7 @@ async function pauseQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
 async function resumeQueuedTask(task: ImageTaskSummary | ImageTaskDetail) {
   try {
     await ElMessageBox.confirm(
-      `确定继续任务「${task.productName}」吗？继续后会重新深析并重新生成图片。`,
+      `确定继续任务「${task.productName}」吗？继续后会保留已完成图片，只生成未完成的图片。`,
       '继续任务',
       {
         confirmButtonText: '确定继续',

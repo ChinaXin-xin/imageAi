@@ -254,8 +254,7 @@ public class ImageScenePromptService {
                     : i < source.size()
                     ? source.get(i)
                     : "基于基础提示词和已配置场景继续扩展新的卖点、构图、背景、光影或角度，不要重复已有图片造型。";
-            //String typeLock = "主图".equals(imageType) ? "主图必须无介绍性文字、无图标、无角标、无卖点标签、无水印。" : "";
-            String typeLock = "";
+            String typeLock = "主图".equals(imageType) ? "主图必须无文字、无图标、无角标、无卖点标签、无水印。" : "";
             String accessoryMode = hasUploadedTemplate
                     ? "按排版图区域展示配件。"
                     : "除主图第1张合集外，本张可按卖点只展示部分已选配件，未选配件禁止出现。";

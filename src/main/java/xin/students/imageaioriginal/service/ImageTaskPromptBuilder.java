@@ -139,7 +139,7 @@ public class ImageTaskPromptBuilder {
         } else if (scene != null && scene.prompt() != null && !scene.prompt().isBlank()) {
             // 场景规划追加在原最终提示词之后，只控制当前图片的构图、背景、光影、角度或卖点表达。
             builder.append("\n# 【本张图片场景规划】\n");
-            //builder.append("场景标题：场景").append(index).append("\n");
+            builder.append("场景标题：场景").append(index).append("\n");
             builder.append("场景描述：").append(scene.prompt()).append("\n");
             builder.append("");
         }

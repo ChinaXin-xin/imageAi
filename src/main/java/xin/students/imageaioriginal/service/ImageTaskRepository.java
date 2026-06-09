@@ -217,6 +217,27 @@ public class ImageTaskRepository {
     }
 
     @Transactional
+    public void resumePausedTask(String taskId) {
+        resultMapper.update(null, new LambdaUpdateWrapper<ImageTaskResultEntity>()
+                .set(ImageTaskResultEntity::getStatus, "QUEUED")
+                .set(ImageTaskResultEntity::getErrorMessage, null)
+                .set(ImageTaskResultEntity::getUpdatedAt, now())
+                .eq(ImageTaskResultEntity::getTaskId, taskId)
+                .eq(ImageTaskResultEntity::getStatus, "PAUSED")
+                .isNull(ImageTaskResultEntity::getParentResultId)
+                .and(wrapper -> wrapper.isNull(ImageTaskResultEntity::getVersionIndex)
+                        .or()
+                        .eq(ImageTaskResultEntity::getVersionIndex, 1)));
+        taskMapper.update(null, new LambdaUpdateWrapper<ImageTaskEntity>()
+                .set(ImageTaskEntity::getStatus, "QUEUED")
+                .set(ImageTaskEntity::getErrorMessage, null)
+                .set(ImageTaskEntity::getCompletedAt, null)
+                .set(ImageTaskEntity::getUpdatedAt, now())
+                .eq(ImageTaskEntity::getId, taskId)
+                .eq(ImageTaskEntity::getStatus, "PAUSED"));
+    }
+
+    @Transactional
     public void failStaleRunningTask(String taskId, String message) {
         resultMapper.update(null, new LambdaUpdateWrapper<ImageTaskResultEntity>()
                 .set(ImageTaskResultEntity::getStatus, "FAILED")
@@ -258,6 +279,36 @@ public class ImageTaskRepository {
                         )
                         .eq(ImageTaskResultEntity::getTaskId, taskId)
                         .eq(ImageTaskResultEntity::getStatus, "COMPLETED")
+                        .orderByAsc(ImageTaskResultEntity::getResultType)
+                        .orderByAsc(ImageTaskResultEntity::getItemIndex)
+                        .orderByAsc(ImageTaskResultEntity::getVersionIndex)
+                        .orderByAsc(ImageTaskResultEntity::getId))
+                .stream()
+                .map(this::toResultRecord)
+                .toList();
+    }
+
+    public List<ResultRecord> baseResults(String taskId) {
+        return resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
+                        .select(
+                                ImageTaskResultEntity::getId,
+                                ImageTaskResultEntity::getTaskId,
+                                ImageTaskResultEntity::getResultType,
+                                ImageTaskResultEntity::getItemIndex,
+                                ImageTaskResultEntity::getParentResultId,
+                                ImageTaskResultEntity::getVersionIndex,
+                                ImageTaskResultEntity::getStatus,
+                                ImageTaskResultEntity::getPrompt,
+                                ImageTaskResultEntity::getImageUrl,
+                                ImageTaskResultEntity::getImagePath,
+                                ImageTaskResultEntity::getEditSuggestion,
+                                ImageTaskResultEntity::getErrorMessage
+                        )
+                        .eq(ImageTaskResultEntity::getTaskId, taskId)
+                        .isNull(ImageTaskResultEntity::getParentResultId)
+                        .and(wrapper -> wrapper.isNull(ImageTaskResultEntity::getVersionIndex)
+                                .or()
+                                .eq(ImageTaskResultEntity::getVersionIndex, 1))
                         .orderByAsc(ImageTaskResultEntity::getResultType)
                         .orderByAsc(ImageTaskResultEntity::getItemIndex)
                         .orderByAsc(ImageTaskResultEntity::getVersionIndex)
@@ -406,6 +457,16 @@ public class ImageTaskRepository {
         if (updated == 0) {
             throw new IllegalStateException("生成结果状态不可用，请重试：" + resultId);
         }
+    }
+
+    public void queueResultForGeneration(long resultId, String prompt) {
+        resultMapper.update(null, new LambdaUpdateWrapper<ImageTaskResultEntity>()
+                .set(ImageTaskResultEntity::getStatus, "QUEUED")
+                .set(ImageTaskResultEntity::getPrompt, prompt)
+                .set(ImageTaskResultEntity::getErrorMessage, null)
+                .set(ImageTaskResultEntity::getUpdatedAt, now())
+                .eq(ImageTaskResultEntity::getId, resultId)
+                .ne(ImageTaskResultEntity::getStatus, "COMPLETED"));
     }
 
     public boolean completeResult(long resultId, ImageGenerationService.GeneratedImage generatedImage) {
@@ -824,14 +885,9 @@ public class ImageTaskRepository {
         if (generationStats == null) {
             generationStats = ResultStats.empty();
         }
-        int analysisTotal = record.realPhotoCount();
         int expectedGenerationTotal = positive(record.payload().mainImageCount()) + positive(record.payload().introImageCount());
-        int scenePlanningTotal = scenePlanningTotal(record);
-        int generationTotal = Math.max(generationStats.total(), expectedGenerationTotal);
-        int analysisCompleted = analysisCompletedCount(record, analysisTotal);
-        int scenePlanningCompleted = scenePlanningCompletedCount(record);
-        int total = analysisTotal + scenePlanningTotal + generationTotal;
-        int completed = analysisCompleted + scenePlanningCompleted + generationStats.completed();
+        int total = expectedGenerationTotal;
+        int completed = Math.min(generationStats.completed(), total);
         if ("COMPLETED".equals(record.status())) {
             completed = total;
         }
@@ -877,26 +933,57 @@ public class ImageTaskRepository {
             stats.put(taskId, ResultStats.empty());
         }
         List<ImageTaskResultEntity> results = resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
-                .select(ImageTaskResultEntity::getTaskId, ImageTaskResultEntity::getStatus)
-                .in(ImageTaskResultEntity::getTaskId, taskIds));
+                .select(
+                        ImageTaskResultEntity::getTaskId,
+                        ImageTaskResultEntity::getResultType,
+                        ImageTaskResultEntity::getItemIndex,
+                        ImageTaskResultEntity::getStatus
+                )
+                .in(ImageTaskResultEntity::getTaskId, taskIds)
+                .isNull(ImageTaskResultEntity::getParentResultId)
+                .and(wrapper -> wrapper.isNull(ImageTaskResultEntity::getVersionIndex)
+                        .or()
+                        .eq(ImageTaskResultEntity::getVersionIndex, 1)));
+        Map<String, Map<String, Boolean>> slotStats = new LinkedHashMap<>();
         for (ImageTaskResultEntity result : results) {
             String taskId = result.getTaskId();
             if (taskId == null) {
                 continue;
             }
-            ResultStats current = stats.getOrDefault(taskId, ResultStats.empty());
-            int completed = current.completed() + ("COMPLETED".equals(result.getStatus()) ? 1 : 0);
-            stats.put(taskId, new ResultStats(completed, current.total() + 1));
+            Map<String, Boolean> taskSlots = slotStats.computeIfAbsent(taskId, ignored -> new LinkedHashMap<>());
+            String slotKey = resultSlotKey(result.getResultType(), valueOrZero(result.getItemIndex()));
+            taskSlots.merge(slotKey, "COMPLETED".equals(result.getStatus()), Boolean::logicalOr);
+        }
+        for (Map.Entry<String, Map<String, Boolean>> entry : slotStats.entrySet()) {
+            int completed = (int) entry.getValue().values().stream().filter(Boolean::booleanValue).count();
+            stats.put(entry.getKey(), new ResultStats(completed, entry.getValue().size()));
         }
         return stats;
     }
 
     private ResultStats generationResultStats(String taskId) {
         List<ImageTaskResultEntity> results = resultMapper.selectList(new LambdaQueryWrapper<ImageTaskResultEntity>()
-                .select(ImageTaskResultEntity::getStatus)
-                .eq(ImageTaskResultEntity::getTaskId, taskId));
-        int completed = (int) results.stream().filter(result -> "COMPLETED".equals(result.getStatus())).count();
-        return new ResultStats(completed, results.size());
+                .select(
+                        ImageTaskResultEntity::getResultType,
+                        ImageTaskResultEntity::getItemIndex,
+                        ImageTaskResultEntity::getStatus
+                )
+                .eq(ImageTaskResultEntity::getTaskId, taskId)
+                .isNull(ImageTaskResultEntity::getParentResultId)
+                .and(wrapper -> wrapper.isNull(ImageTaskResultEntity::getVersionIndex)
+                        .or()
+                        .eq(ImageTaskResultEntity::getVersionIndex, 1)));
+        Map<String, Boolean> slotStats = new LinkedHashMap<>();
+        for (ImageTaskResultEntity result : results) {
+            String slotKey = resultSlotKey(result.getResultType(), valueOrZero(result.getItemIndex()));
+            slotStats.merge(slotKey, "COMPLETED".equals(result.getStatus()), Boolean::logicalOr);
+        }
+        int completed = (int) slotStats.values().stream().filter(Boolean::booleanValue).count();
+        return new ResultStats(completed, slotStats.size());
+    }
+
+    private String resultSlotKey(String resultType, int itemIndex) {
+        return (resultType == null ? "" : resultType) + "#" + itemIndex;
     }
 
     private int analysisCompletedCount(TaskRecord record, int analysisTotal) {
