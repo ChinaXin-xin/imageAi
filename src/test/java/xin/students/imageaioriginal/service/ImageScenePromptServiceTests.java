@@ -96,4 +96,26 @@ class ImageScenePromptServiceTests {
                 .contains("所有已选择配件");
         assertThat(scenes.get(1).prompt()).contains("规整平铺");
     }
+
+    @Test
+    void taskParameterSectionOnlyKeepsTaskParametersBlock() {
+        String prompt = """
+                # 【上传图深析结果】
+                结构锁定内容。
+
+                # 【任务参数】
+                【平台】Amazon
+                【机型】Samsung S23 Ultra
+                【卖点】高清透亮、易安装
+
+                # 【主图画面要求】
+                不应进入场景规划基础提示词。
+                """;
+
+        assertThat(service.taskParameterSection(prompt))
+                .contains("# 【任务参数】")
+                .contains("【机型】Samsung S23 Ultra")
+                .doesNotContain("上传图深析结果")
+                .doesNotContain("主图画面要求");
+    }
 }

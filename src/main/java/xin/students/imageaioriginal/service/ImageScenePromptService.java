@@ -121,7 +121,7 @@ public class ImageScenePromptService {
     }
 
     private String buildPlannerPrompt(String imageType, String finalPrompt, int count, String scenePrompt, boolean hasUploadedTemplate) {
-        String safePrompt = abbreviate(finalPrompt == null ? "" : finalPrompt.trim(), MAX_FINAL_PROMPT_CHARS);
+        String safePrompt = abbreviate(taskParameterSection(finalPrompt), MAX_FINAL_PROMPT_CHARS);
         String safeScenePrompt = abbreviate(scenePrompt, MAX_SCENE_SETTING_CHARS);
         String userRequirement = safeScenePrompt.isBlank()
                 ? "用户未输入场景图提示词，请根据基础提示词、卖点、套装规格和平台要求自动规划不同场景。"
@@ -166,6 +166,20 @@ public class ImageScenePromptService {
         LOG.info("场景规划提示词：{}", prompt);
 
         return prompt;
+    }
+
+    String taskParameterSection(String finalPrompt) {
+        String normalized = finalPrompt == null ? "" : finalPrompt.trim().replace("\r\n", "\n");
+        String marker = "# 【任务参数】";
+        int start = normalized.indexOf(marker);
+        if (start < 0) {
+            return normalized;
+        }
+        int nextSection = normalized.indexOf("\n# 【", start + marker.length());
+        if (nextSection < 0) {
+            return normalized.substring(start).trim();
+        }
+        return normalized.substring(start, nextSection).trim();
     }
 
     private List<ScenePrompt> parseScenes(String text) throws Exception {
