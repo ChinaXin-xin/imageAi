@@ -15,8 +15,8 @@ spring:
     
 image-ai:
   cli-proxy:
-    base-url: http://43.160.192.2:8317
-    management-key: mgmt-7508074bf946346ac147485423j5hs
+    base-url: http://43.160.192.12:8317
+    management-key: mgmt-7508074bf946346ac14748542
   gpt:
     base-url: ${IMAGE_AI_GPT_BASE_URL:http://43.160.192.2:8317}
     api-key: ${IMAGE_AI_GPT_API_KEY:}
